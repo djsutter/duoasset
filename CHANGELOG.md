@@ -1,0 +1,296 @@
+# Change Log
+
+## Release 0.0.9 - 2026-03-28
+- Rename all remaining DTOs to Data
+- Rename the remaining DTOs under app/DTO
+- Rename report DTOs.
+- Rename all import/mapper DTOs and use snake_case properties.
+- Using snake_case in DTOs.
+- Rename DTOs to AcquisitionResultData DisposalResultData
+- Rename AcbEventDTO to AcbEventData and add several docblock comments.
+- Composer update laravel/framework (v12.46.0 => v12.53.0) and livewire/livewire (v3.7.3 => v4.2.1)
+- Implement Asset Continuity page for tax returns. Mostly complete.
+- Fix pool ledger so that starting balances are correct for each year.
+- Fixes in schedule 3 level 2,3 views.
+- Improve tax pool ledger reporting.
+- Major fixes to schedule 3 calculations.
+- Constrain colunm widths in pool ledger.
+- Fix @money formatter to round first.
+- Nice refactor of TaxPoolBuilder and related components
+- Add PoolManager and move tasks to it.
+- Refactor TaxPoolBuilderService to improve it, using domain objects.
+- Adding Docs
+- Optmizing the pool builder service.
+- Standardize on terminology/names for gains before/after denial, etc.
+- Factoring out the capital_gain field from TaxPoolDisposition
+- Factoring out the capital_gain field from TaxPoolDisposition
+- Rename allowable_loss_amount to capital_gain_loss_after_denial
+- Show original event type in pool ledger and add a year selector.
+- Fix bug in Schedule 3. Gain/loss had the wrong number.
+- Minimal fixes to the lot method. More required.
+- Proper handling of transfer fees as dispositions for tax.
+- Allow edit transaction (to view) in the pool ledger.
+- Code simplification.
+- Fix: No need to re-cast a Money object.
+- Fix: A transfer to an external wallet is a disposal
+- Display denied loss totals
+- Add VerifySchedule3Gains command.
+- Bugfixing!
+- Add Alpine component x-rowlink, use in schedule 3
+- Make year sticky in schedule 3 controller.
+- Revert previous date change on a trade.
+- Fix some bugs and add superficial loss info to pool view.
+- Add some diagnostic tetss to console.
+- Minor improvement
+- Bug fix sched 3 for pools.
+- Finishing up Schedule 3 for pool method.
+- Copy functionality from LotBasedSchedule3Builder to PoolBasedSchedule3Builder as a starting point.
+- Add the superficial loss DTO directly to the disposition DTO.
+- Complete the conversion of Schedule3 Livewire/view to use DTOs
+- Remove obsolete DTO
+- Refactor the schedule 3 rendering so it can handle both lot and pool based.
+- Refactoring to allow Schedule 3 to handle both lot and pool based.
+- Remove resolve-superficial-losses-pooled
+- Combine superficial loss calcs with building dispositions ledger.
+- Fix rounding for negative numbers.
+- Whitespace changes
+- add text nowrap
+- Attempts to fix the numbers.
+- Snapshot with better ACB accumulation, not perfect yet.
+- Working version of TaxPoolLedgerBuilder with superficial losses.
+- Bring pool dispositions into the pool leger.
+- Small tweaks.
+- Developing the pool method of superficial loss calc.
+- Proper handling of transfer fees in TaxPoolLedgerBuilder
+- Fix ACB Events to that dispositions are neg qty and pos proceeds, and fees are neg qty.
+- Build pool ledger.
+- Build tax pool and dispositions ledger.
+- Improve the AssetAcbEvent structure.
+- Fix calculations in AssetAcbAuditLedgerService
+- Change AcbEventType::Fee to TransferFee and remove all fee context.
+- ACB cleanup - incorporate fees into acquisition/disposal amounts.
+- Remove ACB event types transfer-in/out; also optimize check for liability wallets.
+- Correct date
+- Implement remaining_quantity as a DB field for lots
+- Add annotation.
+- Show lot ID in display.
+- Optimize remainingQuantity calculation.
+- Remove old code.
+- Add rounding for displaying money values
+- Lots of bug fixing. Convert Decimal objects to AssetQuantity.
+- Change disposition_event_id to acb_event_id for consistency
+- Correct some calculations.
+- Apply proper casting for Money/Assets for third level disposition info.
+- Add third level drill-down for asset disposition info.
+- Use rehydrate function as intended.
+- Remove obsolete ReplacementAcquisition
+- Remove obsolete DispositionLot
+- Remove ReplacementAdjustment
+- Remove obsolete SuperficialLossResult
+- Remove PendingSuperficialLossFactory
+- Cleanup 4
+- Cleanup 3
+- Cleanup part 2.
+- Remove app/Tax/Acb/*
+- Cleanup part 1.
+- Fix proceeds sign convention and correct superficial loss denial
+- Add a view to show schedule3 asset dispositions. Also rename source_event_id to acb_event_id
+- Build Schedule 3 as a Livewire controller and view plus a Tax service.
+- Add schedule 3 report.
+- Fix disposition report - gains that were marked as denied loss.
+- Ignore csv files
+- Get first report working.
+- First working report (has errors).
+- Compete the persistence.
+- Convert all 'code' to 'currency_code' (some were 'asset_code')
+- Adding a quick test; some fixes.
+- Make the command work again.
+- Fix all failing tests; Change many Decimal types to AssetQuantity
+- Persisting ACB adjustments
+- Prep for real data.
+- Complete step 9 ACB adjustments.
+- Working towards persistence.
+- Fix loss calculator - 4 tests were failing.
+- Major work on using the SuperficialLossCalculator with real data.
+- Update test after refactor of SuperficialLossResult.php
+- Add constructor to DispositionLot and fix tests.
+- Closing off phase 6
+- Fix old ACB audit report
+- Fixing, fixing.
+- Add new tests.
+- A pretty big refactor for some reason.
+- Completion of phase 5 with all tests working.
+- Add model and tests PendingSuperficialLossModel
+- Phase 5 Expiry & orchestration
+- Scheduled Resolution & Expiry
+- Complete phase 3
+- Starting phase 3
+- Implement PendingSuperficialLossFactory with validated domain construction
+- Complete phase 1 plus tests for superficial loss.
+- Add unit tests for superficial loss.
+- Begin development of the ACB Engine with superficial loss handling.
+- Add support to explain deferred losses
+- Superficial loss phase 4 - annotations
+- Adding the superficialLossAcbReinstatement row.
+- Superficial loss phase 3
+- Superficial loss phase 2
+- Superficial loss phase 1
+- Preliminary work before implementing superficial loss rule.
+- Add unit cost to ACB audit ledger
+- Remove auditLabel() from AssetAcbEvent
+- Before adding 30-day rule, fix handling of event type and label generation.
+- Fix Shakepay transactions to lock-in the CAD value.
+- Tweak some transaction times to prevent temporary negative balances.
+- Flag an area where we might want to fix the date based on timezone.
+- Delete obsolete KuCoinMapper
+- Add strict mode flag for audit ledger.
+- Some finishing tweaks.
+- First working version of the ACB Audit Ledger.
+- Add fee context to AcbEvent and persist in db.
+- Interim commit while developing the ACB Audit Ledger
+- Convert CapitalGainRowDTO to use snake_case properties.
+- Use Money type in DTOs and proper formatting in the views.
+- Fix the presentation value of gain/loss for ledger report
+- Prevent reporting currency from being an ACB event
+- Filter out assets with no data from the report.
+- Complete the asset and year totals for CRA.
+- Add “All assets” and “All tax years” selection to capital gains report
+- Refactor capital gains selectors and Livewire state to multi-asset, multi-year
+- Cleanup of capital gains DTOs and services.
+- Complete the CRA plural report
+- Building the CRA plural report
+- Add support for multi-currency and multi-year cost basis reporting.
+- composer update laravel/framework (v12.15.0 => v12.46.0)
+- Complete the capital gains reporting.
+- Major work creating CRA-style and Ledger-style capital gains report data.
+- Incremental update while developing CRA report.
+- Change directory DTOs to DTO
+- Begin development of capital gains report.
+- Initial version of the capital gains report / service / etc.
+- Using proper Money cast for 2 ACB models.
+- Prep work before building capital gain/loss reporting.
+- Add logging for when dust is removed.
+- Implement crypto unit floor into the dust check
+- Add ACB improvements by chat.
+- ACB bugfixing and improvements.
+- Add toMoney() and toDecimal() functions
+- ACB bug fixes
+- Proper handling when building ACB for only one asset.
+- ACB bug fixing.
+- ACB bug fixing.
+- Fix rounding issue
+- Run pint
+- ACB fixes.
+- Add fromMinorUnits() for future use.
+- ACB-related bug fixes.
+- Fixes to ACB calculations
+- Remove fee (not applicable)
+- Fixes to resolve margin account import issues.
+- Various small changes while making video.
+- Improve the transaction list.
+- Add video script
+- Allow ACB rebuild from index page.
+- Add pagination settings.
+- Remove transactions to simplify
+- Small improvements for demo
+- Bug fixes for import/conversion
+- Add KuCoin Event mapper. Completely new process.
+- Add exodus-bnb export
+- Trim ETH to 8 decimals on import because the source numbers don't quite add up otherwise
+- Proper scaling for fromMoney()
+- Fixing some views
+- Major change to add AssetQuantity type.
+- Bugfix the ShakepayCryptoMapper - posting in wrong direction.
+- Fixing the daily balances.
+- Add round() function
+- Fixing ACB calcs mostly around fee handling.
+- CSV number tweaks.
+- Add Money::min()
+- CSV number tweaks.
+- (txtype) Bugfix tx_type
+- Change transaction type to tx_type and use Enum everywhere.
+- Move old ACB code into obsolete directory.
+- Fixing the ACB events.
+- Fix replay-search function to use correct money value.
+- Merge branch 'develop' into decimal-money
+- Show the number of auto-matched transactions.
+- Change DB schema to use decimal money.
+- Bugfix tx type.
+- Truncate the assets table when building ACB fresh.
+- Use enum for Transaction type.
+- fix small typo.
+- More significant improvements to Money class
+- Cleanup from old ACB stuff.
+- Properly fix the ACB events. This commit contains some trash that will be removed.
+- Building a new ACB Event structure.
+- Have ACB Events use datetime.
+- Remove wallet ref from Atomic-bitcoin csv
+- Improvements to ACB page.
+- Fix int/string bug in MoneyOps
+- More dark mode and UI tweaks.
+- CSV data updates.
+- Refactor the transaction-edit modal form.
+- Supporting dark mode, add NumericWithComma rule, normalize amounts, notification messages.
+
+## Release 0.0.8 - 2025-12-05
+- Menu and footer improvements.
+- Run pint on crypto transaction simulator.
+- Standardize Money math and compare functions.
+- Initial add of crypto transaction generator.
+- Starting to work on cleaning up the UI presentation.
+- Implement symmetrical valuations.
+- csv tweaks.
+- Small fixes.
+- Small fixes and huge performance with new price service.
+- (acb) Various small fixes.
+- csv tweaks
+- Adding ACB event model and view.
+- Add GUI components for ACB
+- Initial work on ACB engine and DB tracking.
+
+## Release 0.0.7 - 2025-11-21
+- Fixes for Kucoin import.
+- Remove transaction
+- Add closing entries for interest.
+- Fix selectors in transaction edit form.
+- Manual CSV changes.
+- Fixing fee entries.
+- Various fixes for MoneyOps and import/valuation services.
+- Final fixes to the restore feature.
+- Add replay option.
+- Building up the External and Trades pages.
+- Money improvements by ChatGPT
+- Have internal scale and display scale for money.
+- Add KuCoin importing and wallet prefix
+- Add generic mappers and Changelly data.
+- Add external view and more crypto prices.
+- Bugfixing and add new import mappers (Avian, Raptoreum)
+- Various small fixes.
+
+## Release 0.0.6 - 2025-11-08
+- Convert accounts to wallets. (major)
+
+## Release 0.0.5 - 2025-11-06
+- Refactor the transaction edit form into multiple livewire components.
+- Minor adjustments to the transaction edit form.
+- Further simplification of entry builders.
+- Simplify the Entry builders.
+- Refactor Create/Update actions to use service-based builders.
+- Get the transaction edit form working.
+- Add fees to csv files.
+- Bugfixing and developing the Holdings interface.
+- Add TreasureChest import
+- Developing the holdings window.
+- Bugfixing, and add validation for import transactions.
+
+## Release 0.0.4 - 2025-10-31
+- Move fees from Transaction to AccountEntry.
+
+## Release 0.0.3 - 2025-10-31
+- Implement database-driven uploads; eliminiate mapper-specific import services.
+
+## Release 0.0.2 - 2025-10-30
+- Add the import stage with matching
+
+## Release 0.0.1 - 2025-10-25
+- First version with importing and reporting

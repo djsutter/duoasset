@@ -1,0 +1,102 @@
+{
+    "exchanges": [
+        {
+            "name": "Shakepay",
+            "type": "exchange",
+            "wallets": [
+                {
+                    "name": "CAD",
+                    "currency": "CAD",
+                    "addresses": [
+                    ]
+                },
+                {
+                    "name": "BTC",
+                    "currency": "BTC",
+                    "addresses": [
+                    ]
+                },
+                {
+                    "name": "ETH",
+                    "currency": "ETH",
+                    "addresses": [
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "TradeOgre",
+            "type": "exchange",
+            "wallets": [
+                {
+                    "name": "ARRR",
+                    "currency": "ARRR",
+                    "addresses": [
+                    ]
+                },
+                {
+                    "name": "BTC",
+                    "currency": "BTC",
+                    "addresses": [
+                    ]
+                },
+                {
+                    "name": "XMR",
+                    "currency": "XMR",
+                    "addresses": [
+                    ]
+                }
+            ]
+        }
+    ],
+    "softwareWallets": [
+        {
+            "name": "Atomic Wallet",
+            "type": "software",
+            "wallets": [
+                {
+                    "name": "BTC",
+                    "currency": "BTC",
+                    "addresses": [
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Exodus",
+            "type": "software",
+            "wallets": [
+                {
+                    "name": "BTC",
+                    "currency": "BTC",
+                    "addresses": [
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Bitcoin Core",
+            "type": "software",
+            "wallets": [
+                {
+                    "name": "BTC",
+                    "currency": "BTC",
+                    "addresses": [
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Monero",
+            "type": "software",
+            "wallets": [
+                {
+                    "name": "XMR",
+                    "currency": "XMR",
+                    "addresses": [
+                    ]
+                }
+            ]
+        }
+    ]
+}
