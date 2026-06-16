@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             CurrencySeeder::class,
             PlatformSeeder::class,
+            ClassificationSeeder::class,
         ]);
 
         if (config('app.demo_mode')) {
