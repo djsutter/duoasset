@@ -101,6 +101,9 @@ test('stock model exposes market data columns as FiatMoney casts', function () {
 });
 
 test('null market data provider is bound by default and is safe to call', function () {
+    // Force the default (no Alpha Vantage key) binding regardless of .env.
+    config()->set('services.alpha_vantage.key', null);
+    $this->app->forgetInstance(MarketDataProviderInterface::class);
     $provider = app(MarketDataProviderInterface::class);
 
     expect($provider->name())->toBe('null')
@@ -108,6 +111,8 @@ test('null market data provider is bound by default and is safe to call', functi
 });
 
 test('market-watch:update-quotes runs cleanly with the null provider', function () {
+    config()->set('services.alpha_vantage.key', null);
+    $this->app->forgetInstance(MarketDataProviderInterface::class);
     p2MakeStock('AAPL');
     p2MakeStock('MSFT');
 

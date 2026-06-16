@@ -90,6 +90,11 @@
                     <th><button type="button" wire:click="sortBy('sector')" class="da-sort">{{ __('Sector') }}</button></th>
                     <th><button type="button" wire:click="sortBy('industry')" class="da-sort">{{ __('Industry') }}</button></th>
                     <th><button type="button" wire:click="sortBy('sub_industry')" class="da-sort">{{ __('Sub-Industry') }}</button></th>
+                    <th class="text-right">{{ __('Last') }}</th>
+                    <th class="text-right">{{ __('Change') }}</th>
+                    <th class="text-right">{{ __('Change %') }}</th>
+                    <th class="text-right">{{ __('Volume') }}</th>
+                    <th>{{ __('Checked') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -102,10 +107,19 @@
                         <td>{{ $stock->sector?->name }}</td>
                         <td>{{ $stock->industry?->name }}</td>
                         <td>{{ $stock->subIndustry?->name }}</td>
+                        <td class="text-right font-mono">@money($stock->last_price)</td>
+                        <td class="text-right font-mono @if($stock->daily_change && $stock->daily_change->isNegative()) text-red-600 @elseif($stock->daily_change && $stock->daily_change->isPositive()) text-green-600 @endif">@money($stock->daily_change)</td>
+                        <td class="text-right font-mono @if($stock->daily_change_percent !== null && $stock->daily_change_percent < 0) text-red-600 @elseif($stock->daily_change_percent !== null && $stock->daily_change_percent > 0) text-green-600 @endif">
+                            @if($stock->daily_change_percent !== null)
+                                {{ number_format($stock->daily_change_percent / 10000, 2) }}%
+                            @endif
+                        </td>
+                        <td class="text-right font-mono">{{ $stock->volume !== null ? number_format($stock->volume) : '' }}</td>
+                        <td class="text-xs text-zinc-500">{{ $stock->last_checked_at?->diffForHumans() }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="text-center text-zinc-500 py-6">
+                        <td colspan="12" class="text-center text-zinc-500 py-6">
                             {{ __('No stocks found.') }}
                         </td>
                     </tr>

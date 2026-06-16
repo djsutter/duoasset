@@ -222,6 +222,11 @@
                     <th><button type="button" wire:click="sortBy('industry')" class="da-sort">{{ __('Industry') }}</button></th>
                     <th><button type="button" wire:click="sortBy('sub_industry')" class="da-sort">{{ __('Sub-Industry') }}</button></th>
                     <th><button type="button" wire:click="sortBy('moat_level')" class="da-sort">{{ __('Moat Level') }}</button></th>
+                    <th class="text-right">{{ __('Last') }}</th>
+                    <th class="text-right">{{ __('Change') }}</th>
+                    <th class="text-right">{{ __('Change %') }}</th>
+                    <th class="text-right">{{ __('Volume') }}</th>
+                    <th>{{ __('Checked') }}</th>
                     <th class="text-right"><button type="button" wire:click="sortBy('target_price')" class="da-sort">{{ __('Target') }}</button></th>
                     <th class="text-right"><button type="button" wire:click="sortBy('stop_price')" class="da-sort">{{ __('Stop') }}</button></th>
                     <th>{{ __('Notes') }}</th>
@@ -239,6 +244,15 @@
                     <td>{{ $item->stock->industry?->name }}</td>
                     <td>{{ $item->stock->subIndustry?->name }}</td>
                     <td>{{ $item->moat_level->label() }}</td>
+                    <td class="text-right font-mono">@money($item->stock->last_price)</td>
+                    <td class="text-right font-mono @if($item->stock->daily_change && $item->stock->daily_change->isNegative()) text-red-600 @elseif($item->stock->daily_change && $item->stock->daily_change->isPositive()) text-green-600 @endif">@money($item->stock->daily_change)</td>
+                    <td class="text-right font-mono @if($item->stock->daily_change_percent !== null && $item->stock->daily_change_percent < 0) text-red-600 @elseif($item->stock->daily_change_percent !== null && $item->stock->daily_change_percent > 0) text-green-600 @endif">
+                        @if($item->stock->daily_change_percent !== null)
+                            {{ number_format($item->stock->daily_change_percent / 10000, 2) }}%
+                        @endif
+                    </td>
+                    <td class="text-right font-mono">{{ $item->stock->volume !== null ? number_format($item->stock->volume) : '' }}</td>
+                    <td class="text-xs text-zinc-500">{{ $item->stock->last_checked_at?->diffForHumans() }}</td>
                     <td class="text-right">@money($item->target_price)</td>
                     <td class="text-right">@money($item->stop_price)</td>
                     <td class="max-w-xs truncate">{{ $item->notes }}</td>
@@ -251,7 +265,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="12" class="text-center text-zinc-500 py-6">
+                    <td colspan="17" class="text-center text-zinc-500 py-6">
                         {{ __('No stocks in this watchlist yet.') }}
                     </td>
                 </tr>
