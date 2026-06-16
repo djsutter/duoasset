@@ -53,6 +53,9 @@ Route::middleware([
     Route::get('/tax/dispositions-ledger', \App\Livewire\Tax\DispositionsLedger::class)->name('tax.dispositions-ledger');
     Route::get('/tax/pool-ledger', \App\Livewire\Tax\PoolLedger::class)->name('tax.pool-ledger');
     Route::get('/tax/continuity-summary', \App\Livewire\Tax\ContinuitySummary::class)->name('tax.continuity-summary');
+
+    Route::get('/watchlists', \App\Livewire\Watchlists\Index::class)->name('watchlists.index');
+    Route::get('/watchlists/{watchlist}', \App\Livewire\Watchlists\Show::class)->name('watchlists.show');
 });
 
 require __DIR__.'/auth.php';
