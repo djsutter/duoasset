@@ -65,4 +65,14 @@ class WatchlistItem extends Model
     {
         return $this->belongsTo(Stock::class);
     }
+
+    public function alertRules(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(WatchlistAlertRule::class);
+    }
+
+    public function alertEvents(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(WatchlistAlertEvent::class);
+    }
 }

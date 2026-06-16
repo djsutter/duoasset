@@ -88,6 +88,28 @@ PHP;
             PoolLedgerStateBuilder::class
         );
 
+        // Market data provider — defaults to the Null implementation. When an
+        // Alpha Vantage API key is configured, swap in the Alpha Vantage
+        // provider (EOD quotes, 24h cached) instead.
+        $this->app->bind(
+            \App\Services\MarketData\MarketDataProviderInterface::class,
+            function ($app) {
+                $key = (string) config('services.alpha_vantage.key', '');
+
+                if ($key !== '') {
+                    return new \App\Services\MarketData\AlphaVantageMarketDataProvider(
+                        http: $app->make(\Illuminate\Http\Client\Factory::class),
+                        apiKey: $key,
+                        baseUrl: (string) config('services.alpha_vantage.base_url', 'https://www.alphavantage.co/query'),
+                        cacheTtlSeconds: (int) config('services.alpha_vantage.cache_ttl', 86_400),
+                        timeoutSeconds: (int) config('services.alpha_vantage.timeout', 10),
+                    );
+                }
+
+                return $app->make(\App\Services\MarketData\NullMarketDataProvider::class);
+            }
+        );
+
         View::addNamespace('layouts', resource_path('views/components/layouts'));
     }
 }

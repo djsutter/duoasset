@@ -40,6 +40,16 @@ class MainNavigation extends Component
                 'route' => 'reports.index',
                 'title' => 'Reports',
             ],
+            [
+                'route' => 'stocks.index',
+                'icon' => 'chart-bar',
+                'title' => 'Stocks',
+            ],
+            [
+                'route' => 'watchlists.index',
+                'icon' => 'eye',
+                'title' => 'Watchlists',
+            ],
         ];
 
         return view('livewire.main-navigation', [

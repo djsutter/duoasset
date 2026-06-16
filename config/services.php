@@ -28,6 +28,14 @@ return [
         'key' => env('RESEND_KEY'),
     ],
 
+    'alpha_vantage' => [
+        'key' => env('ALPHA_VANTAGE_KEY'),
+        'base_url' => env('ALPHA_VANTAGE_BASE_URL', 'https://www.alphavantage.co/query'),
+        // EOD quotes cached for 24h to fit the free-tier 25-req/day budget.
+        'cache_ttl' => (int) env('ALPHA_VANTAGE_CACHE_TTL', 86400),
+        'timeout' => (int) env('ALPHA_VANTAGE_TIMEOUT', 10),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

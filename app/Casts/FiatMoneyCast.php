@@ -63,9 +63,15 @@ class FiatMoneyCast implements CastsAttributes
     protected function resolveCurrency($model, array $attributes, string $key): ?string
     {
         if ($this->currencyField) {
-            return $model->{$this->currencyField}
+            $value = $model->{$this->currencyField}
                 ?? $attributes[$this->currencyField]
                 ?? null;
+
+            if ($value instanceof \BackedEnum) {
+                return (string) $value->value;
+            }
+
+            return $value !== null ? (string) $value : null;
         }
 
         return getReportingCurrency();
