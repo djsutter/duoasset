@@ -34,6 +34,10 @@ class ScanEarningsSurprises extends Command
 
         $this->info("Scanning earnings from {$from->toDateString()} to {$to->toDateString()}");
 
+        if (method_exists($provider, 'clearErrors')) {
+            $provider->clearErrors();
+        }
+
         // 1) Earnings surprises (preferred — has actuals + computed surprise).
         $surprises = [];
         try {
@@ -51,6 +55,26 @@ class ScanEarningsSurprises extends Command
             Log::error('earnings.calendar_failed', ['msg' => $e->getMessage()]);
         }
         $this->info('Calendar rows: '.count($calendar));
+
+        // Surface API errors so the user sees subscription / auth / rate-limit issues
+        // instead of silently treating them as "no rows".
+        if (method_exists($provider, 'lastErrors')) {
+            foreach ($provider->lastErrors() as $err) {
+                $hint = match ((int) ($err['status'] ?? 0)) {
+                    401, 403 => ' (check FMP_API_KEY)',
+                    402 => ' (your FMP plan does not allow this date range — try a smaller, more recent window)',
+                    429 => ' (rate limit hit)',
+                    default => '',
+                };
+                $this->warn(sprintf(
+                    'FMP %s returned HTTP %d%s: %s',
+                    $err['path'] ?? '?',
+                    (int) ($err['status'] ?? 0),
+                    $hint,
+                    trim((string) ($err['body'] ?? '')),
+                ));
+            }
+        }
 
         $merged = $this->mergeRows($surprises, $calendar);
 

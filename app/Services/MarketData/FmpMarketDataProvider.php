@@ -12,10 +12,26 @@ use Throwable;
 
 class FmpMarketDataProvider implements MarketDataProvider
 {
+    /** @var array<int, array{path:string,status:int,body:string}> */
+    protected array $errors = [];
+
     public function __construct(
         protected string $baseUrl,
         protected ?string $apiKey,
     ) {}
+
+    /**
+     * @return array<int, array{path:string,status:int,body:string}>
+     */
+    public function lastErrors(): array
+    {
+        return $this->errors;
+    }
+
+    public function clearErrors(): void
+    {
+        $this->errors = [];
+    }
 
     public function earningsCalendar(CarbonInterface $from, CarbonInterface $to): array
     {
@@ -32,8 +48,10 @@ class FmpMarketDataProvider implements MarketDataProvider
 
     public function earningsSurprises(CarbonInterface $from, CarbonInterface $to): array
     {
-        // FMP earnings-surprises is a calendar-style endpoint by date range.
-        $rows = $this->get('earnings-surprises', [
+        // FMP's stable API does not expose a date-range "earnings-surprises" endpoint;
+        // the earnings-calendar endpoint already includes epsActual/epsEstimated and
+        // revenueActual/revenueEstimated, so we derive surprises from it.
+        $rows = $this->get('earnings-calendar', [
             'from' => $from->toDateString(),
             'to' => $to->toDateString(),
         ]) ?? [];
@@ -118,11 +136,13 @@ class FmpMarketDataProvider implements MarketDataProvider
                 ->get($url, $query);
 
             if (! $response->successful()) {
-                Log::warning('fmp.api_error', [
+                $err = [
                     'path' => $path,
                     'status' => $response->status(),
                     'body' => mb_substr((string) $response->body(), 0, 500),
-                ]);
+                ];
+                $this->errors[] = $err;
+                Log::warning('fmp.api_error', $err);
 
                 return null;
             }
@@ -169,9 +189,9 @@ class FmpMarketDataProvider implements MarketDataProvider
             'report_time' => $row['time'] ?? null,
             'fiscal_period' => $row['fiscalDateEnding'] ?? null,
             'eps_estimated' => $this->toFloat($row['epsEstimated'] ?? null),
-            'eps_actual' => $this->toFloat($row['eps'] ?? null),
+            'eps_actual' => $this->toFloat($row['epsActual'] ?? $row['eps'] ?? null),
             'revenue_estimated' => $this->toInt($row['revenueEstimated'] ?? null),
-            'revenue_actual' => $this->toInt($row['revenue'] ?? null),
+            'revenue_actual' => $this->toInt($row['revenueActual'] ?? $row['revenue'] ?? null),
             'raw' => $row,
         ];
     }
@@ -193,7 +213,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $estimated = $this->toFloat($row['epsEstimated'] ?? $row['estimatedEarning'] ?? null);
-        $actual = $this->toFloat($row['epsActual'] ?? $row['actualEarningResult'] ?? null);
+        $actual = $this->toFloat($row['epsActual'] ?? $row['actualEarningResult'] ?? $row['eps'] ?? null);
 
         return [
             'symbol' => $symbol,
@@ -202,6 +222,8 @@ class FmpMarketDataProvider implements MarketDataProvider
             'eps_actual' => $actual,
             'eps_surprise' => $this->toFloat($row['surprise'] ?? null),
             'eps_surprise_percent' => $this->toFloat($row['surprisePercentage'] ?? null),
+            'revenue_estimated' => $this->toInt($row['revenueEstimated'] ?? null),
+            'revenue_actual' => $this->toInt($row['revenueActual'] ?? $row['revenue'] ?? null),
             'raw' => $row,
         ];
     }

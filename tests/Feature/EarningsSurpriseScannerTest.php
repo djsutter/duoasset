@@ -18,7 +18,10 @@ function fakeFmp(array $surprises = [], array $calendar = [], array $profiles = 
             return Http::response($surprises, 200);
         }
         if (str_contains($url, '/earnings-calendar')) {
-            return Http::response($calendar, 200);
+            // FMP stable API has no date-range surprises endpoint; the
+            // provider derives surprises from earnings-calendar, so this
+            // endpoint must return whichever dataset the test supplied.
+            return Http::response($surprises ?: $calendar, 200);
         }
         if (str_contains($url, '/profile')) {
             parse_str(parse_url($url, PHP_URL_QUERY) ?? '', $q);
