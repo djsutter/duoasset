@@ -89,7 +89,13 @@ h2 {
     }
 
     .da-textarea {
-        @apply da-input min-h-[5rem] leading-snug;
+        @apply w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm
+               text-zinc-900 placeholder-zinc-400 shadow-sm
+               focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30
+               disabled:bg-zinc-100 disabled:text-zinc-500
+               dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100
+               dark:placeholder-zinc-500 dark:focus:border-sky-400 dark:focus:ring-sky-400/30
+               min-h-[5rem] leading-snug;
     }
 
     .da-card {
@@ -105,24 +111,40 @@ h2 {
     }
 
     .da-btn-primary {
-        @apply da-btn bg-indigo-600 text-white hover:bg-indigo-700
+        @apply inline-flex items-center justify-center rounded-md px-3 py-2
+               text-sm font-medium shadow-sm transition
+               focus:outline-none focus:ring-2 focus:ring-offset-1
+               disabled:opacity-50 disabled:cursor-not-allowed
+               bg-indigo-600 text-white hover:bg-indigo-700
                focus:ring-indigo-500
                dark:bg-sky-600 dark:hover:bg-sky-500;
     }
 
     .da-btn-secondary {
-        @apply da-btn border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50
+        @apply inline-flex items-center justify-center rounded-md px-3 py-2
+               text-sm font-medium shadow-sm transition
+               focus:outline-none focus:ring-2 focus:ring-offset-1
+               disabled:opacity-50 disabled:cursor-not-allowed
+               border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50
                focus:ring-indigo-500
                dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100
                dark:hover:bg-zinc-700;
     }
 
     .da-btn-danger {
-        @apply da-btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+        @apply inline-flex items-center justify-center rounded-md px-3 py-2
+               text-sm font-medium shadow-sm transition
+               focus:outline-none focus:ring-2 focus:ring-offset-1
+               disabled:opacity-50 disabled:cursor-not-allowed
+               bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
     }
 
     .da-btn-ghost {
-        @apply da-btn text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300
+        @apply inline-flex items-center justify-center rounded-md px-3 py-2
+               text-sm font-medium shadow-sm transition
+               focus:outline-none focus:ring-2 focus:ring-offset-1
+               disabled:opacity-50 disabled:cursor-not-allowed
+               text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300
                dark:hover:bg-zinc-800;
     }
 

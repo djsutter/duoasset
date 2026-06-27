@@ -9,14 +9,19 @@ use Livewire\Volt\Component;
 new class extends Component {
     public string $name = '';
     public string $email = '';
+    public bool $notify_eps_earnings = true;
+    public bool $notify_eps_revisions = true;
 
     /**
      * Mount the component.
      */
     public function mount(): void
     {
-        $this->name = Auth::user()->name;
-        $this->email = Auth::user()->email;
+        $user = Auth::user();
+        $this->name = $user->name;
+        $this->email = $user->email;
+        $this->notify_eps_earnings = (bool) $user->notify_eps_earnings;
+        $this->notify_eps_revisions = (bool) $user->notify_eps_revisions;
     }
 
     /**
@@ -37,6 +42,8 @@ new class extends Component {
                 'max:255',
                 Rule::unique(User::class)->ignore($user->id)
             ],
+            'notify_eps_earnings' => ['boolean'],
+            'notify_eps_revisions' => ['boolean'],
         ]);
 
         $user->fill($validated);
@@ -96,6 +103,24 @@ new class extends Component {
                         @endif
                     </div>
                 @endif
+            </div>
+
+            <div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                <p class="text-sm font-medium">{{ __('Email notifications') }}</p>
+
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" wire:model="notify_eps_earnings" class="rounded border-zinc-300" />
+                    <span>{{ __('EPS Earnings Surprise alerts (Beat / Miss after reporting)') }}</span>
+                </label>
+
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" wire:model="notify_eps_revisions" class="rounded border-zinc-300" />
+                    <span>{{ __('EPS Revision alerts (analyst Target Raised / Cut)') }}</span>
+                </label>
+
+                <p class="text-xs text-zinc-500">
+                    {{ __('Each new surprise is emailed once per user. You will never receive the same alert twice.') }}
+                </p>
             </div>
 
             <div class="flex items-center gap-4">

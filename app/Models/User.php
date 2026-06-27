@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
@@ -22,6 +23,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'notify_eps_earnings',
+        'notify_eps_revisions',
     ];
 
     /**
@@ -44,7 +47,18 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'notify_eps_earnings' => 'boolean',
+            'notify_eps_revisions' => 'boolean',
         ];
+    }
+
+    /**
+     * Deliveries of earnings/revision notifications to this user. Used
+     * by SendEarningsAlert / SendEpsRevisionAlert to dedupe per-user.
+     */
+    public function earningsDeliveries(): HasMany
+    {
+        return $this->hasMany(EarningsNotificationDelivery::class);
     }
 
     /**

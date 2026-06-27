@@ -108,19 +108,65 @@
             <h2 class="text-base font-semibold">{{ __('Add stock to watchlist') }}</h2>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div>
-                    <label class="da-label">{{ __('Symbol') }}</label>
-                    <input type="text" wire:model="symbol" class="da-input" />
+                {{-- Symbol autocomplete (Alpha Vantage SYMBOL_SEARCH) --}}
+                <div class="relative">
+                    <label class="da-label">{{ __('Symbol') }} <span class="text-red-500">*</span></label>
+                    <input type="text"
+                           wire:model.live.debounce.350ms="symbolQuery"
+                           autocomplete="off"
+                           placeholder="{{ __('Start typing (min 3 characters)…') }}"
+                           class="da-input" />
                     @error('symbol') <p class="da-error">{{ $message }}</p> @enderror
+
+                    @if ($showSearchResults)
+                        <div class="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                             wire:key="symbol-autocomplete">
+                            @forelse ($searchResults as $i => $row)
+                                <button type="button"
+                                        wire:click="selectSymbol({{ $i }})"
+                                        class="block w-full px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                                    <span class="font-mono font-semibold">{{ $row['symbol'] }}</span>
+                                    @if (! empty($row['name']))
+                                        — <span>{{ $row['name'] }}</span>
+                                    @endif
+                                    @if (! empty($row['region']))
+                                        <span class="text-zinc-500"> ({{ $row['region'] }})</span>
+                                    @endif
+                                    @if (! empty($row['currency']))
+                                        <span class="ml-1 inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{{ $row['currency'] }}</span>
+                                    @endif
+                                </button>
+                            @empty
+                                <div class="px-3 py-2 text-sm text-zinc-500">
+                                    @if ($searchAttempted)
+                                        {{ __('No matches from Alpha Vantage. You can still type the symbol manually.') }}
+                                    @else
+                                        {{ __('Keep typing…') }}
+                                    @endif
+                                </div>
+                            @endforelse
+                            <button type="button"
+                                    wire:click="closeSearchResults"
+                                    class="block w-full border-t border-zinc-200 px-3 py-1.5 text-center text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
+                                {{ __('Close') }}
+                            </button>
+                        </div>
+                    @endif
+
+                    {{-- Hidden bound symbol so server-side validation still
+                         resolves and tests / manual typing work without
+                         picking from the dropdown. --}}
+                    <input type="hidden" wire:model="symbol" />
                 </div>
+
                 <div class="lg:col-span-2">
-                    <label class="da-label">{{ __('Company Name') }}</label>
+                    <label class="da-label">{{ __('Company Name') }} <span class="text-red-500">*</span></label>
                     <input type="text" wire:model="company_name" class="da-input" />
                     @error('company_name') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
 
                 <div>
-                    <label class="da-label">{{ __('Exchange') }}</label>
+                    <label class="da-label">{{ __('Exchange') }} <span class="text-red-500">*</span></label>
                     <select wire:model="exchange" class="da-input">
                         <option value="">--</option>
                         @foreach ($exchanges as $e)
@@ -130,7 +176,7 @@
                     @error('exchange') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="da-label">{{ __('Currency') }}</label>
+                    <label class="da-label">{{ __('Currency') }} <span class="text-red-500">*</span></label>
                     <select wire:model="currency" class="da-input">
                         <option value="">--</option>
                         @foreach ($currencies as $c)
@@ -140,7 +186,7 @@
                     @error('currency') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="da-label">{{ __('Moat Level') }}</label>
+                    <label class="da-label">{{ __('Moat Level') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <select wire:model="moat_level" class="da-input">
                         <option value="">--</option>
                         @foreach ($moatLevels as $m)
@@ -151,7 +197,7 @@
                 </div>
 
                 <div>
-                    <label class="da-label">{{ __('Sector') }}</label>
+                    <label class="da-label">{{ __('Sector') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <select wire:model="sector_id" class="da-input">
                         <option value="">--</option>
                         @foreach ($sectors as $s)
@@ -161,7 +207,7 @@
                     @error('sector_id') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="da-label">{{ __('Industry') }}</label>
+                    <label class="da-label">{{ __('Industry') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <select wire:model="industry_id" class="da-input">
                         <option value="">--</option>
                         @foreach ($industries as $i)
@@ -171,7 +217,7 @@
                     @error('industry_id') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="da-label">{{ __('Sub-Industry') }}</label>
+                    <label class="da-label">{{ __('Sub-Industry') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <select wire:model="sub_industry_id" class="da-input">
                         <option value="">--</option>
                         @foreach ($subIndustries as $si)
@@ -182,22 +228,22 @@
                 </div>
 
                 <div>
-                    <label class="da-label">{{ __('Target Price') }}</label>
+                    <label class="da-label">{{ __('Target Price') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <input type="text" wire:model="target_price" class="da-input" />
                     @error('target_price') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="da-label">{{ __('Stop Price') }}</label>
+                    <label class="da-label">{{ __('Stop Price') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <input type="text" wire:model="stop_price" class="da-input" />
                     @error('stop_price') <p class="da-error">{{ $message }}</p> @enderror
                 </div>
 
                 <div class="md:col-span-2 lg:col-span-3">
-                    <label class="da-label">{{ __('Thesis') }}</label>
+                    <label class="da-label">{{ __('Thesis') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <textarea wire:model="thesis" class="da-textarea"></textarea>
                 </div>
                 <div class="md:col-span-2 lg:col-span-3">
-                    <label class="da-label">{{ __('Notes') }}</label>
+                    <label class="da-label">{{ __('Notes') }} <span class="text-xs text-zinc-400">({{ __('optional') }})</span></label>
                     <textarea wire:model="notes" class="da-textarea"></textarea>
                 </div>
             </div>

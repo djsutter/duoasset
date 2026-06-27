@@ -97,12 +97,28 @@ PHP;
                 $key = (string) config('services.alpha_vantage.key', '');
 
                 if ($key !== '') {
+                    // Build the FMP fallback whenever an FMP key is set
+                    // so quote / search-symbol / overview calls keep
+                    // working after Alpha Vantage hits its daily ceiling.
+                    $fmpKey = (string) config('market_data.fmp.api_key', '');
+                    $fmpFallback = $fmpKey !== ''
+                        ? new \App\Services\MarketData\FmpMarketDataProvider(
+                            baseUrl: (string) config('market_data.fmp.base_url', 'https://financialmodelingprep.com/stable'),
+                            apiKey: $fmpKey,
+                        )
+                        : null;
+
                     return new \App\Services\MarketData\AlphaVantageMarketDataProvider(
                         http: $app->make(\Illuminate\Http\Client\Factory::class),
                         apiKey: $key,
                         baseUrl: (string) config('services.alpha_vantage.base_url', 'https://www.alphavantage.co/query'),
                         cacheTtlSeconds: (int) config('services.alpha_vantage.cache_ttl', 86_400),
                         timeoutSeconds: (int) config('services.alpha_vantage.timeout', 10),
+                        // Alpha Vantage paid tier we're on is capped at one
+                        // request per second. Pause 1001 ms between calls
+                        // (configurable via ALPHA_VANTAGE_THROTTLE_MS).
+                        throttleMs: (int) config('services.alpha_vantage.throttle_ms', 1001),
+                        fmpFallback: $fmpFallback,
                     );
                 }
 

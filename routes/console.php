@@ -14,6 +14,30 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::job(new ValuationCatchUp)->everyFifteenMinutes();
 
+// Earnings surprise scanner — every 5 minutes during market/earnings hours.
+Schedule::command('earnings:scan-surprises')
+    ->weekdays()
+    ->timezone('America/Toronto')
+    ->between('06:00', '18:00')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Additional evening sweep for late-filed reports.
+Schedule::command('earnings:scan-surprises')
+    ->weekdays()
+    ->timezone('America/Toronto')
+    ->dailyAt('20:30')
+    ->withoutOverlapping();
+
+// EPS Revision scanner — twice per day (pre-market + post-close, ET).
+Schedule::command('earnings:scan-revisions')
+    ->weekdays()
+    ->timezone('America/Toronto')
+    ->twiceDaily(7, 17)
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
