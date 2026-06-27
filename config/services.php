@@ -34,6 +34,9 @@ return [
         // EOD quotes cached for 24h to fit the free-tier 25-req/day budget.
         'cache_ttl' => (int) env('ALPHA_VANTAGE_CACHE_TTL', 86400),
         'timeout' => (int) env('ALPHA_VANTAGE_TIMEOUT', 10),
+        // Minimum gap between successive HTTP requests in milliseconds.
+        // Account is throttled at 1 req/sec; 1001 ms gives safe headroom.
+        'throttle_ms' => (int) env('ALPHA_VANTAGE_THROTTLE_MS', 1001),
     ],
 
     'slack' => [

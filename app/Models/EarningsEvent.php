@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -73,8 +74,20 @@ class EarningsEvent extends Model
         'avg_volume' => 'integer',
     ];
 
+    /**
+     * Legacy single-alert accessor (returns the first/positive direction alert).
+     * Retained so older callers/tests that expect a 1:1 relation keep working.
+     */
     public function alert(): HasOne
     {
         return $this->hasOne(EarningsAlert::class);
+    }
+
+    /**
+     * All alerts for this event — there can now be one per (alert_type, direction).
+     */
+    public function alerts(): HasMany
+    {
+        return $this->hasMany(EarningsAlert::class);
     }
 }

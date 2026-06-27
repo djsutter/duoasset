@@ -50,6 +50,11 @@ class MainNavigation extends Component
                 'icon' => 'eye',
                 'title' => 'Watchlists',
             ],
+            [
+                'route' => 'watchlists.earnings-surprises',
+                'icon' => 'chart-bar',
+                'title' => 'EPS',
+            ],
         ];
 
         return view('livewire.main-navigation', [

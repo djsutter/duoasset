@@ -103,12 +103,15 @@ class ScanEarningsSurprises extends Command
                     continue;
                 }
 
-                // Pre-filter by threshold to avoid persisting noise — but keep
-                // some headroom: store events that beat a slightly lower bar
-                // so the UI can show "near-misses" via min filter.
-                $minPct = (float) config('market_data.earnings_scanner.min_eps_surprise_percent', 90);
-                if ((float) $surprisePct < min(50.0, $minPct)) {
-                    // Below even the "interesting" lower bound — skip storage.
+                // Pre-filter by magnitude to avoid persisting noise — but keep
+                // some headroom in BOTH directions (big beats and big misses).
+                // Storage floor = min(50, positive_threshold) on |surprise%|.
+                $positiveThreshold = (float) config(
+                    'market_data.earnings_scanner.positive_threshold',
+                    config('market_data.earnings_scanner.min_eps_surprise_percent', 90),
+                );
+                $storageFloor = min(50.0, $positiveThreshold);
+                if (abs((float) $surprisePct) < $storageFloor) {
                     continue;
                 }
 
@@ -151,8 +154,11 @@ class ScanEarningsSurprises extends Command
 
                 $processed++;
 
-                // Skip enrichment if alert already exists (idempotent), unless --force.
-                if (! $force && $event->alert()->exists()) {
+                // Always run enrichment — alert creation itself is idempotent
+                // on (event_id, alert_type, direction). With --force we still
+                // re-run enrichment to refresh profile/quote-derived fields.
+                if (! $force && $event->alerts()->count() >= 2) {
+                    // Already alerted in both directions — nothing more to do.
                     continue;
                 }
 

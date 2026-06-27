@@ -48,6 +48,8 @@ beforeEach(function () {
         'market_data.earnings_scanner.enabled' => true,
         'market_data.earnings_scanner.min_market_cap' => 100_000_000,
         'market_data.earnings_scanner.min_eps_surprise_percent' => 90,
+        'market_data.earnings_scanner.positive_threshold' => 90,
+        'market_data.earnings_scanner.negative_threshold' => -30,
         'market_data.earnings_scanner.exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV'],
     ]);
 });
@@ -218,6 +220,46 @@ it('does not create duplicate alerts on repeated scans', function () {
 
     expect(EarningsEvent::where('symbol', 'DUP')->count())->toBe(1);
     expect(EarningsAlert::where('symbol', 'DUP')->count())->toBe(1);
+});
+
+it('creates a negative-direction (Miss) alert when surprise <= negative threshold', function () {
+    fakeFmp(
+        surprises: [[
+            'symbol' => 'BUST',
+            'date' => now()->toDateString(),
+            'epsEstimated' => 1.00,
+            'epsActual' => 0.30,        // -70% surprise → below -30 threshold
+            'surprisePercentage' => -70.0,
+        ]],
+        profiles: [
+            'BUST' => [
+                'symbol' => 'BUST',
+                'companyName' => 'BustCo',
+                'exchangeShortName' => 'NASDAQ',
+                'mktCap' => 5_000_000_000,
+                'currency' => 'USD',
+            ],
+        ],
+        quotes: [
+            'BUST' => [
+                'symbol' => 'BUST',
+                'marketCap' => 5_000_000_000,
+                'exchange' => 'NASDAQ',
+                'volume' => 200_000,
+                'avgVolume' => 100_000,
+            ],
+        ],
+    );
+
+    $this->artisan('earnings:scan-surprises')->assertSuccessful();
+
+    $event = EarningsEvent::where('symbol', 'BUST')->first();
+    expect($event)->not->toBeNull();
+    expect((float) $event->eps_surprise_percent)->toBe(-70.0);
+
+    $alerts = EarningsAlert::where('symbol', 'BUST')->get();
+    expect($alerts)->toHaveCount(1);
+    expect($alerts->first()->direction)->toBe(EarningsAlert::DIRECTION_NEGATIVE);
 });
 
 it('scorer awards points proportional to surprise size and fundamentals', function () {

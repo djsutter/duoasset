@@ -44,4 +44,27 @@ interface MarketDataProvider
      * @return array<string, mixed>|null
      */
     public function profile(string $symbol): ?array;
+
+    /**
+     * Return normalized analyst-estimate rows for a single symbol.
+     *
+     * Each row keys (where available):
+     *   symbol, period (Y-m-d quarter end), eps_avg, eps_high, eps_low,
+     *   eps_num_analysts, raw.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function analystEstimates(string $symbol, string $period = 'quarter'): array;
+
+    /**
+     * Return normalized rows from a company / equity screener filtered
+     * by the given criteria (currently: marketCapMoreThan, exchange list).
+     *
+     * Each row keys (where available):
+     *   symbol, company_name, exchange, market_cap, price, raw.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<int, array<string, mixed>>
+     */
+    public function companyScreener(array $filters = []): array;
 }

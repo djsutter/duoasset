@@ -17,10 +17,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class EarningsAlert extends Model
 {
+    public const DIRECTION_POSITIVE = 'positive';
+    public const DIRECTION_NEGATIVE = 'negative';
+
     protected $fillable = [
         'earnings_event_id',
         'symbol',
         'alert_type',
+        'direction',
         'score',
         'status',
         'message',

@@ -19,9 +19,9 @@
     @endif
 
     <div class="da-card">
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-6">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
             <div>
-                <label class="da-label">{{ __('Min EPS surprise %') }}</label>
+                <label class="da-label">{{ __('Min |EPS surprise| %') }}</label>
                 <input type="number" step="0.01" wire:model.live.debounce.400ms="minSurprisePercent" class="da-input">
             </div>
             <div>
@@ -45,6 +45,14 @@
                 <label class="da-label">{{ __('Report to') }}</label>
                 <input type="date" wire:model.live="dateTo" class="da-input">
             </div>
+            <div>
+                <label class="da-label">{{ __('Direction') }}</label>
+                <select wire:model.live="direction" class="da-input">
+                    <option value="both">{{ __('Both') }}</option>
+                    <option value="positive">{{ __('Positive (Beat)') }}</option>
+                    <option value="negative">{{ __('Negative (Miss)') }}</option>
+                </select>
+            </div>
             <div class="flex items-end">
                 <label class="inline-flex items-center gap-2 text-sm">
                     <input type="checkbox" wire:model.live="alertedOnly">
@@ -65,6 +73,7 @@
                     <th class="text-right">{{ __('Market Cap') }}</th>
                     <th class="text-right">{{ __('EPS Est.') }}</th>
                     <th class="text-right">{{ __('EPS Actual') }}</th>
+                    <th>{{ __('Label') }}</th>
                     <th class="text-right">{{ __('EPS Surprise %') }}</th>
                     <th class="text-right">{{ __('Rev. Surprise %') }}</th>
                     <th class="text-right">{{ __('Rel. Vol.') }}</th>
@@ -86,9 +95,16 @@
                         </td>
                         <td class="text-right">{{ $event->eps_estimated ?? '—' }}</td>
                         <td class="text-right">{{ $event->eps_actual ?? '—' }}</td>
-                        <td class="text-right font-semibold text-emerald-600 dark:text-emerald-400">
-                            @if ($event->eps_surprise_percent !== null)
-                                +{{ number_format((float) $event->eps_surprise_percent, 2) }}%
+                        @php
+                            $pct = $event->eps_surprise_percent !== null ? (float) $event->eps_surprise_percent : null;
+                            $isNeg = $pct !== null && $pct < 0;
+                            $label = $pct === null ? '—' : ($isNeg ? '⚠️ EPS Earnings Miss' : '🚀 EPS Earnings Beat');
+                            $pctClass = $isNeg ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400';
+                        @endphp
+                        <td class="whitespace-nowrap text-xs {{ $pctClass }}">{{ $label }}</td>
+                        <td class="text-right font-semibold {{ $pctClass }}">
+                            @if ($pct !== null)
+                                {{ ($pct >= 0 ? '+' : '') . number_format($pct, 2) }}%
                             @else — @endif
                         </td>
                         <td class="text-right">
@@ -100,7 +116,7 @@
                             {{ $event->relative_volume !== null
                                 ? number_format((float) $event->relative_volume, 2) : '—' }}
                         </td>
-                        <td class="text-right">{{ $event->alert?->score ?? '—' }}</td>
+                        <td class="text-right">{{ optional($event->alerts->first())->score ?? '—' }}</td>
                         <td>
                             @if ($watched->contains(strtoupper($event->symbol)))
                                 <span class="text-xs text-zinc-500">{{ __('Already watched') }}</span>
@@ -115,7 +131,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="12" class="text-center text-sm text-zinc-500 py-6">
+                        <td colspan="13" class="text-center text-sm text-zinc-500 py-6">
                             {{ __('No qualifying earnings events yet.') }}
                         </td>
                     </tr>

@@ -28,12 +28,27 @@ class EarningsSurpriseDetected extends Notification
         return $channels;
     }
 
+    public function isNegative(): bool
+    {
+        return $this->alert->direction === EarningsAlert::DIRECTION_NEGATIVE;
+    }
+
+    public function label(): string
+    {
+        return $this->isNegative() ? 'EPS Earnings Miss' : 'EPS Earnings Beat';
+    }
+
+    public function emoji(): string
+    {
+        return $this->isNegative() ? '⚠️' : '🚀';
+    }
+
     public function toMail(object $notifiable): MailMessage
     {
         $url = route('watchlists.earnings-surprises');
 
         return (new MailMessage)
-            ->subject('🚨 EPS Surprise Alert: '.$this->event->symbol)
+            ->subject($this->emoji().' '.$this->label().': '.$this->event->symbol)
             ->line($this->bodyText())
             ->action('View in DuoAsset', $url);
     }
@@ -51,6 +66,8 @@ class EarningsSurpriseDetected extends Notification
             'revenue_surprise_percent' => $this->event->revenue_surprise_percent,
             'relative_volume' => $this->event->relative_volume,
             'market_cap' => $this->event->market_cap,
+            'direction' => $this->alert->direction,
+            'label' => $this->label(),
             'score' => $this->alert->score,
             'earnings_event_id' => $this->event->id,
             'earnings_alert_id' => $this->alert->id,
@@ -62,17 +79,17 @@ class EarningsSurpriseDetected extends Notification
     {
         $mcap = $this->event->market_cap ? number_format((int) $this->event->market_cap) : 'N/A';
         $revPct = $this->event->revenue_surprise_percent !== null
-            ? number_format((float) $this->event->revenue_surprise_percent, 2).'%'
+            ? $this->signedPercent((float) $this->event->revenue_surprise_percent)
             : 'N/A';
         $relVol = $this->event->relative_volume !== null
             ? number_format((float) $this->event->relative_volume, 2)
             : 'N/A';
         $epsPct = $this->event->eps_surprise_percent !== null
-            ? '+'.number_format((float) $this->event->eps_surprise_percent, 2).'%'
+            ? $this->signedPercent((float) $this->event->eps_surprise_percent)
             : 'N/A';
 
         return implode("\n", [
-            '🚨 EPS Surprise Alert',
+            $this->emoji().' '.$this->label(),
             '',
             $this->event->symbol.' - '.($this->event->company_name ?? '—'),
             'Exchange: '.($this->event->exchange ?? '—'),
@@ -86,5 +103,12 @@ class EarningsSurpriseDetected extends Notification
             'Relative Volume: '.$relVol,
             'Score: '.$this->alert->score,
         ]);
+    }
+
+    protected function signedPercent(float $v): string
+    {
+        $sign = $v >= 0 ? '+' : '';
+
+        return $sign.number_format($v, 2).'%';
     }
 }

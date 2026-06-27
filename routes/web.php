@@ -59,6 +59,8 @@ Route::middleware([
     Route::get('/watchlists', \App\Livewire\Watchlists\Index::class)->name('watchlists.index');
     Route::get('/watchlist/earnings-surprises', \App\Livewire\Watchlists\EarningsSurprises::class)
         ->name('watchlists.earnings-surprises');
+    Route::get('/watchlist/eps-revisions', \App\Livewire\Watchlists\EpsRevisions::class)
+        ->name('watchlists.eps-revisions');
     Route::get('/watchlists/{watchlist}', \App\Livewire\Watchlists\Show::class)->name('watchlists.show');
 });
 

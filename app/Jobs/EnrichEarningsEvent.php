@@ -2,18 +2,27 @@
 
 namespace App\Jobs;
 
+use App\Models\EarningsAlert;
 use App\Models\EarningsEvent;
 use App\Services\Earnings\EarningsSurpriseScorer;
 use App\Services\MarketData\MarketDataProvider;
+use App\Services\Stocks\StockProvisioner;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Enrich a stored earnings event with profile/quote data and create
- * an EarningsAlert + dispatch SendEarningsAlert if it qualifies.
+ * EarningsAlert rows (one per qualifying direction) — then dispatch
+ * SendEarningsAlert for any newly-created alerts.
+ *
+ * Bidirectional gates:
+ *   surprise_percent >= positive_threshold → direction = positive (Beat)
+ *   surprise_percent <= negative_threshold → direction = negative (Miss)
  */
 class EnrichEarningsEvent implements ShouldQueue
 {
@@ -24,7 +33,7 @@ class EnrichEarningsEvent implements ShouldQueue
 
     public function __construct(public int $earningsEventId) {}
 
-    public function handle(MarketDataProvider $provider, EarningsSurpriseScorer $scorer): void
+    public function handle(MarketDataProvider $provider, EarningsSurpriseScorer $scorer, StockProvisioner $stocks): void
     {
         $event = EarningsEvent::find($this->earningsEventId);
         if (! $event) {
@@ -33,7 +42,10 @@ class EnrichEarningsEvent implements ShouldQueue
 
         $config = config('market_data.earnings_scanner');
         $minMcap = (int) ($config['min_market_cap'] ?? 100_000_000);
-        $minPct = (float) ($config['min_eps_surprise_percent'] ?? 90);
+        $positiveThreshold = (float) ($config['positive_threshold']
+            ?? $config['min_eps_surprise_percent']
+            ?? 90);
+        $negativeThreshold = (float) ($config['negative_threshold'] ?? -30);
         $exchanges = (array) ($config['exchanges'] ?? []);
 
         // Enrich missing exchange/market_cap via profile, missing price/volume via quote.
@@ -72,8 +84,19 @@ class EnrichEarningsEvent implements ShouldQueue
 
         $event->save();
 
-        // Qualifying gates.
-        if ($event->eps_surprise_percent === null || (float) $event->eps_surprise_percent < $minPct) {
+        // Ensure a basic Stock row exists for any symbol surfaced by the scanner,
+        // regardless of whether the event qualifies for an alert.
+        try {
+            $stocks->findOrCreate($event->symbol, $event->exchange, $event->company_name);
+        } catch (Throwable $e) {
+            Log::warning('earnings.stock_provision_failed', [
+                'symbol' => $event->symbol,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Common gates that apply to BOTH directions.
+        if ($event->eps_surprise_percent === null) {
             return;
         }
         if (! $event->market_cap || (int) $event->market_cap < $minMcap) {
@@ -83,11 +106,23 @@ class EnrichEarningsEvent implements ShouldQueue
             return;
         }
 
+        $surprisePct = (float) $event->eps_surprise_percent;
+        $direction = null;
+        if ($surprisePct >= $positiveThreshold) {
+            $direction = EarningsAlert::DIRECTION_POSITIVE;
+        } elseif ($surprisePct <= $negativeThreshold) {
+            $direction = EarningsAlert::DIRECTION_NEGATIVE;
+        }
+
+        if ($direction === null) {
+            return; // Between thresholds — no alert.
+        }
+
         $score = $scorer->score($event);
 
-        // Create the alert idempotently (unique index on event_id+alert_type).
-        $alert = $event->alert()->firstOrCreate(
-            ['alert_type' => 'eps_surprise'],
+        // Idempotent on (event_id, alert_type, direction) unique index.
+        $alert = $event->alerts()->firstOrCreate(
+            ['alert_type' => 'eps_surprise', 'direction' => $direction],
             [
                 'symbol' => $event->symbol,
                 'score' => $score,
