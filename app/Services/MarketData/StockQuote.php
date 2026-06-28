@@ -21,7 +21,15 @@ final class StockQuote
          */
         public readonly ?int $dailyChangePercent = null,
         public readonly ?int $volume = null,
+        /**
+         * Provider-reported market cap (fallback only). The canonical
+         * value is computed by callers as last_price × sharesOutstanding;
+         * see {@see \App\Services\MarketData\MarketCap::compute()}.
+         */
         public readonly ?FiatMoney $marketCap = null,
+        public readonly ?int $sharesOutstanding = null,
+        public readonly ?int $floatShares = null,
+        public readonly ?float $freeFloat = null,
         public readonly ?CarbonImmutable $asOf = null,
     ) {}
 }

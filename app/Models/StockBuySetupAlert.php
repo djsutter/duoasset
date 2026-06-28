@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasComputedMarketCap;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -13,8 +14,12 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $symbol
  * @property string|null $company_name
  * @property string|null $exchange
- * @property int|null $market_cap
+ * @property int|null $market_cap Computed: price × shares_outstanding (falls back to stored column).
  * @property string|null $market_cap_category
+ * @property string|null $price
+ * @property int|null $shares_outstanding
+ * @property int|null $float_shares
+ * @property string|null $free_float
  * @property \Illuminate\Support\Carbon $spike_date
  * @property int|null $spike_volume
  * @property int|null $prior_52w_max_volume
@@ -44,6 +49,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class StockBuySetupAlert extends Model
 {
+    use HasComputedMarketCap;
+
     protected $fillable = [
         'source',
         'symbol',
@@ -51,6 +58,10 @@ class StockBuySetupAlert extends Model
         'exchange',
         'market_cap',
         'market_cap_category',
+        'price',
+        'shares_outstanding',
+        'float_shares',
+        'free_float',
         'spike_date',
         'spike_volume',
         'prior_52w_max_volume',
@@ -101,6 +112,10 @@ class StockBuySetupAlert extends Model
         'earnings_acceleration' => 'decimal:4',
         'sales_acceleration' => 'decimal:4',
         'market_cap' => 'integer',
+        'price' => 'decimal:4',
+        'shares_outstanding' => 'integer',
+        'float_shares' => 'integer',
+        'free_float' => 'decimal:4',
         'heartbeat_score' => 'integer',
         'detected_at' => 'datetime',
         'sent_at' => 'datetime',

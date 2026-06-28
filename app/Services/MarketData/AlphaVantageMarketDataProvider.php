@@ -44,7 +44,7 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
          * request per second; the extra millisecond gives us safe headroom
          * against clock-skew false positives on their side.
          */
-        private readonly int $throttleMs = 1001,
+        private readonly int $throttleMs = 1/*1001 // Since we have paid FMP, let's not throttle so much, bounce over to FMP.*/,
         /**
          * Optional FMP fallback. When Alpha Vantage returns a throttle
          * notice (Note/Information) or a non-2xx HTTP status for the
@@ -359,6 +359,8 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
             return null;
         }
 
+        $shares = $payload['SharesOutstanding'] ?? null;
+
         return [
             'symbol' => strtoupper((string) $payload['Symbol']),
             'name' => (string) ($payload['Name'] ?? ''),
@@ -367,6 +369,10 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
             'country' => (string) ($payload['Country'] ?? ''),
             'sector' => (string) ($payload['Sector'] ?? ''),
             'industry' => (string) ($payload['Industry'] ?? ''),
+            // Alpha Vantage OVERVIEW exposes SharesOutstanding (no float
+            // breakdown). The downstream model accessor uses this to
+            // compute market_cap = price × shares_outstanding.
+            'shares_outstanding' => is_numeric($shares) ? (int) $shares : null,
         ];
     }
 
@@ -410,8 +416,21 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
             ? (int) round(((float) $row['daily_change_percent']) * 10_000)
             : null;
 
+        // Provider-reported market cap is kept as a fallback only — the
+        // canonical value comes from price × sharesOutstanding via the
+        // Stock model accessor / MarketCap::compute().
         $marketCap = isset($row['market_cap']) && $row['market_cap'] !== null
             ? FiatMoney::fromDecimal((string) $row['market_cap'], $currency)
+            : null;
+
+        $shares = isset($row['shares_outstanding']) && is_numeric($row['shares_outstanding'])
+            ? (int) $row['shares_outstanding']
+            : null;
+        $floatShares = isset($row['float_shares']) && is_numeric($row['float_shares'])
+            ? (int) $row['float_shares']
+            : null;
+        $freeFloat = isset($row['free_float']) && is_numeric($row['free_float'])
+            ? (float) $row['free_float']
             : null;
 
         return new StockQuote(
@@ -422,6 +441,9 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
             dailyChangePercent: $dailyChangePercent,
             volume: isset($row['volume']) ? (int) $row['volume'] : null,
             marketCap: $marketCap,
+            sharesOutstanding: $shares,
+            floatShares: $floatShares,
+            freeFloat: $freeFloat,
             asOf: CarbonImmutable::now(),
         );
     }

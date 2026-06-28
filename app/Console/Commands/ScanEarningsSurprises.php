@@ -162,7 +162,11 @@ class ScanEarningsSurprises extends Command
                     continue;
                 }
 
-                EnrichEarningsEvent::dispatch($event->id);
+                // Run enrichment synchronously so Company / Exchange / Market Cap
+                // are populated immediately — otherwise on a default install
+                // (QUEUE_CONNECTION=database) the jobs pile up until a worker
+                // is started, leaving those columns empty on the watchlist.
+                EnrichEarningsEvent::dispatchSync($event->id);
                 $dispatched++;
             } catch (Throwable $e) {
                 Log::error('earnings.row_failed', [

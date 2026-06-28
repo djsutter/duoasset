@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasComputedMarketCap;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -21,7 +22,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int|null $revenue_estimated
  * @property int|null $revenue_actual
  * @property string|null $revenue_surprise_percent
- * @property int|null $market_cap
+ * @property int|null $market_cap Computed: price × shares_outstanding (falls back to stored column).
+ * @property int|null $shares_outstanding
+ * @property int|null $float_shares
+ * @property string|null $free_float
  * @property string|null $price
  * @property int|null $volume
  * @property int|null $avg_volume
@@ -32,6 +36,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class EarningsEvent extends Model
 {
+    use HasComputedMarketCap;
+
     protected $fillable = [
         'symbol',
         'exchange',
@@ -47,6 +53,9 @@ class EarningsEvent extends Model
         'revenue_actual',
         'revenue_surprise_percent',
         'market_cap',
+        'shares_outstanding',
+        'float_shares',
+        'free_float',
         'price',
         'volume',
         'avg_volume',
@@ -70,6 +79,9 @@ class EarningsEvent extends Model
         'revenue_estimated' => 'integer',
         'revenue_actual' => 'integer',
         'market_cap' => 'integer',
+        'shares_outstanding' => 'integer',
+        'float_shares' => 'integer',
+        'free_float' => 'decimal:4',
         'volume' => 'integer',
         'avg_volume' => 'integer',
     ];

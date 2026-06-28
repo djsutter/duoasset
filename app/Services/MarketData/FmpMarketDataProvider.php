@@ -112,6 +112,28 @@ class FmpMarketDataProvider implements MarketDataProvider
                         ?? null,
                 ),
 
+                // Shares-outstanding / float info from /profile (raw FMP field
+                // names: sharesOutstanding, floatShares, freeFloat).
+                'shares_outstanding' => $this->toInt(
+                    $profile['sharesOutstanding']
+                        ?? $profile['outstandingShares']
+                        ?? $quote['sharesOutstanding']
+                        ?? null,
+                ),
+                'float_shares' => $this->toInt(
+                    $profile['floatShares']
+                        ?? $quote['floatShares']
+                        ?? null,
+                ),
+                'free_float' => $this->toFloat(
+                    $profile['freeFloat']
+                        ?? $quote['freeFloat']
+                        ?? null,
+                ),
+
+                // market_cap is provided here as a fallback only — the
+                // canonical value is computed from price × shares_outstanding
+                // by the caller (see MarketDataProvider::computeMarketCap()).
                 'market_cap' => $this->toInt(
                     $quote['marketCap']
                         ?? $profile['marketCap']
@@ -286,7 +308,7 @@ class FmpMarketDataProvider implements MarketDataProvider
 
         return [
             'symbol' => (string) ($profile['symbol'] ?? strtoupper($symbol)),
-            'name' => (string) ($profile['company_name'] ?? ''),
+            'name' => (string) ($profile['company_name'] ?? $profile['companyName'] ?? ''),
             'exchange' => strtoupper((string) ($profile['exchange'] ?? '')),
             'currency' => strtoupper((string) ($profile['currency'] ?? '')),
             'country' => '',
@@ -380,7 +402,14 @@ class FmpMarketDataProvider implements MarketDataProvider
                 'symbol' => $symbol,
                 'company_name' => $row['companyName'] ?? $row['name'] ?? null,
                 'exchange' => $this->mapExchange($row['exchangeShortName'] ?? $row['exchange'] ?? null),
+                // Raw provider-reported market cap, kept as a fallback. The
+                // canonical value is computed: price × shares_outstanding.
                 'market_cap' => $this->toInt($row['mktCap'] ?? $row['marketCap'] ?? null),
+                'shares_outstanding' => $this->toInt(
+                    $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null,
+                ),
+                'float_shares' => $this->toInt($row['floatShares'] ?? null),
+                'free_float' => $this->toFloat($row['freeFloat'] ?? null),
                 'currency' => $row['currency'] ?? null,
                 'price' => $this->toFloat($row['price'] ?? null),
             ];
@@ -455,7 +484,7 @@ class FmpMarketDataProvider implements MarketDataProvider
 
         return [
             'symbol' => $symbol,
-            'company_name' => $row['name'] ?? null,
+            'company_name' => $row['name'] ?? $row['companyName'] ?? null,
             'exchange' => $this->mapExchange($row['exchange'] ?? null),
             'report_date' => substr((string) $date, 0, 10),
             'report_time' => $row['time'] ?? null,
@@ -489,6 +518,12 @@ class FmpMarketDataProvider implements MarketDataProvider
 
         return [
             'symbol' => $symbol,
+            // Some FMP /earnings-surprises payloads include company name and
+            // exchange too; pass them through so downstream consumers (the
+            // earnings-surprises watchlist) don't need a separate /profile
+            // call to populate the Company / Exchange columns.
+            'company_name' => $row['name'] ?? $row['companyName'] ?? null,
+            'exchange' => $this->mapExchange($row['exchange'] ?? $row['exchangeShortName'] ?? null),
             'report_date' => substr((string) $date, 0, 10),
             'eps_estimated' => $estimated,
             'eps_actual' => $actual,
@@ -552,7 +587,14 @@ class FmpMarketDataProvider implements MarketDataProvider
             'exchange' => $this->mapExchange(
                 $row['exchangeShortName'] ?? $row['exchange'] ?? null,
             ),
+            // Raw provider-reported market cap, kept as a fallback. Callers
+            // should prefer the computed value (price × shares_outstanding).
             'market_cap' => $this->toInt($row['marketCap'] ?? $row['mktCap'] ?? null),
+            'shares_outstanding' => $this->toInt(
+                $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null,
+            ),
+            'float_shares' => $this->toInt($row['floatShares'] ?? null),
+            'free_float' => $this->toFloat($row['freeFloat'] ?? null),
             'price' => $this->toFloat($row['price'] ?? null),
             'raw' => $row,
         ];

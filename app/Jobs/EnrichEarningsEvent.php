@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\EarningsAlert;
 use App\Models\EarningsEvent;
 use App\Services\Earnings\EarningsSurpriseScorer;
+use App\Services\MarketData\MarketCap;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockProvisioner;
 use Illuminate\Bus\Queueable;
@@ -49,12 +50,24 @@ class EnrichEarningsEvent implements ShouldQueue
         $negativeThreshold = (float) ($config['negative_threshold'] ?? -30);
         $exchanges = (array) ($config['exchanges'] ?? []);
 
-        // Enrich missing exchange/market_cap via profile, missing price/volume via quote.
-        if (! $event->exchange || ! $event->market_cap || ! $event->company_name) {
+        // Enrich missing exchange / shares / company name via profile,
+        // and missing price / volume via quote. The provider's `market_cap`
+        // field is captured as a fallback only — the canonical value is
+        // computed below as price × shares_outstanding.
+        $providerMarketCap = null;
+        if (! $event->exchange || $event->shares_outstanding === null || ! $event->company_name) {
             if ($profile = $provider->profile($event->symbol)) {
                 $event->exchange = $event->exchange ?: ($profile['exchange'] ?? null);
-                $event->market_cap = $event->market_cap ?: ($profile['market_cap'] ?? null);
                 $event->company_name = $event->company_name ?: ($profile['company_name'] ?? null);
+
+                $event->shares_outstanding = $event->shares_outstanding
+                    ?? ($profile['shares_outstanding'] ?? null);
+                $event->float_shares = $event->float_shares
+                    ?? ($profile['float_shares'] ?? null);
+                $event->free_float = $event->free_float
+                    ?? ($profile['free_float'] ?? null);
+
+                $providerMarketCap = $providerMarketCap ?? ($profile['market_cap'] ?? null);
             }
         }
 
@@ -62,11 +75,42 @@ class EnrichEarningsEvent implements ShouldQueue
             $event->price = $event->price ?: ($quote['price'] ?? null);
             $event->volume = $event->volume ?: ($quote['volume'] ?? null);
             $event->avg_volume = $event->avg_volume ?: ($quote['avg_volume'] ?? null);
-            $event->market_cap = $event->market_cap ?: ($quote['market_cap'] ?? null);
+
+            // FMP's composite quote() also surfaces company_name / exchange
+            // from /profile internally — use them when the explicit
+            // profile() call above didn't return (e.g. /profile gated on
+            // the current FMP plan, or already cached as null).
+            if (! $event->company_name && ! empty($quote['company_name'])) {
+                $event->company_name = $quote['company_name'];
+            }
+            if (! $event->exchange && ! empty($quote['exchange'])) {
+                $event->exchange = $quote['exchange'];
+            }
+
+            $event->shares_outstanding = $event->shares_outstanding
+                ?? ($quote['shares_outstanding'] ?? null);
+            $event->float_shares = $event->float_shares
+                ?? ($quote['float_shares'] ?? null);
+            $event->free_float = $event->free_float
+                ?? ($quote['free_float'] ?? null);
+
+            $providerMarketCap = $providerMarketCap ?? ($quote['market_cap'] ?? null);
 
             if ($event->volume && $event->avg_volume && $event->avg_volume > 0) {
                 $event->relative_volume = round($event->volume / $event->avg_volume, 4);
             }
+        }
+
+        // Canonical market_cap = price × shares_outstanding, with the
+        // provider-reported value used only as a backward-compatible
+        // fallback when shares are still missing.
+        $computedMarketCap = MarketCap::compute(
+            $event->price,
+            $event->shares_outstanding,
+            $event->getRawOriginal('market_cap') ?: $providerMarketCap,
+        );
+        if ($computedMarketCap !== null) {
+            $event->setAttribute('market_cap', $computedMarketCap);
         }
 
         // Recompute EPS surprise percent if missing but we have both sides.

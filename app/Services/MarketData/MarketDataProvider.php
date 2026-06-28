@@ -32,7 +32,12 @@ interface MarketDataProvider
     /**
      * Quote for a single symbol or null on failure.
      *
-     * Keys: price, volume, avg_volume, market_cap, exchange.
+     * Keys: price, volume, avg_volume, market_cap, shares_outstanding,
+     * float_shares, free_float, exchange.
+     *
+     * NOTE: `market_cap` is a provider-reported fallback only — the canonical
+     * value should be computed by callers as price × shares_outstanding
+     * via {@see \App\Services\MarketData\MarketCap::compute()}.
      *
      * @return array<string, mixed>|null
      */
@@ -61,7 +66,11 @@ interface MarketDataProvider
      * by the given criteria (currently: marketCapMoreThan, exchange list).
      *
      * Each row keys (where available):
-     *   symbol, company_name, exchange, market_cap, price, raw.
+     *   symbol, company_name, exchange, market_cap, shares_outstanding,
+     *   float_shares, free_float, price, raw.
+     *
+     * `market_cap` is a provider-reported fallback only — prefer the
+     * computed value via {@see \App\Services\MarketData\MarketCap::compute()}.
      *
      * @param  array<string, mixed>  $filters
      * @return array<int, array<string, mixed>>

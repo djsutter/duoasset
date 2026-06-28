@@ -24,7 +24,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property FiatMoney|null $daily_change
  * @property int|null $daily_change_percent
  * @property int|null $volume
- * @property FiatMoney|null $market_cap
+ * @property FiatMoney|null $market_cap Computed: last_price × shares_outstanding (falls back to stored column).
+ * @property int|null $shares_outstanding
+ * @property int|null $float_shares
+ * @property string|null $free_float
  * @property \Illuminate\Support\Carbon|null $last_checked_at
  */
 class Stock extends Model
@@ -45,6 +48,9 @@ class Stock extends Model
         'daily_change_percent',
         'volume',
         'market_cap',
+        'shares_outstanding',
+        'float_shares',
+        'free_float',
         'last_checked_at',
     ];
 
@@ -56,8 +62,45 @@ class Stock extends Model
         'market_cap' => FiatMoneyCast::class.':currency',
         'daily_change_percent' => 'integer',
         'volume' => 'integer',
+        'shares_outstanding' => 'integer',
+        'float_shares' => 'integer',
+        'free_float' => 'decimal:4',
         'last_checked_at' => 'datetime',
     ];
+
+    /**
+     * Computed market cap accessor: last_price × shares_outstanding.
+     *
+     * Returns a FiatMoney value (consistent with the stored cast).
+     * Falls back to the raw stored `market_cap` column when either
+     * the price or shares-outstanding inputs are missing.
+     */
+    public function getMarketCapAttribute(): ?FiatMoney
+    {
+        $shares = $this->attributes['shares_outstanding'] ?? null;
+        $shares = is_numeric($shares) ? (int) $shares : null;
+
+        $price = $this->last_price;
+
+        if ($price instanceof FiatMoney && $shares !== null && $shares > 0) {
+            // FiatMoney stores `minor` in 10^4 units. Multiplying by a
+            // whole-share count preserves that scale, so the resulting
+            // amount is still expressed in the same minor units.
+            return FiatMoney::fromMinorUnits(
+                (int) ($price->minor * $shares),
+                $price->currency,
+            );
+        }
+
+        $stored = $this->attributes['market_cap'] ?? null;
+        if ($stored === null || $stored === '') {
+            return null;
+        }
+
+        $currency = $this->currency?->value ?? ($price?->currency ?? 'USD');
+
+        return FiatMoney::fromMinorUnits((int) $stored, $currency);
+    }
 
     public function sector(): BelongsTo
     {

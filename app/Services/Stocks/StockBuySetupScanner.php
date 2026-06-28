@@ -2,6 +2,7 @@
 
 namespace App\Services\Stocks;
 
+use App\Services\MarketData\MarketCap;
 use Carbon\CarbonImmutable;
 
 /**

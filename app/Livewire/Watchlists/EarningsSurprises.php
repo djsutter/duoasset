@@ -40,6 +40,12 @@ class EarningsSurprises extends Component
     #[Url(as: 'dir')]
     public string $direction = 'both';
 
+    #[Url(as: 'sort')]
+    public string $sortField = 'detected_at';
+
+    #[Url(as: 'sort_dir')]
+    public string $sortDirection = 'desc';
+
     public ?string $flash = null;
 
     public function mount(): void
@@ -62,6 +68,20 @@ class EarningsSurprises extends Component
         $this->dateTo = null;
         $this->alertedOnly = true;
         $this->direction = 'both';
+        $this->sortField = 'detected_at';
+        $this->sortDirection = 'desc';
+        $this->resetPage();
+    }
+
+    public function sortBy(string $field): void
+    {
+        if ($this->sortField === $field) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortField = $field;
+            $this->sortDirection = 'desc';
+        }
+
         $this->resetPage();
     }
 
@@ -177,7 +197,9 @@ class EarningsSurprises extends Component
             $query->when($this->alertedOnly, fn ($q) => $q->whereHas('alerts'));
         }
 
-        $events = $query->orderByDesc('detected_at')->paginate(25);
+        $events = $query->orderBy($this->sortField, $this->sortDirection)
+            ->orderByDesc('detected_at')
+            ->paginate(25);
 
         // Watchlisted symbol set for the current user (for "Already watched" badge).
         $watched = collect();

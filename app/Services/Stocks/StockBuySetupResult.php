@@ -42,5 +42,12 @@ final class StockBuySetupResult
         public readonly ?float $relativeStrengthScore,
         public readonly ?float $earningsAcceleration = null,
         public readonly ?float $salesAcceleration = null,
+        // Inputs to the canonical market_cap = price × shares_outstanding
+        // computation. Persisted on the alert row so downstream consumers
+        // can recompute / verify market cap without re-fetching the quote.
+        public readonly ?float $price = null,
+        public readonly ?int $sharesOutstanding = null,
+        public readonly ?int $floatShares = null,
+        public readonly ?float $freeFloat = null,
     ) {}
 }

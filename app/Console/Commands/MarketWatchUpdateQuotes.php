@@ -87,12 +87,19 @@ class MarketWatchUpdateQuotes extends Command
 
     private function applyQuote(Stock $stock, StockQuote $quote): void
     {
+        // `market_cap` is a *computed* value: price × shares_outstanding.
+        // We still persist a market_cap column for backward compatibility
+        // and for DB-level filtering, but the model accessor returns the
+        // computed value at read time (see Stock::getMarketCapAttribute()).
         $stock->forceFill([
             'last_price' => $quote->lastPrice,
             'daily_change' => $quote->dailyChange,
             'daily_change_percent' => $quote->dailyChangePercent,
             'volume' => $quote->volume,
             'market_cap' => $quote->marketCap,
+            'shares_outstanding' => $quote->sharesOutstanding,
+            'float_shares' => $quote->floatShares,
+            'free_float' => $quote->freeFloat,
             'last_checked_at' => $quote->asOf?->toDateTimeImmutable() ?? now(),
         ])->save();
     }

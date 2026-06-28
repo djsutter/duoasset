@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\EpsEstimateHistory;
 use App\Models\EpsRevisionAlert;
+use App\Services\MarketData\MarketCap;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockProvisioner;
 use Carbon\CarbonImmutable;
@@ -37,7 +38,13 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
         public string $symbol,
         public ?string $companyName = null,
         public ?string $exchange = null,
+        // Provider-reported market cap, used only as a backward-compatible
+        // fallback. The canonical value is computed: price × shares_outstanding.
         public ?int $marketCap = null,
+        public ?float $price = null,
+        public ?int $sharesOutstanding = null,
+        public ?int $floatShares = null,
+        public ?float $freeFloat = null,
     ) {}
 
     public function handle(MarketDataProvider $provider, StockProvisioner $stocks): void
@@ -157,7 +164,18 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
                     'previous_estimate' => $previous,
                     'latest_estimate' => $latestEstimate,
                     'revision_percent' => round($revisionPct, 4),
-                    'market_cap' => $this->marketCap,
+                    // market_cap is the canonical computed value
+                    // (price × shares_outstanding) with $this->marketCap as a
+                    // fallback for symbols where shares are not yet captured.
+                    'market_cap' => MarketCap::compute(
+                        $this->price,
+                        $this->sharesOutstanding,
+                        $this->marketCap,
+                    ),
+                    'price' => $this->price,
+                    'shares_outstanding' => $this->sharesOutstanding,
+                    'float_shares' => $this->floatShares,
+                    'free_float' => $this->freeFloat,
                     'status' => 'new',
                     'detected_at' => now(),
                 ],

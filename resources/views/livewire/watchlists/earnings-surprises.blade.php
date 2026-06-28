@@ -74,8 +74,30 @@
                     <th class="text-right">{{ __('EPS Est.') }}</th>
                     <th class="text-right">{{ __('EPS Actual') }}</th>
                     <th>{{ __('Label') }}</th>
-                    <th class="text-right">{{ __('EPS Surprise %') }}</th>
-                    <th class="text-right">{{ __('Rev. Surprise %') }}</th>
+                    <th class="text-right">
+                        <button type="button" wire:click="sortBy('eps_surprise_percent')" class="da-sort">
+                            {{ __('EPS Surprise %') }}
+                            @if ($sortField === 'eps_surprise_percent')
+                                @if ($sortDirection === 'asc')
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>
+                                @else
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                                @endif
+                            @endif
+                        </button>
+                    </th>
+                    <th class="text-right">
+                        <button type="button" wire:click="sortBy('revenue_surprise_percent')" class="da-sort">
+                            {{ __('Rev. Surprise %') }}
+                            @if ($sortField === 'revenue_surprise_percent')
+                                @if ($sortDirection === 'asc')
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>
+                                @else
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                                @endif
+                            @endif
+                        </button>
+                    </th>
                     <th class="text-right">{{ __('Rel. Vol.') }}</th>
                     <th class="text-right">{{ __('Score') }}</th>
                     <th>{{ __('Action') }}</th>

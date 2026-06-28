@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasComputedMarketCap;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -20,7 +21,11 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $direction
  * @property string $alert_type
  * @property string $status
- * @property int|null $market_cap
+ * @property int|null $market_cap Computed: price × shares_outstanding (falls back to stored column).
+ * @property string|null $price
+ * @property int|null $shares_outstanding
+ * @property int|null $float_shares
+ * @property string|null $free_float
  * @property string|null $message
  * @property string $source
  * @property \Illuminate\Support\Carbon|null $detected_at
@@ -28,6 +33,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class EpsRevisionAlert extends Model
 {
+    use HasComputedMarketCap;
+
     public const DIRECTION_POSITIVE = 'positive';
 
     public const DIRECTION_NEGATIVE = 'negative';
@@ -44,6 +51,10 @@ class EpsRevisionAlert extends Model
         'alert_type',
         'status',
         'market_cap',
+        'price',
+        'shares_outstanding',
+        'float_shares',
+        'free_float',
         'message',
         'source',
         'detected_at',
@@ -56,6 +67,10 @@ class EpsRevisionAlert extends Model
         'latest_estimate' => 'decimal:6',
         'revision_percent' => 'decimal:4',
         'market_cap' => 'integer',
+        'price' => 'decimal:4',
+        'shares_outstanding' => 'integer',
+        'float_shares' => 'integer',
+        'free_float' => 'decimal:4',
         'detected_at' => 'datetime',
         'sent_at' => 'datetime',
     ];
