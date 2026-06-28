@@ -157,6 +157,9 @@ Driven by the FMP **company-screener** endpoint, pre-filtered by `EPS_REVISION_M
 # poll the full universe (or whatever EPS_REVISION_MAX_SYMBOLS caps at)
 php artisan earnings:scan-revisions
 
+# setup scan
+php artisan stocks:scan-buy-setups
+
 # restrict to specific symbols (skips the screener)
 php artisan earnings:scan-revisions --symbol=AAPL --symbol=MSFT
 
