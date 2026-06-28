@@ -25,5 +25,8 @@ class EarningsNotificationDelivery extends Model
     ];
 
     public const TYPE_EARNINGS = 'earnings';
+
     public const TYPE_REVISION = 'revision';
+
+    public const TYPE_BUY_SETUP = 'buy_setup';
 }

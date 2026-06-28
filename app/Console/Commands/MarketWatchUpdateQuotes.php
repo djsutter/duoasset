@@ -60,11 +60,13 @@ class MarketWatchUpdateQuotes extends Command
             } catch (Throwable $e) {
                 $errors++;
                 $this->error("[{$stock->symbol}] {$e->getMessage()}");
+
                 continue;
             }
 
             if (! $quote instanceof StockQuote) {
                 $skipped++;
+
                 continue;
             }
 

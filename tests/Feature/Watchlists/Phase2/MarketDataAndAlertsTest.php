@@ -2,7 +2,6 @@
 
 use App\Enums\AlertRuleType;
 use App\Enums\AlertSeverity;
-use App\Enums\Currency;
 use App\Enums\Exchange;
 use App\Enums\MoatLevel;
 use App\Models\Industry;

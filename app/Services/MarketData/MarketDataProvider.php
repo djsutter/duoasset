@@ -67,4 +67,15 @@ interface MarketDataProvider
      * @return array<int, array<string, mixed>>
      */
     public function companyScreener(array $filters = []): array;
+
+    /**
+     * Return normalized daily OHLCV bars for a single symbol over the
+     * requested inclusive date range. Sorted ascending by date.
+     *
+     * Each row keys (where available):
+     *   date (Y-m-d), open, high, low, close, adj_close, volume.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array;
 }

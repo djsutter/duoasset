@@ -25,6 +25,7 @@ class User extends Authenticatable
         'password',
         'notify_eps_earnings',
         'notify_eps_revisions',
+        'notify_stock_buy_setup',
     ];
 
     /**
@@ -49,6 +50,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'notify_eps_earnings' => 'boolean',
             'notify_eps_revisions' => 'boolean',
+            'notify_stock_buy_setup' => 'boolean',
         ];
     }
 

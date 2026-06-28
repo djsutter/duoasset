@@ -19,8 +19,10 @@ function fakeAnalystEstimates(string $symbol, array $rows): void
             if (($q['symbol'] ?? null) === $symbol) {
                 return Http::response($rows, 200);
             }
+
             return Http::response([], 200);
         }
+
         return Http::response([], 200);
     });
 }

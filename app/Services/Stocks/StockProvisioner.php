@@ -18,9 +18,9 @@ use Illuminate\Support\Facades\DB;
 class StockProvisioner
 {
     /**
-     * @param  string  $symbol       Ticker symbol (will be uppercased / trimmed).
-     * @param  string|null  $exchange   Exchange short name (e.g. NYSE, NASDAQ, TSX, TSXV).
-     * @param  string|null  $companyName Optional company name from provider profile.
+     * @param  string  $symbol  Ticker symbol (will be uppercased / trimmed).
+     * @param  string|null  $exchange  Exchange short name (e.g. NYSE, NASDAQ, TSX, TSXV).
+     * @param  string|null  $companyName  Optional company name from provider profile.
      */
     public function findOrCreate(string $symbol, ?string $exchange = null, ?string $companyName = null): Stock
     {

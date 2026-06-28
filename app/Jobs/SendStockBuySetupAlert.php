@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Models\EarningsAlert;
 use App\Models\EarningsNotificationDelivery;
+use App\Models\StockBuySetupAlert;
 use App\Models\User;
-use App\Notifications\EarningsSurpriseDetected;
+use App\Notifications\StockBuySetupDetected;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -14,7 +14,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
-class SendEarningsAlert implements ShouldQueue
+/**
+ * Deliver a StockBuySetupDetected notification for a stored
+ * StockBuySetupAlert. Mirrors SendEpsRevisionAlert: idempotent via
+ * earnings_notification_deliveries with alert_type='buy_setup'.
+ */
+class SendStockBuySetupAlert implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -26,28 +31,18 @@ class SendEarningsAlert implements ShouldQueue
 
     public function handle(): void
     {
-        $alert = EarningsAlert::with('earningsEvent')->find($this->alertId);
-        if (! $alert || ! $alert->earningsEvent) {
+        $alert = StockBuySetupAlert::find($this->alertId);
+        if (! $alert || $alert->sent_at) {
             return;
         }
 
-        if ($alert->sent_at) {
-            return; // already sent
-        }
+        $notification = new StockBuySetupDetected($alert);
 
-        $notification = new EarningsSurpriseDetected($alert->earningsEvent, $alert);
-
-        // Persist the rendered message for the UI/history.
-        $alert->message = $notification->bodyText();
-
-        // Notify only users who opted in to EPS earnings notifications,
-        // and skip any user who has already received THIS alert (dedupe
-        // via earnings_notification_deliveries unique index).
-        $alertType = EarningsNotificationDelivery::TYPE_EARNINGS;
+        $alertType = EarningsNotificationDelivery::TYPE_BUY_SETUP;
         $alertId = $alert->id;
 
         User::query()
-            ->where('notify_eps_earnings', true)
+            ->where('notify_stock_buy_setup', true)
             ->whereDoesntHave('earningsDeliveries', function ($q) use ($alertType, $alertId) {
                 $q->where('alert_type', $alertType)->where('alert_id', $alertId);
             })
@@ -62,10 +57,7 @@ class SendEarningsAlert implements ShouldQueue
                             'sent_at' => now(),
                         ]);
                     } catch (\Throwable $e) {
-                        // Don't let one bad recipient kill the rest. The
-                        // missing delivery row means a later run will
-                        // retry this user only.
-                        Log::warning('earnings.notify_failed', [
+                        Log::warning('buy_setup.notify_failed', [
                             'user_id' => $user->id,
                             'alert_id' => $alertId,
                             'error' => $e->getMessage(),
@@ -74,8 +66,7 @@ class SendEarningsAlert implements ShouldQueue
                 }
             });
 
-        // Optional plain email recipient configured via env.
-        $extra = config('market_data.earnings_scanner.notification_email');
+        $extra = config('market_data.buy_setup_scanner.notification_email');
         if ($extra) {
             Notification::route('mail', $extra)->notify($notification);
         }

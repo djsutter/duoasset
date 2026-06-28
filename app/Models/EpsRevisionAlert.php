@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Model;
 class EpsRevisionAlert extends Model
 {
     public const DIRECTION_POSITIVE = 'positive';
+
     public const DIRECTION_NEGATIVE = 'negative';
 
     protected $fillable = [

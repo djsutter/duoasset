@@ -30,14 +30,9 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 30;
 
-    /**
-     * @param  string       $symbol
-     * @param  string|null  $companyName
-     * @param  string|null  $exchange
-     * @param  int|null     $marketCap
-     */
     public function __construct(
         public string $symbol,
         public ?string $companyName = null,

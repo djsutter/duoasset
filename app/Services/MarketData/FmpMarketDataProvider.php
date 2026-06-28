@@ -295,6 +295,72 @@ class FmpMarketDataProvider implements MarketDataProvider
         ];
     }
 
+    public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
+    {
+        $symbol = $this->normalizeSymbol($symbol);
+        if ($symbol === '') {
+            return [];
+        }
+
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+        $cacheKey = "fmp.bars.$symbol.$fromStr.$toStr";
+
+        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $fromStr, $toStr) {
+            // FMP stable endpoint: /historical-price-eod/full?symbol=AAPL&from=...&to=...
+            // Response shape varies: either {symbol, historical: [...]} or [...].
+            $payload = $this->get('historical-price-eod/full', [
+                'symbol' => $symbol,
+                'from' => $fromStr,
+                'to' => $toStr,
+            ]);
+
+            if (! is_array($payload)) {
+                return [];
+            }
+
+            $rows = $payload['historical'] ?? $payload;
+            if (! is_array($rows)) {
+                return [];
+            }
+
+            $out = [];
+            foreach ($rows as $row) {
+                $norm = $this->normalizeBarRow($row);
+                if ($norm !== null) {
+                    $out[] = $norm;
+                }
+            }
+
+            // FMP returns most-recent first; the scanner expects ascending order.
+            usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+            return $out;
+        });
+    }
+
+    private function normalizeBarRow(mixed $row): ?array
+    {
+        if (! is_array($row)) {
+            return null;
+        }
+
+        $date = $row['date'] ?? null;
+        if (! $date) {
+            return null;
+        }
+
+        return [
+            'date' => substr((string) $date, 0, 10),
+            'open' => $this->toFloat($row['open'] ?? null),
+            'high' => $this->toFloat($row['high'] ?? null),
+            'low' => $this->toFloat($row['low'] ?? null),
+            'close' => $this->toFloat($row['close'] ?? null),
+            'adj_close' => $this->toFloat($row['adjClose'] ?? $row['adj_close'] ?? null),
+            'volume' => $this->toInt($row['volume'] ?? null),
+        ];
+    }
+
     public function profile(string $symbol): ?array
     {
         $symbol = $this->normalizeSymbol($symbol);

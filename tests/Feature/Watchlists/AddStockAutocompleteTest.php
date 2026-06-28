@@ -119,6 +119,7 @@ it('selectSymbol populates company name, exchange and currency from OVERVIEW', f
                 'Industry' => 'Software',
             ], 200);
         }
+
         return Http::response([], 200);
     });
 
@@ -153,6 +154,7 @@ it('falls back to SYMBOL_SEARCH currency when OVERVIEW returns nothing', functio
                 ]],
             ], 200);
         }
+
         // OVERVIEW returns empty payload (AV does this for some non-US listings)
         return Http::response([], 200);
     });

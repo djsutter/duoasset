@@ -4,7 +4,6 @@ namespace App\Livewire\Watchlists;
 
 use App\Models\Watchlist;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
 
