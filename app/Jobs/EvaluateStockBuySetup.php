@@ -11,6 +11,7 @@ use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
+use App\Services\Stocks\StockFundamentalsAnalyzer;
 use App\Services\Stocks\StockProvisioner;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
@@ -51,6 +52,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         MarketDataProvider $provider,
         StockBuySetupScanner $scanner,
         StockBuySetupScorer $scorer,
+        StockFundamentalsAnalyzer $fundamentals,
         StockProvisioner $stocks,
     ): void {
         $symbol = strtoupper(trim($this->symbol));
@@ -70,13 +72,14 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             $benchmarks = (array) ($config['benchmark_symbols'] ?? ['SPY', 'IWM']);
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
+            $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol);
 
-            $result = $scanner->evaluate($bars, $benchmarkBars, [
+            $result = $scanner->evaluate($bars, $benchmarkBars, array_merge([
                 'symbol' => $symbol,
                 'company_name' => $this->companyName,
                 'exchange' => $this->exchange,
                 'market_cap' => $this->marketCap,
-            ]);
+            ], $fundamentalMetrics));
             if ($result === null) {
                 return;
             }
@@ -120,6 +123,14 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'relative_strength_score' => $result->relativeStrengthScore,
                     'earnings_acceleration' => $result->earningsAcceleration,
                     'sales_acceleration' => $result->salesAcceleration,
+                    'quarterly_eps_growth_pct' => $result->quarterlyEpsGrowthPct,
+                    'quarterly_revenue_growth_pct' => $result->quarterlyRevenueGrowthPct,
+                    'annual_eps_growth_pct' => $result->annualEpsGrowthPct,
+                    'roe_pct' => $result->roePct,
+                    'profit_margin_pct' => $result->profitMarginPct,
+                    'spike_relative_volume' => $result->spikeRelativeVolume,
+                    'eps_growth_sequence' => $result->epsGrowthSequence,
+                    'revenue_growth_sequence' => $result->revenueGrowthSequence,
                     'heartbeat_score' => $score,
                     'reason_summary' => $result->reasonSummary,
                     'status' => 'new',
@@ -171,6 +182,34 @@ class EvaluateStockBuySetup implements ShouldQueue
                 'symbol' => $symbol,
                 'msg' => $e->getMessage(),
             ]);
+        }
+    }
+
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadFundamentalMetrics(
+        MarketDataProvider $provider,
+        StockFundamentalsAnalyzer $fundamentals,
+        string $symbol,
+    ): array {
+        try {
+            $income = $provider->quarterlyIncomeStatements($symbol, 8);
+            if (empty($income)) {
+                return [];
+            }
+
+            $balance = $provider->quarterlyBalanceSheets($symbol, 8);
+
+            return $fundamentals->analyze($income, $balance);
+        } catch (Throwable $e) {
+            Log::warning('buy_setup.fundamentals_failed', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
         }
     }
 

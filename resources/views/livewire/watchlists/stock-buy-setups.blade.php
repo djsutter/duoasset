@@ -80,6 +80,7 @@
                     <th class="text-right">{{ __('RS') }}</th>
                     <th class="text-right">{{ __('Heartbeat') }}</th>
                     <th>{{ __('Score breakdown') }}</th>
+                    <th>{{ __('Fundamentals') }}</th>
                     <th>{{ __('Status') }}</th>
                     <th>{{ __('Reason') }}</th>
                     <th>{{ __('Action') }}</th>
@@ -113,7 +114,7 @@
                             <div class="space-y-1.5">
                                 @foreach ($breakdown as $component)
                                     @php($pct = $component['max'] > 0 ? min(100, round(($component['points'] / $component['max']) * 100)) : 0)
-                                    <div>
+                                    <div title="{{ $component['value'] ?? '' }}">
                                         <div class="flex justify-between gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                                             <span>{{ __($component['label']) }}</span>
                                             <span>{{ $component['points'] }}/{{ $component['max'] }}</span>
@@ -124,6 +125,36 @@
                                     </div>
                                 @endforeach
                             </div>
+                        </td>
+                        <td class="min-w-64 text-xs">
+                            <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                                <span class="text-zinc-500">{{ __('EPS YoY') }}</span>
+                                <span class="text-right">{{ $alert->quarterly_eps_growth_pct !== null ? number_format((float) $alert->quarterly_eps_growth_pct, 1).'%' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('EPS accel.') }}</span>
+                                <span class="text-right">{{ $alert->earnings_acceleration !== null ? number_format((float) $alert->earnings_acceleration, 1).' pts' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('Sales YoY') }}</span>
+                                <span class="text-right">{{ $alert->quarterly_revenue_growth_pct !== null ? number_format((float) $alert->quarterly_revenue_growth_pct, 1).'%' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('Sales accel.') }}</span>
+                                <span class="text-right">{{ $alert->sales_acceleration !== null ? number_format((float) $alert->sales_acceleration, 1).' pts' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('Annual EPS') }}</span>
+                                <span class="text-right">{{ $alert->annual_eps_growth_pct !== null ? number_format((float) $alert->annual_eps_growth_pct, 1).'%' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('ROE') }}</span>
+                                <span class="text-right">{{ $alert->roe_pct !== null ? number_format((float) $alert->roe_pct, 1).'%' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('Margin') }}</span>
+                                <span class="text-right">{{ $alert->profit_margin_pct !== null ? number_format((float) $alert->profit_margin_pct, 1).'%' : '—' }}</span>
+                                <span class="text-zinc-500">{{ __('Spike rel vol') }}</span>
+                                <span class="text-right">{{ $alert->spike_relative_volume !== null ? number_format((float) $alert->spike_relative_volume, 1).'x' : '—' }}</span>
+                            </div>
+                            @if (! empty($alert->eps_growth_sequence) || ! empty($alert->revenue_growth_sequence))
+                                <div class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                    @if (! empty($alert->eps_growth_sequence))
+                                        <div>{{ __('EPS seq') }}: {{ collect($alert->eps_growth_sequence)->map(fn ($v) => number_format((float) $v, 1).'%')->join(', ') }}</div>
+                                    @endif
+                                    @if (! empty($alert->revenue_growth_sequence))
+                                        <div>{{ __('Sales seq') }}: {{ collect($alert->revenue_growth_sequence)->map(fn ($v) => number_format((float) $v, 1).'%')->join(', ') }}</div>
+                                    @endif
+                                </div>
+                            @endif
                         </td>
                         <td class="text-xs">{{ $alert->status }}</td>
                         <td class="text-xs text-zinc-500 max-w-xs">{{ $alert->reason_summary }}</td>
@@ -141,7 +172,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="16" class="text-center text-sm text-zinc-500 py-6">
+                        <td colspan="17" class="text-center text-sm text-zinc-500 py-6">
                             {{ __('No stock buy setup alerts yet.') }}
                         </td>
                     </tr>

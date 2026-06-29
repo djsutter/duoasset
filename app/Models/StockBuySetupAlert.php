@@ -41,6 +41,14 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $relative_strength_score
  * @property string|null $earnings_acceleration
  * @property string|null $sales_acceleration
+ * @property string|null $quarterly_eps_growth_pct
+ * @property string|null $quarterly_revenue_growth_pct
+ * @property string|null $annual_eps_growth_pct
+ * @property string|null $roe_pct
+ * @property string|null $profit_margin_pct
+ * @property string|null $spike_relative_volume
+ * @property array|null $eps_growth_sequence
+ * @property array|null $revenue_growth_sequence
  * @property int $heartbeat_score
  * @property string|null $reason_summary
  * @property string $status
@@ -83,6 +91,14 @@ class StockBuySetupAlert extends Model
         'relative_strength_score',
         'earnings_acceleration',
         'sales_acceleration',
+        'quarterly_eps_growth_pct',
+        'quarterly_revenue_growth_pct',
+        'annual_eps_growth_pct',
+        'roe_pct',
+        'profit_margin_pct',
+        'spike_relative_volume',
+        'eps_growth_sequence',
+        'revenue_growth_sequence',
         'heartbeat_score',
         'reason_summary',
         'status',
@@ -111,6 +127,14 @@ class StockBuySetupAlert extends Model
         'relative_strength_score' => 'decimal:4',
         'earnings_acceleration' => 'decimal:4',
         'sales_acceleration' => 'decimal:4',
+        'quarterly_eps_growth_pct' => 'decimal:4',
+        'quarterly_revenue_growth_pct' => 'decimal:4',
+        'annual_eps_growth_pct' => 'decimal:4',
+        'roe_pct' => 'decimal:4',
+        'profit_margin_pct' => 'decimal:4',
+        'spike_relative_volume' => 'decimal:4',
+        'eps_growth_sequence' => 'array',
+        'revenue_growth_sequence' => 'array',
         'market_cap' => 'integer',
         'price' => 'decimal:4',
         'shares_outstanding' => 'integer',
