@@ -52,6 +52,7 @@ class ScanEpsRevisions extends Command
                 'exchange' => $exchanges,
                 'limit' => $limit > 0 ? $limit : null,
             ]);
+
             $this->info('Screener rows: '.count($rows));
 
             // Surface API errors (auth / rate-limit / plan).

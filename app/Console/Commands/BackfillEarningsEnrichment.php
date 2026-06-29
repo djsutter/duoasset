@@ -16,7 +16,7 @@ use Illuminate\Console\Command;
 class BackfillEarningsEnrichment extends Command
 {
     protected $signature = 'earnings:enrich-missing
-                            {--limit=500 : Max events to enqueue per run}
+                            {--limit=750 : Max events to enqueue per run}
                             {--sync : Run enrichment synchronously (debug)}';
 
     protected $description = 'Re-dispatch enrichment for earnings events missing company_name / exchange / market_cap.';

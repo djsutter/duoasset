@@ -580,6 +580,12 @@ class FmpMarketDataProvider implements MarketDataProvider
         if ($symbol === '') {
             return null;
         }
+        $cap = $row['marketCap'] ?? $row['mktCap'] ?? 0;
+        $outstanding = 0;
+        $price = $row['price'] ?? 0;
+        if ($cap > 0 && $price > 0) {
+            $outstanding = (int) $cap / $price;
+        }
 
         return [
             'symbol' => $symbol,
@@ -591,7 +597,7 @@ class FmpMarketDataProvider implements MarketDataProvider
             // should prefer the computed value (price × shares_outstanding).
             'market_cap' => $this->toInt($row['marketCap'] ?? $row['mktCap'] ?? null),
             'shares_outstanding' => $this->toInt(
-                $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null,
+                $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? $outstanding,
             ),
             'float_shares' => $this->toInt($row['floatShares'] ?? null),
             'free_float' => $this->toFloat($row['freeFloat'] ?? null),
