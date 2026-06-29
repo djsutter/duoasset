@@ -125,7 +125,12 @@ class EpsRevisions extends Component
 
         $query = EpsRevisionAlert::query()
             ->when($minPct !== null, fn ($q) => $q->whereRaw('ABS(revision_percent) >= ?', [$minPct]))
-            ->when($minMcap !== null, fn ($q) => $q->where('market_cap', '>=', $minMcap))
+            ->when($minMcap !== null, function ($q) use ($minMcap) {
+                $q->where(function ($q) use ($minMcap) {
+                    $q->whereNull('market_cap')
+                      ->orWhere('market_cap', '>=', $minMcap);
+                });
+            })
             ->when($this->exchange, fn ($q) => $q->where('exchange', $this->exchange))
             ->when($this->dateFrom, fn ($q) => $q->whereDate('detected_at', '>=', $this->dateFrom))
             ->when($this->dateTo, fn ($q) => $q->whereDate('detected_at', '<=', $this->dateTo))
