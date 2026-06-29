@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\EvaluateStockBuySetup;
 use App\Services\MarketData\MarketDataProvider;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Drive the Stock Buy Setup scanner: pull the FMP company-screener
@@ -102,6 +103,22 @@ class ScanBuySetups extends Command
         }
 
         $this->info("Dispatched: {$dispatched} per-symbol buy-setup evaluations.");
+
+        if (! $sync) {
+            $queueConnection = (string) config('queue.default');
+            $this->line("Queue connection: {$queueConnection}");
+
+            if ($queueConnection === 'database') {
+                $queue = (string) config('queue.connections.database.queue', 'default');
+                $pending = DB::table((string) config('queue.connections.database.table', 'jobs'))
+                    ->where('queue', $queue)
+                    ->where('payload', 'like', '%EvaluateStockBuySetup%')
+                    ->count();
+
+                $this->line("Pending {$queue} jobs for EvaluateStockBuySetup: {$pending}");
+                $this->warn('Jobs are queued, not executed by this command. Run `php artisan queue:work --queue='.$queue.'` or rerun with `--sync` for a foreground debug pass.');
+            }
+        }
 
         return self::SUCCESS;
     }

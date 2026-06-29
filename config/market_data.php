@@ -56,4 +56,29 @@ return [
         // return many thousands of rows. Set to 0 to disable the cap.
         'max_symbols_per_run' => env('EPS_REVISION_MAX_SYMBOLS', 2000),
     ],
+
+    /*
+    |----------------------------------------------------------------------
+    | Stock Buy Setup Scanner
+    |----------------------------------------------------------------------
+    | Looks for a rare recent volume spike after a tight consolidation base.
+    | The command queues one per-symbol job unless --sync is used.
+    */
+    'buy_setup_scanner' => [
+        'enabled' => env('BUY_SETUP_SCANNER_ENABLED', true),
+        'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000)),
+        'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV'],
+        'max_symbols_per_run' => env('BUY_SETUP_MAX_SYMBOLS', 1000),
+        'history_lookback_days' => env('BUY_SETUP_HISTORY_LOOKBACK_DAYS', 504),
+        'benchmark_symbols' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_BENCHMARK_SYMBOLS', 'SPY,IWM')))),
+        'recent_spike_window_days' => env('BUY_SETUP_RECENT_SPIKE_WINDOW_DAYS', 42),
+        'max_spike_age_days' => env('BUY_SETUP_MAX_SPIKE_AGE_DAYS', 84),
+        'min_base_days' => env('BUY_SETUP_MIN_BASE_DAYS', 60),
+        'max_base_days' => env('BUY_SETUP_MAX_BASE_DAYS', 120),
+        'max_range_compression_pct' => env('BUY_SETUP_MAX_RANGE_COMPRESSION_PCT', 25),
+        'max_atr_ratio' => env('BUY_SETUP_MAX_ATR_RATIO', 0.85),
+        'min_heartbeat_score' => env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50),
+        'notification_email' => env('BUY_SETUP_NOTIFICATION_EMAIL'),
+    ],
+
 ];

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\CheckEpsRevisionForSymbol;
 use App\Services\MarketData\MarketDataProvider;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Drive the EPS Revision scanner: pull the FMP company-screener pre-filtered
@@ -93,6 +94,10 @@ class ScanEpsRevisions extends Command
                 'companyName' => $row['company_name'] ?? null,
                 'exchange' => $row['exchange'] ?? null,
                 'marketCap' => isset($row['market_cap']) ? (int) $row['market_cap'] : null,
+                'price' => isset($row['price']) ? (float) $row['price'] : null,
+                'sharesOutstanding' => isset($row['shares_outstanding']) ? (int) $row['shares_outstanding'] : null,
+                'floatShares' => isset($row['float_shares']) ? (int) $row['float_shares'] : null,
+                'freeFloat' => isset($row['free_float']) ? (float) $row['free_float'] : null,
             ];
 
             if ($sync) {
@@ -104,6 +109,22 @@ class ScanEpsRevisions extends Command
         }
 
         $this->info("Dispatched: {$dispatched} per-symbol revision checks.");
+
+        if (! $sync) {
+            $queueConnection = (string) config('queue.default');
+            $this->line("Queue connection: {$queueConnection}");
+
+            if ($queueConnection === 'database') {
+                $queue = (string) config('queue.connections.database.queue', 'default');
+                $pending = DB::table((string) config('queue.connections.database.table', 'jobs'))
+                    ->where('queue', $queue)
+                    ->where('payload', 'like', '%CheckEpsRevisionForSymbol%')
+                    ->count();
+
+                $this->line("Pending {$queue} jobs for CheckEpsRevisionForSymbol: {$pending}");
+                $this->warn('Jobs are queued, not executed by this command. Run `php artisan queue:work --queue='.$queue.'` or rerun with `--sync` for a foreground debug pass.');
+            }
+        }
 
         return self::SUCCESS;
     }
