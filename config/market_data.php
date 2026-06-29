@@ -78,6 +78,18 @@ return [
         'max_range_compression_pct' => env('BUY_SETUP_MAX_RANGE_COMPRESSION_PCT', 25),
         'max_atr_ratio' => env('BUY_SETUP_MAX_ATR_RATIO', 0.85),
         'min_heartbeat_score' => env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50),
+        'score_weights' => [
+            'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 25),
+            'base_duration' => env('BUY_SETUP_SCORE_BASE_DURATION_MAX', 10),
+            'range_compression' => env('BUY_SETUP_SCORE_RANGE_COMPRESSION_MAX', 15),
+            'atr_contraction' => env('BUY_SETUP_SCORE_ATR_CONTRACTION_MAX', 10),
+            'volume_dry_up' => env('BUY_SETUP_SCORE_VOLUME_DRY_UP_MAX', 10),
+            'breakout_distance' => env('BUY_SETUP_SCORE_BREAKOUT_DISTANCE_MAX', 10),
+            'ma_alignment' => env('BUY_SETUP_SCORE_MA_ALIGNMENT_MAX', 10),
+            'relative_strength' => env('BUY_SETUP_SCORE_RELATIVE_STRENGTH_MAX', 10),
+            'earnings_acceleration' => env('BUY_SETUP_SCORE_EARNINGS_ACCELERATION_MAX', 5),
+            'sales_acceleration' => env('BUY_SETUP_SCORE_SALES_ACCELERATION_MAX', 5),
+        ],
         'notification_email' => env('BUY_SETUP_NOTIFICATION_EMAIL'),
     ],
 

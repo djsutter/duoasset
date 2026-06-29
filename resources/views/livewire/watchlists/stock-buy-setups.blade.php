@@ -3,7 +3,7 @@
         <div>
             <h1 class="text-2xl font-semibold">{{ __('Stock Buy Setups') }}</h1>
             <p class="text-sm text-zinc-500 dark:text-zinc-400">
-                {{ __('High-volume spikes following tight consolidation bases, scored 0–100.') }}
+                {{ __('High-volume spikes following tight consolidation bases. Heartbeat is now shown with component scores.') }}
             </p>
         </div>
         <button type="button" wire:click="clearFilters" class="da-btn-secondary">
@@ -79,6 +79,7 @@
                     <th class="text-right">{{ __('Dist to BO %') }}</th>
                     <th class="text-right">{{ __('RS') }}</th>
                     <th class="text-right">{{ __('Heartbeat') }}</th>
+                    <th>{{ __('Score breakdown') }}</th>
                     <th>{{ __('Status') }}</th>
                     <th>{{ __('Reason') }}</th>
                     <th>{{ __('Action') }}</th>
@@ -107,6 +108,23 @@
                         <td class="text-right font-semibold text-emerald-600 dark:text-emerald-400">
                             {{ $alert->heartbeat_score }}
                         </td>
+                        <td class="min-w-64 text-xs">
+                            @php($breakdown = $scoreBreakdowns[$alert->id] ?? [])
+                            <div class="space-y-1.5">
+                                @foreach ($breakdown as $component)
+                                    @php($pct = $component['max'] > 0 ? min(100, round(($component['points'] / $component['max']) * 100)) : 0)
+                                    <div>
+                                        <div class="flex justify-between gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                            <span>{{ __($component['label']) }}</span>
+                                            <span>{{ $component['points'] }}/{{ $component['max'] }}</span>
+                                        </div>
+                                        <div class="h-1.5 rounded bg-zinc-200 dark:bg-zinc-700">
+                                            <div class="h-1.5 rounded bg-emerald-500" style="width: {{ $pct }}%"></div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </td>
                         <td class="text-xs">{{ $alert->status }}</td>
                         <td class="text-xs text-zinc-500 max-w-xs">{{ $alert->reason_summary }}</td>
                         <td>
@@ -123,7 +141,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="15" class="text-center text-sm text-zinc-500 py-6">
+                        <td colspan="16" class="text-center text-sm text-zinc-500 py-6">
                             {{ __('No stock buy setup alerts yet.') }}
                         </td>
                     </tr>

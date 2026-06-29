@@ -7,6 +7,7 @@ use App\Models\StockBuySetupAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
 use App\Services\Stocks\StockProvisioner;
+use App\Services\Stocks\StockBuySetupScorer;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -138,10 +139,15 @@ class StockBuySetups extends Component
             ->orderByDesc('detected_at')
             ->paginate(25);
 
+        $scorer = app(StockBuySetupScorer::class);
+        $scoreBreakdowns = $alerts->getCollection()
+            ->mapWithKeys(fn (StockBuySetupAlert $alert) => [$alert->id => $scorer->breakdown($alert)]);
+
         return view('livewire.watchlists.stock-buy-setups', [
             'alerts' => $alerts,
             'watched' => $watchedSymbols,
             'exchanges' => config('market_data.buy_setup_scanner.exchanges', []),
+            'scoreBreakdowns' => $scoreBreakdowns,
         ]);
     }
 }

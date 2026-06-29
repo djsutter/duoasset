@@ -2,96 +2,228 @@
 
 namespace App\Services\Stocks;
 
+use App\Models\StockBuySetupAlert;
+
 /**
- * Produces a 0–100 composite heartbeat score from a StockBuySetupResult.
+ * Produces a configurable 0-100 composite heartbeat score.
  *
- * Each subscore is documented inline so thresholds can be tuned without
- * reading the scanner. Subscores are summed then clamped to [0, 100].
+ * Component maximums live in config('market_data.buy_setup_scanner.score_weights').
+ * Raw component points are summed and capped at 100.
  */
 class StockBuySetupScorer
 {
+    /**
+     * @return array<string, array{label: string, points: int, max: int}>
+     */
+    public function breakdown(StockBuySetupResult|StockBuySetupAlert $r): array
+    {
+        $weights = $this->weights();
+
+        return [
+            'spike_rarity' => [
+                'label' => 'Spike rarity',
+                'points' => $this->spikeRarityPoints($r, $weights['spike_rarity']),
+                'max' => $weights['spike_rarity'],
+            ],
+            'base_duration' => [
+                'label' => 'Base duration',
+                'points' => $this->baseDurationPoints((int) ($r->baseDurationDays ?? $r->base_duration_days ?? 0), $weights['base_duration']),
+                'max' => $weights['base_duration'],
+            ],
+            'range_compression' => [
+                'label' => 'Range compression',
+                'points' => $this->rangeCompressionPoints((float) ($r->rangeCompressionPct ?? $r->range_compression_pct ?? 999), $weights['range_compression']),
+                'max' => $weights['range_compression'],
+            ],
+            'atr_contraction' => [
+                'label' => 'ATR contraction',
+                'points' => $this->atrContractionPoints((float) ($r->atrContractionRatio ?? $r->atr_contraction_ratio ?? 999), $weights['atr_contraction']),
+                'max' => $weights['atr_contraction'],
+            ],
+            'volume_dry_up' => [
+                'label' => 'Volume dry-up',
+                'points' => $this->volumeDryUpPoints((float) ($r->volumeDryUpScore ?? $r->volume_dry_up_score ?? 0), $weights['volume_dry_up']),
+                'max' => $weights['volume_dry_up'],
+            ],
+            'breakout_distance' => [
+                'label' => 'Breakout distance',
+                'points' => $this->breakoutDistancePoints((float) ($r->distanceToBreakoutPct ?? $r->distance_to_breakout_pct ?? 999), $weights['breakout_distance']),
+                'max' => $weights['breakout_distance'],
+            ],
+            'ma_alignment' => [
+                'label' => 'MA alignment',
+                'points' => $this->maAlignmentPoints((string) ($r->maAlignment ?? $r->ma_alignment ?? ''), $weights['ma_alignment']),
+                'max' => $weights['ma_alignment'],
+            ],
+            'relative_strength' => [
+                'label' => 'Relative strength',
+                'points' => $this->relativeStrengthPoints($this->nullableFloat($r->relativeStrengthScore ?? $r->relative_strength_score ?? null), $weights['relative_strength']),
+                'max' => $weights['relative_strength'],
+            ],
+            'earnings_acceleration' => [
+                'label' => 'Earnings accel.',
+                'points' => $this->positiveBonusPoints($this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null), $weights['earnings_acceleration']),
+                'max' => $weights['earnings_acceleration'],
+            ],
+            'sales_acceleration' => [
+                'label' => 'Sales accel.',
+                'points' => $this->positiveBonusPoints($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null), $weights['sales_acceleration']),
+                'max' => $weights['sales_acceleration'],
+            ],
+        ];
+    }
+
     public function score(StockBuySetupResult $r): int
     {
-        $s = 0;
+        return $this->scoreFromBreakdown($this->breakdown($r));
+    }
 
-        // Spike rarity (max 25 pts)
-        if ($r->is104wHighVolume) {
-            $s += 25;
-        } elseif ($r->is52wHighVolume) {
-            $s += 15;
-        } else {
-            $s += 5;
+    public function scoreFromAlert(StockBuySetupAlert $alert): int
+    {
+        return $this->scoreFromBreakdown($this->breakdown($alert));
+    }
+
+    /**
+     * @param array<string, array{points: int, max: int}> $breakdown
+     */
+    public function scoreFromBreakdown(array $breakdown): int
+    {
+        return max(0, min(100, (int) array_sum(array_column($breakdown, 'points'))));
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public function weights(): array
+    {
+        $defaults = [
+            'spike_rarity' => 25,
+            'base_duration' => 10,
+            'range_compression' => 15,
+            'atr_contraction' => 10,
+            'volume_dry_up' => 10,
+            'breakout_distance' => 10,
+            'ma_alignment' => 10,
+            'relative_strength' => 10,
+            'earnings_acceleration' => 5,
+            'sales_acceleration' => 5,
+        ];
+
+        $configured = (array) config('market_data.buy_setup_scanner.score_weights', []);
+
+        return collect($defaults)
+            ->mapWithKeys(fn (int $default, string $key) => [
+                $key => max(0, (int) ($configured[$key] ?? $default)),
+            ])
+            ->all();
+    }
+
+    private function spikeRarityPoints(StockBuySetupResult|StockBuySetupAlert $r, int $max): int
+    {
+        if ($max <= 0) {
+            return 0;
         }
 
-        // Base duration (max 10 pts)
-        if ($r->baseDurationDays >= 90) {
-            $s += 10;
-        } elseif ($r->baseDurationDays >= 60) {
-            $s += 7;
-        } else {
-            $s += 3;
+        if ((bool) ($r->is104wHighVolume ?? $r->is_104w_high_volume ?? false)) {
+            return $max;
         }
 
-        // Range compression (max 15 pts)
-        if ($r->rangeCompressionPct <= 10) {
-            $s += 15;
-        } elseif ($r->rangeCompressionPct <= 18) {
-            $s += 10;
-        } elseif ($r->rangeCompressionPct <= 25) {
-            $s += 5;
+        if ((bool) ($r->is52wHighVolume ?? $r->is_52w_high_volume ?? false)) {
+            return (int) round($max * 0.60);
         }
 
-        // ATR contraction (max 10 pts)
-        if ($r->atrContractionRatio <= 0.6) {
-            $s += 10;
-        } elseif ($r->atrContractionRatio <= 0.75) {
-            $s += 7;
-        } elseif ($r->atrContractionRatio <= 0.85) {
-            $s += 4;
+        return (int) round($max * 0.20);
+    }
+
+    private function baseDurationPoints(int $days, int $max): int
+    {
+        return match (true) {
+            $max <= 0 => 0,
+            $days >= 90 => $max,
+            $days >= 60 => (int) round($max * 0.70),
+            $days > 0 => (int) round($max * 0.30),
+            default => 0,
+        };
+    }
+
+    private function rangeCompressionPoints(float $pct, int $max): int
+    {
+        return match (true) {
+            $max <= 0 => 0,
+            $pct <= 10 => $max,
+            $pct <= 18 => (int) round($max * 0.67),
+            $pct <= 25 => (int) round($max * 0.33),
+            default => 0,
+        };
+    }
+
+    private function atrContractionPoints(float $ratio, int $max): int
+    {
+        return match (true) {
+            $max <= 0 => 0,
+            $ratio <= 0.60 => $max,
+            $ratio <= 0.75 => (int) round($max * 0.70),
+            $ratio <= 0.85 => (int) round($max * 0.40),
+            default => 0,
+        };
+    }
+
+    private function volumeDryUpPoints(float $score, int $max): int
+    {
+        return match (true) {
+            $max <= 0 => 0,
+            $score >= 0.30 => $max,
+            $score >= 0.15 => (int) round($max * 0.60),
+            $score > 0 => (int) round($max * 0.30),
+            default => 0,
+        };
+    }
+
+    private function breakoutDistancePoints(float $pct, int $max): int
+    {
+        return match (true) {
+            $max <= 0 => 0,
+            $pct <= 2 => $max,
+            $pct <= 5 => (int) round($max * 0.70),
+            $pct <= 10 => (int) round($max * 0.40),
+            default => 0,
+        };
+    }
+
+    private function maAlignmentPoints(string $alignment, int $max): int
+    {
+        if ($max <= 0) {
+            return 0;
         }
 
-        // Volume dry-up (max 10 pts)
-        if ($r->volumeDryUpScore >= 0.3) {
-            $s += 10;
-        } elseif ($r->volumeDryUpScore >= 0.15) {
-            $s += 6;
-        } elseif ($r->volumeDryUpScore > 0) {
-            $s += 3;
+        if (str_contains($alignment, '50>150>200') && str_contains($alignment, 'price>50')) {
+            return $max;
         }
 
-        // Distance to breakout (max 10 pts) — closer is better.
-        if ($r->distanceToBreakoutPct <= 2) {
-            $s += 10;
-        } elseif ($r->distanceToBreakoutPct <= 5) {
-            $s += 7;
-        } elseif ($r->distanceToBreakoutPct <= 10) {
-            $s += 4;
+        if (str_contains($alignment, '50>200')) {
+            return (int) round($max * 0.50);
         }
 
-        // MA alignment (max 10 pts)
-        if (str_contains($r->maAlignment, '50>150>200') && str_contains($r->maAlignment, 'price>50')) {
-            $s += 10;
-        } elseif (str_contains($r->maAlignment, '50>200')) {
-            $s += 5;
-        }
+        return 0;
+    }
 
-        // Relative strength (max 10 pts) — omitted when null.
-        if ($r->relativeStrengthScore !== null) {
-            if ($r->relativeStrengthScore >= 10) {
-                $s += 10;
-            } elseif ($r->relativeStrengthScore >= 0) {
-                $s += 5;
-            }
-        }
+    private function relativeStrengthPoints(?float $rs, int $max): int
+    {
+        return match (true) {
+            $max <= 0, $rs === null => 0,
+            $rs >= 10 => $max,
+            $rs >= 0 => (int) round($max * 0.50),
+            default => 0,
+        };
+    }
 
-        // Earnings / sales acceleration bonuses (max 5 each).
-        if ($r->earningsAcceleration !== null && $r->earningsAcceleration > 0) {
-            $s += 5;
-        }
-        if ($r->salesAcceleration !== null && $r->salesAcceleration > 0) {
-            $s += 5;
-        }
+    private function positiveBonusPoints(?float $value, int $max): int
+    {
+        return $max > 0 && $value !== null && $value > 0 ? $max : 0;
+    }
 
-        return max(0, min(100, $s));
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null || $value === '' ? null : (float) $value;
     }
 }
