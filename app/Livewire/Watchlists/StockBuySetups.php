@@ -74,6 +74,25 @@ class StockBuySetups extends Component
         $this->resetPage();
     }
 
+
+    public function sortByColumn(string $column): void
+    {
+        $allowed = ['setup_score', 'heartbeat_score', 'detected_at', 'spike_date'];
+
+        if (! in_array($column, $allowed, true)) {
+            return;
+        }
+
+        if ($this->sortBy === $column) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortBy = $column;
+            $this->sortDirection = 'desc';
+        }
+
+        $this->resetPage();
+    }
+
     public function addToWatchlist(int $alertId): void
     {
         $alert = StockBuySetupAlert::findOrFail($alertId);
