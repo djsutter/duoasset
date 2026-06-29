@@ -41,6 +41,18 @@ EPS_REVISION_MIN_MARKET_CAP=100000000
 EPS_REVISION_POSITIVE_THRESHOLD=20      # Raised when revision% >= this
 EPS_REVISION_NEGATIVE_THRESHOLD=-20     # Cut when revision% <= this
 EPS_REVISION_MAX_SYMBOLS=2000           # soft cap on screener universe per run
+
+# BUY Setup Score
+BUY_SETUP_SCORE_SPIKE_RARITY_MAX=25
+BUY_SETUP_SCORE_BASE_DURATION_MAX=10
+BUY_SETUP_SCORE_RANGE_COMPRESSION_MAX=15
+BUY_SETUP_SCORE_ATR_CONTRACTION_MAX=10
+BUY_SETUP_SCORE_VOLUME_DRY_UP_MAX=10
+BUY_SETUP_SCORE_BREAKOUT_DISTANCE_MAX=10
+BUY_SETUP_SCORE_MA_ALIGNMENT_MAX=10
+BUY_SETUP_SCORE_RELATIVE_STRENGTH_MAX=10
+BUY_SETUP_SCORE_EARNINGS_ACCELERATION_MAX=5
+BUY_SETUP_SCORE_SALES_ACCELERATION_MAX=5
 ```
 
 All tunables live in `config/market_data.php`. The `min_eps_surprise_percent` and `min_market_cap` values are the gates the scanner uses before creating an alert; the configured exchange list (`NYSE`, `NASDAQ`, `TSX`, `TSXV`) is also enforced.
