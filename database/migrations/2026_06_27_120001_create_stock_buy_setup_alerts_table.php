@@ -12,6 +12,8 @@ return new class extends Migration
             $table->id();
             $table->string('source', 32)->default('fmp');
             $table->string('symbol', 32)->index();
+            $table->string('setup_type', 64)->default('heartbeat_consolidation_spike')->index();
+            $table->unsignedInteger('setup_score')->default(0)->index();
             $table->string('company_name')->nullable();
             $table->string('exchange', 16)->nullable()->index();
             $table->unsignedBigInteger('market_cap')->nullable()->index();
@@ -48,7 +50,7 @@ return new class extends Migration
             $table->timestamp('sent_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['source', 'symbol', 'spike_date'], 'stock_buy_setup_alerts_uniq');
+            $table->unique(['source', 'symbol', 'setup_type', 'spike_date'], 'stock_buy_setup_alerts_type_uniq');
         });
     }
 

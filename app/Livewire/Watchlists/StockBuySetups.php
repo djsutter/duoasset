@@ -17,6 +17,9 @@ class StockBuySetups extends Component
 {
     use WithPagination;
 
+    #[Url(as: 'type')]
+    public ?string $setupType = null;
+
     #[Url(as: 'min_score')]
     public ?string $minScore = null;
 
@@ -38,11 +41,17 @@ class StockBuySetups extends Component
     #[Url(as: 'unwatched_only')]
     public bool $unwatchedOnly = false;
 
+    #[Url(as: 'sort')]
+    public string $sortBy = 'setup_score';
+
+    #[Url(as: 'dir')]
+    public string $sortDirection = 'desc';
+
     public ?string $flash = null;
 
     public function mount(): void
     {
-        $this->minScore ??= (string) config('market_data.buy_setup_scanner.min_heartbeat_score', 50);
+        $this->minScore ??= (string) config('market_data.buy_setup_scanner.min_setup_score', 50);
     }
 
     public function updating(): void
@@ -52,13 +61,16 @@ class StockBuySetups extends Component
 
     public function clearFilters(): void
     {
-        $this->minScore = (string) config('market_data.buy_setup_scanner.min_heartbeat_score', 50);
+        $this->setupType = null;
+        $this->minScore = (string) config('market_data.buy_setup_scanner.min_setup_score', 50);
         $this->minMarketCap = null;
         $this->exchange = null;
         $this->marketCapCategory = null;
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->unwatchedOnly = false;
+        $this->sortBy = 'setup_score';
+        $this->sortDirection = 'desc';
         $this->resetPage();
     }
 
@@ -102,7 +114,7 @@ class StockBuySetups extends Component
                 'stock_id' => $stock->id,
                 'currency' => $stock->currency->value,
                 'moat_level' => MoatLevel::Medium->value,
-                'notes' => 'Buy setup ('.$alert->heartbeat_score.'/100): '.$alert->reason_summary,
+                'notes' => 'Buy setup ['.$alert->setup_type.'] ('.$alert->setup_score.'/100): '.$alert->reason_summary,
             ]);
 
             $this->flash = "Added {$alert->symbol} to Setup watchlist.";
@@ -125,7 +137,8 @@ class StockBuySetups extends Component
         }
 
         $query = StockBuySetupAlert::query()
-            ->when($minScore !== null, fn ($q) => $q->where('heartbeat_score', '>=', $minScore))
+            ->when($this->setupType, fn ($q) => $q->where('setup_type', $this->setupType))
+            ->when($minScore !== null, fn ($q) => $q->where('setup_score', '>=', $minScore))
             ->when($minMcap !== null, fn ($q) => $q->where('market_cap', '>=', $minMcap))
             ->when($this->exchange, fn ($q) => $q->where('exchange', $this->exchange))
             ->when($this->marketCapCategory, fn ($q) => $q->where('market_cap_category', $this->marketCapCategory))
@@ -134,8 +147,11 @@ class StockBuySetups extends Component
             ->when($this->unwatchedOnly && $watchedSymbols->isNotEmpty(),
                 fn ($q) => $q->whereNotIn('symbol', $watchedSymbols->all()));
 
+        $sortBy = in_array($this->sortBy, ['setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
+        $direction = strtolower($this->sortDirection) === 'asc' ? 'asc' : 'desc';
+
         $alerts = $query
-            ->orderByDesc('heartbeat_score')
+            ->orderBy($sortBy, $direction)
             ->orderByDesc('detected_at')
             ->paginate(25);
 
@@ -147,7 +163,21 @@ class StockBuySetups extends Component
             'alerts' => $alerts,
             'watched' => $watchedSymbols,
             'exchanges' => config('market_data.buy_setup_scanner.exchanges', []),
+            'setupTypes' => $this->setupTypes(),
             'scoreBreakdowns' => $scoreBreakdowns,
         ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function setupTypes(): array
+    {
+        $configured = (array) config('market_data.buy_setup_scanner.setup_types', []);
+
+        return collect($configured)
+            ->filter(fn (array $type) => (bool) ($type['enabled'] ?? false))
+            ->mapWithKeys(fn (array $type, string $key) => [$key => (string) ($type['label'] ?? $key)])
+            ->all();
     }
 }

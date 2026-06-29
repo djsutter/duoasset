@@ -11,6 +11,7 @@ use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
+use App\Services\Stocks\StockFundamentalsAnalyzer;
 use App\Services\Stocks\StockProvisioner;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
@@ -51,6 +52,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         MarketDataProvider $provider,
         StockBuySetupScanner $scanner,
         StockBuySetupScorer $scorer,
+        StockFundamentalsAnalyzer $fundamentals,
         StockProvisioner $stocks,
     ): void {
         $symbol = strtoupper(trim($this->symbol));
@@ -61,7 +63,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         try {
             $config = config('market_data.buy_setup_scanner');
             $lookback = (int) ($config['history_lookback_days'] ?? 504);
-            $minScore = (int) ($config['min_heartbeat_score'] ?? 50);
+            $minScore = (int) ($config['min_setup_score'] ?? $config['min_heartbeat_score'] ?? 50);
 
             $bars = $this->loadBars($provider, $symbol, $lookback);
             if (count($bars) < 252) {
@@ -70,107 +72,146 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             $benchmarks = (array) ($config['benchmark_symbols'] ?? ['SPY', 'IWM']);
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
+            $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol);
 
-            $result = $scanner->evaluate($bars, $benchmarkBars, [
+            $results = $scanner->evaluateAll($bars, $benchmarkBars, array_merge([
                 'symbol' => $symbol,
                 'company_name' => $this->companyName,
                 'exchange' => $this->exchange,
                 'market_cap' => $this->marketCap,
-            ]);
-            if ($result === null) {
-                return;
-            }
+            ], $fundamentalMetrics));
 
-            $score = $scorer->score($result);
-            $result->heartbeatScore = $score;
-            if ($score < $minScore) {
-                return;
-            }
+            foreach ($results as $result) {
+                $score = $scorer->score($result);
+                $result->heartbeatScore = $score;
+                $result->setupScore = $score;
+                if ($result->setupScore < $minScore) {
+                    continue;
+                }
 
-            $spikeDate = $result->spikeDate->toDateString();
+                $spikeDate = $result->spikeDate->toDateString();
 
-            $alert = StockBuySetupAlert::firstOrCreate(
-                [
-                    'source' => 'fmp',
-                    'symbol' => $symbol,
-                    'spike_date' => $spikeDate,
-                ],
-                [
-                    'company_name' => $result->companyName,
-                    'exchange' => $result->exchange,
-                    'market_cap' => $result->marketCap,
-                    'market_cap_category' => $result->marketCapCategory,
-                    'spike_volume' => $result->spikeVolume,
-                    'prior_52w_max_volume' => $result->prior52wMaxVolume,
-                    'max_104w_volume' => $result->max104wVolume,
-                    'is_52w_high_volume' => $result->is52wHighVolume,
-                    'is_104w_high_volume' => $result->is104wHighVolume,
-                    'days_since_previous_comparable_spike' => $result->daysSincePreviousComparableSpike,
-                    'base_start_date' => $result->baseStart->toDateString(),
-                    'base_end_date' => $result->baseEnd->toDateString(),
-                    'base_duration_days' => $result->baseDurationDays,
-                    'base_high' => $result->baseHigh,
-                    'base_low' => $result->baseLow,
-                    'range_compression_pct' => $result->rangeCompressionPct,
-                    'atr_contraction_ratio' => $result->atrContractionRatio,
-                    'volume_dry_up_score' => $result->volumeDryUpScore,
-                    'slope' => $result->slope,
-                    'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
-                    'ma_alignment' => $result->maAlignment,
-                    'relative_strength_score' => $result->relativeStrengthScore,
-                    'earnings_acceleration' => $result->earningsAcceleration,
-                    'sales_acceleration' => $result->salesAcceleration,
-                    'heartbeat_score' => $score,
-                    'reason_summary' => $result->reasonSummary,
-                    'status' => 'new',
-                    'detected_at' => now(),
-                ],
-            );
+                $alert = StockBuySetupAlert::firstOrCreate(
+                    [
+                        'source' => 'fmp',
+                        'symbol' => $symbol,
+                        'setup_type' => $result->setupType,
+                        'spike_date' => $spikeDate,
+                    ],
+                    [
+                        'setup_score' => $result->setupScore,
+                        'company_name' => $result->companyName,
+                        'exchange' => $result->exchange,
+                        'market_cap' => $result->marketCap,
+                        'market_cap_category' => $result->marketCapCategory,
+                        'spike_volume' => $result->spikeVolume,
+                        'prior_52w_max_volume' => $result->prior52wMaxVolume,
+                        'max_104w_volume' => $result->max104wVolume,
+                        'is_52w_high_volume' => $result->is52wHighVolume,
+                        'is_104w_high_volume' => $result->is104wHighVolume,
+                        'days_since_previous_comparable_spike' => $result->daysSincePreviousComparableSpike,
+                        'base_start_date' => $result->baseStart->toDateString(),
+                        'base_end_date' => $result->baseEnd->toDateString(),
+                        'base_duration_days' => $result->baseDurationDays,
+                        'base_high' => $result->baseHigh,
+                        'base_low' => $result->baseLow,
+                        'range_compression_pct' => $result->rangeCompressionPct,
+                        'atr_contraction_ratio' => $result->atrContractionRatio,
+                        'volume_dry_up_score' => $result->volumeDryUpScore,
+                        'slope' => $result->slope,
+                        'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
+                        'ma_alignment' => $result->maAlignment,
+                        'relative_strength_score' => $result->relativeStrengthScore,
+                        'earnings_acceleration' => $result->earningsAcceleration,
+                        'sales_acceleration' => $result->salesAcceleration,
+                        'quarterly_eps_growth_pct' => $result->quarterlyEpsGrowthPct,
+                        'quarterly_revenue_growth_pct' => $result->quarterlyRevenueGrowthPct,
+                        'annual_eps_growth_pct' => $result->annualEpsGrowthPct,
+                        'roe_pct' => $result->roePct,
+                        'profit_margin_pct' => $result->profitMarginPct,
+                        'spike_relative_volume' => $result->spikeRelativeVolume,
+                        'eps_growth_sequence' => $result->epsGrowthSequence,
+                        'revenue_growth_sequence' => $result->revenueGrowthSequence,
+                        'heartbeat_score' => $result->heartbeatScore,
+                        'reason_summary' => $result->reasonSummary,
+                        'status' => 'new',
+                        'detected_at' => now(),
+                    ],
+                );
 
-            // Provision a Stock row & propagate to opted-in users' Setup watchlist.
-            try {
-                $stock = $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
+                // Provision a Stock row & propagate to opted-in users' Setup watchlist.
+                try {
+                    $stock = $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
 
-                User::query()
-                    ->where('notify_stock_buy_setup', true)
-                    ->chunkById(100, function ($users) use ($stock, $alert) {
-                        foreach ($users as $user) {
-                            $watchlist = Watchlist::firstOrCreate(
-                                ['user_id' => $user->id, 'name' => 'Setup'],
-                                [
-                                    'description' => 'Auto-created from Stock Buy Setup scanner.',
-                                    'is_default' => false,
-                                ],
-                            );
+                    User::query()
+                        ->where('notify_stock_buy_setup', true)
+                        ->chunkById(100, function ($users) use ($stock, $alert) {
+                            foreach ($users as $user) {
+                                $watchlist = Watchlist::firstOrCreate(
+                                    ['user_id' => $user->id, 'name' => 'Setup'],
+                                    [
+                                        'description' => 'Auto-created from Stock Buy Setup scanner.',
+                                        'is_default' => false,
+                                    ],
+                                );
 
-                            WatchlistItem::firstOrCreate(
-                                [
-                                    'watchlist_id' => $watchlist->id,
-                                    'stock_id' => $stock->id,
-                                ],
-                                [
-                                    'currency' => $stock->currency->value,
-                                    'moat_level' => MoatLevel::Medium->value,
-                                    'notes' => 'Buy setup ('.$alert->heartbeat_score.'/100): '.$alert->reason_summary,
-                                ],
-                            );
-                        }
-                    });
-            } catch (Throwable $e) {
-                Log::warning('buy_setup.watchlist_provision_failed', [
-                    'symbol' => $symbol,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+                                WatchlistItem::firstOrCreate(
+                                    [
+                                        'watchlist_id' => $watchlist->id,
+                                        'stock_id' => $stock->id,
+                                    ],
+                                    [
+                                        'currency' => $stock->currency->value,
+                                        'moat_level' => MoatLevel::Medium->value,
+                                        'notes' => 'Buy setup ['.$alert->setup_type.'] ('.$alert->setup_score.'/100): '.$alert->reason_summary,
+                                    ],
+                                );
+                            }
+                        });
+                } catch (Throwable $e) {
+                    Log::warning('buy_setup.watchlist_provision_failed', [
+                        'symbol' => $symbol,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
 
-            if ($alert->wasRecentlyCreated) {
-                SendStockBuySetupAlert::dispatch($alert->id);
+                if ($alert->wasRecentlyCreated) {
+                    SendStockBuySetupAlert::dispatch($alert->id);
+                }
             }
         } catch (Throwable $e) {
             Log::error('buy_setup.evaluate_failed', [
                 'symbol' => $symbol,
                 'msg' => $e->getMessage(),
             ]);
+        }
+    }
+
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadFundamentalMetrics(
+        MarketDataProvider $provider,
+        StockFundamentalsAnalyzer $fundamentals,
+        string $symbol,
+    ): array {
+        try {
+            $income = $provider->quarterlyIncomeStatements($symbol, 8);
+            if (empty($income)) {
+                return [];
+            }
+
+            $balance = $provider->quarterlyBalanceSheets($symbol, 8);
+
+            return $fundamentals->analyze($income, $balance);
+        } catch (Throwable $e) {
+            Log::warning('buy_setup.fundamentals_failed', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
         }
     }
 

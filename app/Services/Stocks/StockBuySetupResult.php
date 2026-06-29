@@ -11,12 +11,17 @@ use Carbon\CarbonImmutable;
  */
 final class StockBuySetupResult
 {
+    public const TYPE_HEARTBEAT_CONSOLIDATION_SPIKE = 'heartbeat_consolidation_spike';
+
+    public int $setupScore = 0;
+
     public int $heartbeatScore = 0;
 
     public string $reasonSummary = '';
 
     public function __construct(
         public readonly string $symbol,
+        public readonly string $setupType,
         public readonly ?string $companyName,
         public readonly ?string $exchange,
         public readonly ?int $marketCap,
@@ -42,6 +47,14 @@ final class StockBuySetupResult
         public readonly ?float $relativeStrengthScore,
         public readonly ?float $earningsAcceleration = null,
         public readonly ?float $salesAcceleration = null,
+        public readonly ?float $quarterlyEpsGrowthPct = null,
+        public readonly ?float $quarterlyRevenueGrowthPct = null,
+        public readonly ?float $annualEpsGrowthPct = null,
+        public readonly ?float $roePct = null,
+        public readonly ?float $profitMarginPct = null,
+        public readonly ?float $spikeRelativeVolume = null,
+        public readonly ?array $epsGrowthSequence = null,
+        public readonly ?array $revenueGrowthSequence = null,
         // Inputs to the canonical market_cap = price × shares_outstanding
         // computation. Persisted on the alert row so downstream consumers
         // can recompute / verify market cap without re-fetching the quote.

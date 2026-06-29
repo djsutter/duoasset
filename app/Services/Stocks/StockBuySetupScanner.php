@@ -20,6 +20,35 @@ use Carbon\CarbonImmutable;
  */
 class StockBuySetupScanner
 {
+
+    /**
+     * Run all enabled buy setup detectors for a symbol and return one result
+     * per matched setup type. For now the production detector is
+     * heartbeat_consolidation_spike; additional setup types can be added here
+     * without changing storage or UI filtering.
+     *
+     * @param  array<int, array{date:string, open:?float, high:?float, low:?float, close:?float, volume:?int}>  $bars
+     * @param  array<int, array<string, mixed>>  $benchmarkBars
+     * @param  array<string, mixed>  $context
+     * @return array<int, StockBuySetupResult>
+     */
+    public function evaluateAll(array $bars, array $benchmarkBars = [], array $context = []): array
+    {
+        $types = (array) config('market_data.buy_setup_scanner.setup_types', []);
+        $heartbeatEnabled = (bool) ($types[StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE]['enabled'] ?? true);
+
+        $results = [];
+
+        if ($heartbeatEnabled) {
+            $result = $this->evaluate($bars, $benchmarkBars, $context);
+            if ($result !== null) {
+                $results[] = $result;
+            }
+        }
+
+        return $results;
+    }
+
     /**
      * @param  array<int, array{date:string, open:?float, high:?float, low:?float, close:?float, volume:?int}>  $bars
      *                                                                                                                 Daily bars, ascending by date. Recommend ≥ 252 bars (1y).
@@ -187,6 +216,7 @@ class StockBuySetupScanner
         $marketCap = $context['market_cap'] ?? null;
         $result = new StockBuySetupResult(
             symbol: $symbol,
+            setupType: StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE,
             companyName: $context['company_name'] ?? null,
             exchange: $context['exchange'] ?? null,
             marketCap: is_numeric($marketCap) ? (int) $marketCap : null,
@@ -210,6 +240,16 @@ class StockBuySetupScanner
             distanceToBreakoutPct: round($distToBreakout, 4),
             maAlignment: $maAlignment,
             relativeStrengthScore: $rs,
+            earningsAcceleration: $this->nullableFloat($context['earnings_acceleration'] ?? null),
+            salesAcceleration: $this->nullableFloat($context['sales_acceleration'] ?? null),
+            quarterlyEpsGrowthPct: $this->nullableFloat($context['quarterly_eps_growth_pct'] ?? null),
+            quarterlyRevenueGrowthPct: $this->nullableFloat($context['quarterly_revenue_growth_pct'] ?? null),
+            annualEpsGrowthPct: $this->nullableFloat($context['annual_eps_growth_pct'] ?? null),
+            roePct: $this->nullableFloat($context['roe_pct'] ?? null),
+            profitMarginPct: $this->nullableFloat($context['profit_margin_pct'] ?? null),
+            spikeRelativeVolume: $baseAvgVol > 0 ? round($spikeVol / $baseAvgVol, 4) : null,
+            epsGrowthSequence: $context['eps_growth_sequence'] ?? null,
+            revenueGrowthSequence: $context['revenue_growth_sequence'] ?? null,
         );
 
         $result->reasonSummary = $this->reasonSummary($result);
@@ -281,6 +321,11 @@ class StockBuySetupScanner
         $bRet = ($bNow - $bThen) / $bThen;
 
         return round(($sRet - $bRet) * 100, 4);
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
 
     private function reasonSummary(StockBuySetupResult $r): string

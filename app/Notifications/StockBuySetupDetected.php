@@ -9,7 +9,7 @@ use Illuminate\Notifications\Notification;
 
 /**
  * Sent when the Stock Buy Setup scanner detects a qualifying spike +
- * tight consolidation base with a heartbeat_score above the configured
+ * recognized buy setup with a setup_score above the configured
  * minimum.
  */
 class StockBuySetupDetected extends Notification
@@ -56,6 +56,8 @@ class StockBuySetupDetected extends Notification
             'market_cap' => $this->alert->market_cap,
             'market_cap_category' => $this->alert->market_cap_category,
             'spike_date' => optional($this->alert->spike_date)->toDateString(),
+            'setup_type' => $this->alert->setup_type,
+            'setup_score' => $this->alert->setup_score,
             'heartbeat_score' => $this->alert->heartbeat_score,
             'range_compression_pct' => $this->alert->range_compression_pct,
             'atr_contraction_ratio' => $this->alert->atr_contraction_ratio,
@@ -72,11 +74,12 @@ class StockBuySetupDetected extends Notification
         $mcap = $this->alert->market_cap ? number_format((int) $this->alert->market_cap) : 'N/A';
 
         return implode("\n", [
-            $this->emoji().' '.$this->label().' ('.$this->alert->heartbeat_score.'/100)',
+            $this->emoji().' '.$this->label().' (setup '.$this->alert->setup_score.'/100; heartbeat '.$this->alert->heartbeat_score.'/100)',
             '',
             $this->alert->symbol.' - '.($this->alert->company_name ?? '—'),
             'Exchange: '.($this->alert->exchange ?? '—'),
             'Market Cap: '.$mcap,
+            'Setup Type: '.$this->alert->setup_type,
             'Spike Date: '.optional($this->alert->spike_date)->toDateString(),
             'Base Duration: '.$this->alert->base_duration_days.' days',
             'Range Compression: '.$this->alert->range_compression_pct.'%',

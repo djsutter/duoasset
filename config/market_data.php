@@ -77,7 +77,26 @@ return [
         'max_base_days' => env('BUY_SETUP_MAX_BASE_DAYS', 120),
         'max_range_compression_pct' => env('BUY_SETUP_MAX_RANGE_COMPRESSION_PCT', 25),
         'max_atr_ratio' => env('BUY_SETUP_MAX_ATR_RATIO', 0.85),
+        'min_setup_score' => env('BUY_SETUP_MIN_SETUP_SCORE', env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50)),
         'min_heartbeat_score' => env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50),
+        'setup_types' => [
+            'heartbeat_consolidation_spike' => [
+                'enabled' => env('BUY_SETUP_TYPE_HEARTBEAT_CONSOLIDATION_SPIKE_ENABLED', true),
+                'label' => 'Heartbeat consolidation + spike',
+            ],
+            'range_compression_breakout' => [
+                'enabled' => env('BUY_SETUP_TYPE_RANGE_COMPRESSION_BREAKOUT_ENABLED', false),
+                'label' => 'Range compression breakout',
+            ],
+            'floor_reversal_accumulation' => [
+                'enabled' => env('BUY_SETUP_TYPE_FLOOR_REVERSAL_ACCUMULATION_ENABLED', false),
+                'label' => 'Floor reversal / accumulation',
+            ],
+            'early_breakout_followthrough' => [
+                'enabled' => env('BUY_SETUP_TYPE_EARLY_BREAKOUT_FOLLOWTHROUGH_ENABLED', false),
+                'label' => 'Early breakout follow-through',
+            ],
+        ],
         'score_weights' => [
             'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 25),
             'base_duration' => env('BUY_SETUP_SCORE_BASE_DURATION_MAX', 10),
