@@ -212,55 +212,6 @@ class FmpMarketDataProvider implements MarketDataProvider
         )));
     }
 
-
-    public function quarterlyIncomeStatements(string $symbol, int $limit = 8): array
-    {
-        $symbol = $this->normalizeSymbol($symbol);
-        if ($symbol === '') {
-            return [];
-        }
-
-        $limit = max(4, min(40, $limit));
-        $cacheKey = "fmp.income_quarter.$symbol.$limit";
-
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
-            $rows = $this->get('income-statement', [
-                'symbol' => $symbol,
-                'period' => 'quarter',
-                'limit' => $limit,
-            ]) ?? [];
-
-            return array_values(array_filter(array_map(
-                fn ($row) => $this->normalizeIncomeStatementRow($row),
-                is_array($rows) ? $rows : [],
-            )));
-        });
-    }
-
-    public function quarterlyBalanceSheets(string $symbol, int $limit = 8): array
-    {
-        $symbol = $this->normalizeSymbol($symbol);
-        if ($symbol === '') {
-            return [];
-        }
-
-        $limit = max(4, min(40, $limit));
-        $cacheKey = "fmp.balance_quarter.$symbol.$limit";
-
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
-            $rows = $this->get('balance-sheet-statement', [
-                'symbol' => $symbol,
-                'period' => 'quarter',
-                'limit' => $limit,
-            ]) ?? [];
-
-            return array_values(array_filter(array_map(
-                fn ($row) => $this->normalizeBalanceSheetRow($row),
-                is_array($rows) ? $rows : [],
-            )));
-        });
-    }
-
     public function companyScreener(array $filters = []): array
     {
         $query = [];
@@ -614,56 +565,6 @@ class FmpMarketDataProvider implements MarketDataProvider
             'eps_low' => $this->toFloat($row['estimatedEpsLow'] ?? $row['epsLow'] ?? null),
             'eps_num_analysts' => $this->toInt(
                 $row['numberAnalystsEstimatedEps'] ?? $row['numberAnalystEstimatedEps'] ?? null,
-            ),
-            'raw' => $row,
-        ];
-    }
-
-
-    protected function normalizeIncomeStatementRow(mixed $row): ?array
-    {
-        if (! is_array($row)) {
-            return null;
-        }
-
-        $date = $row['date'] ?? $row['calendarDate'] ?? $row['fillingDate'] ?? null;
-        if (! $date) {
-            return null;
-        }
-
-        return [
-            'date' => substr((string) $date, 0, 10),
-            'revenue' => $this->toFloat($row['revenue'] ?? null),
-            'net_income' => $this->toFloat($row['netIncome'] ?? $row['net_income'] ?? null),
-            'eps' => $this->toFloat(
-                $row['epsdiluted']
-                    ?? $row['epsDiluted']
-                    ?? $row['eps']
-                    ?? null,
-            ),
-            'raw' => $row,
-        ];
-    }
-
-    protected function normalizeBalanceSheetRow(mixed $row): ?array
-    {
-        if (! is_array($row)) {
-            return null;
-        }
-
-        $date = $row['date'] ?? $row['calendarDate'] ?? $row['fillingDate'] ?? null;
-        if (! $date) {
-            return null;
-        }
-
-        return [
-            'date' => substr((string) $date, 0, 10),
-            'stockholders_equity' => $this->toFloat(
-                $row['totalStockholdersEquity']
-                    ?? $row['totalShareholdersEquity']
-                    ?? $row['stockholdersEquity']
-                    ?? $row['totalEquity']
-                    ?? null,
             ),
             'raw' => $row,
         ];

@@ -61,27 +61,6 @@ interface MarketDataProvider
      */
     public function analystEstimates(string $symbol, string $period = 'quarter'): array;
 
-
-    /**
-     * Return normalized quarterly income statement rows for a symbol.
-     *
-     * Each row keys where available:
-     *   date, revenue, net_income, eps, raw.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function quarterlyIncomeStatements(string $symbol, int $limit = 8): array;
-
-    /**
-     * Return normalized quarterly balance sheet rows for a symbol.
-     *
-     * Each row keys where available:
-     *   date, stockholders_equity, raw.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function quarterlyBalanceSheets(string $symbol, int $limit = 8): array;
-
     /**
      * Return normalized rows from a company / equity screener filtered
      * by the given criteria (currently: marketCapMoreThan, exchange list).

@@ -13,7 +13,7 @@ use App\Models\StockBuySetupAlert;
 class StockBuySetupScorer
 {
     /**
-     * @return array<string, array{label: string, points: int, max: int, value?: string}>
+     * @return array<string, array{label: string, points: int, max: int}>
      */
     public function breakdown(StockBuySetupResult|StockBuySetupAlert $r): array
     {
@@ -24,61 +24,51 @@ class StockBuySetupScorer
                 'label' => 'Spike rarity',
                 'points' => $this->spikeRarityPoints($r, $weights['spike_rarity']),
                 'max' => $weights['spike_rarity'],
-                'value' => ((bool) ($r->is104wHighVolume ?? $r->is_104w_high_volume ?? false)) ? '104-week high-volume spike' : '52-week high-volume spike',
             ],
             'base_duration' => [
                 'label' => 'Base duration',
                 'points' => $this->baseDurationPoints((int) ($r->baseDurationDays ?? $r->base_duration_days ?? 0), $weights['base_duration']),
                 'max' => $weights['base_duration'],
-                'value' => (string) ((int) ($r->baseDurationDays ?? $r->base_duration_days ?? 0)).' trading days',
             ],
             'range_compression' => [
                 'label' => 'Range compression',
                 'points' => $this->rangeCompressionPoints((float) ($r->rangeCompressionPct ?? $r->range_compression_pct ?? 999), $weights['range_compression']),
                 'max' => $weights['range_compression'],
-                'value' => number_format((float) ($r->rangeCompressionPct ?? $r->range_compression_pct ?? 0), 2).'%',
             ],
             'atr_contraction' => [
                 'label' => 'ATR contraction',
                 'points' => $this->atrContractionPoints((float) ($r->atrContractionRatio ?? $r->atr_contraction_ratio ?? 999), $weights['atr_contraction']),
                 'max' => $weights['atr_contraction'],
-                'value' => number_format((float) ($r->atrContractionRatio ?? $r->atr_contraction_ratio ?? 0), 2),
             ],
             'volume_dry_up' => [
                 'label' => 'Volume dry-up',
                 'points' => $this->volumeDryUpPoints((float) ($r->volumeDryUpScore ?? $r->volume_dry_up_score ?? 0), $weights['volume_dry_up']),
                 'max' => $weights['volume_dry_up'],
-                'value' => number_format(((float) ($r->volumeDryUpScore ?? $r->volume_dry_up_score ?? 0)) * 100, 1).'%',
             ],
             'breakout_distance' => [
                 'label' => 'Breakout distance',
                 'points' => $this->breakoutDistancePoints((float) ($r->distanceToBreakoutPct ?? $r->distance_to_breakout_pct ?? 999), $weights['breakout_distance']),
                 'max' => $weights['breakout_distance'],
-                'value' => number_format((float) ($r->distanceToBreakoutPct ?? $r->distance_to_breakout_pct ?? 0), 2).'%',
             ],
             'ma_alignment' => [
                 'label' => 'MA alignment',
                 'points' => $this->maAlignmentPoints((string) ($r->maAlignment ?? $r->ma_alignment ?? ''), $weights['ma_alignment']),
                 'max' => $weights['ma_alignment'],
-                'value' => (string) ($r->maAlignment ?? $r->ma_alignment ?? ''),
             ],
             'relative_strength' => [
                 'label' => 'Relative strength',
                 'points' => $this->relativeStrengthPoints($this->nullableFloat($r->relativeStrengthScore ?? $r->relative_strength_score ?? null), $weights['relative_strength']),
                 'max' => $weights['relative_strength'],
-                'value' => ($this->nullableFloat($r->relativeStrengthScore ?? $r->relative_strength_score ?? null) !== null) ? number_format((float) ($r->relativeStrengthScore ?? $r->relative_strength_score), 1) : 'n/a',
             ],
             'earnings_acceleration' => [
                 'label' => 'Earnings accel.',
                 'points' => $this->positiveBonusPoints($this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null), $weights['earnings_acceleration']),
                 'max' => $weights['earnings_acceleration'],
-                'value' => ($this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null) !== null) ? number_format((float) ($r->earningsAcceleration ?? $r->earnings_acceleration), 1).' pts' : 'n/a',
             ],
             'sales_acceleration' => [
                 'label' => 'Sales accel.',
                 'points' => $this->positiveBonusPoints($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null), $weights['sales_acceleration']),
                 'max' => $weights['sales_acceleration'],
-                'value' => ($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null) !== null) ? number_format((float) ($r->salesAcceleration ?? $r->sales_acceleration), 1).' pts' : 'n/a',
             ],
         ];
     }
