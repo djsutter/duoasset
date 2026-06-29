@@ -54,25 +54,51 @@ class EvaluateStockBuySetup implements ShouldQueue
         StockBuySetupScorer $scorer,
         StockFundamentalsAnalyzer $fundamentals,
         StockProvisioner $stocks,
-    ): void {
+    ): array {
+        $startedAt = microtime(true);
+        $debug = [
+            'symbol' => strtoupper(trim($this->symbol)),
+            'status' => 'started',
+            'reason' => null,
+            'bars' => 0,
+            'fetched_bars' => 0,
+            'existing_bars' => 0,
+            'benchmark_bars' => 0,
+            'fundamentals_loaded' => false,
+            'matches' => [],
+            'elapsed_ms' => 0,
+        ];
         $symbol = strtoupper(trim($this->symbol));
         if ($symbol === '') {
-            return;
+            $debug['status'] = 'skipped';
+            $debug['reason'] = 'empty symbol';
+
+            return $debug;
         }
 
         try {
             $config = config('market_data.buy_setup_scanner');
             $lookback = (int) ($config['history_lookback_days'] ?? 504);
-            $minScore = (int) ($config['min_setup_score'] ?? $config['min_heartbeat_score'] ?? 50);
+            $notifyMinScore = (int) ($config['notify_min_setup_score'] ?? $config['min_heartbeat_score'] ?? 50);
 
-            $bars = $this->loadBars($provider, $symbol, $lookback);
+            $barStats = [];
+            $bars = $this->loadBars($provider, $symbol, $lookback, $barStats);
+            $debug['bars'] = count($bars);
+            $debug['fetched_bars'] = (int) ($barStats['fetched_bars'] ?? 0);
+            $debug['existing_bars'] = (int) ($barStats['existing_bars'] ?? 0);
             if (count($bars) < 252) {
-                return;
+                $debug['status'] = 'rejected';
+                $debug['reason'] = 'insufficient history ('.count($bars).' < 252 bars)';
+                $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+                return $debug;
             }
 
             $benchmarks = (array) ($config['benchmark_symbols'] ?? ['SPY', 'IWM']);
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
+            $debug['benchmark_bars'] = count($benchmarkBars);
             $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol);
+            $debug['fundamentals_loaded'] = ! empty($fundamentalMetrics);
 
             $results = $scanner->evaluateAll($bars, $benchmarkBars, array_merge([
                 'symbol' => $symbol,
@@ -81,67 +107,83 @@ class EvaluateStockBuySetup implements ShouldQueue
                 'market_cap' => $this->marketCap,
             ], $fundamentalMetrics));
 
+            if (empty($results)) {
+                $debug['status'] = 'rejected';
+                $debug['reason'] = $scanner->lastRejectionReason() ?? 'no enabled setup detector matched';
+                $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+                return $debug;
+            }
+
             foreach ($results as $result) {
-                $score = $scorer->score($result);
+                $breakdown = $scorer->breakdown($result);
+                $scoreMeta = $scorer->scoreMetaFromBreakdown($breakdown);
+                $score = $scoreMeta['normalized'];
                 $result->heartbeatScore = $score;
                 $result->setupScore = $score;
-                if ($result->setupScore < $minScore) {
-                    continue;
-                }
 
                 $spikeDate = $result->spikeDate->toDateString();
 
-                $alert = StockBuySetupAlert::firstOrCreate(
+                $alert = StockBuySetupAlert::firstOrNew(
                     [
                         'source' => 'fmp',
                         'symbol' => $symbol,
                         'setup_type' => $result->setupType,
                         'spike_date' => $spikeDate,
                     ],
-                    [
-                        'setup_score' => $result->setupScore,
-                        'company_name' => $result->companyName,
-                        'exchange' => $result->exchange,
-                        'market_cap' => $result->marketCap,
-                        'market_cap_category' => $result->marketCapCategory,
-                        'spike_volume' => $result->spikeVolume,
-                        'prior_52w_max_volume' => $result->prior52wMaxVolume,
-                        'max_104w_volume' => $result->max104wVolume,
-                        'is_52w_high_volume' => $result->is52wHighVolume,
-                        'is_104w_high_volume' => $result->is104wHighVolume,
-                        'days_since_previous_comparable_spike' => $result->daysSincePreviousComparableSpike,
-                        'base_start_date' => $result->baseStart->toDateString(),
-                        'base_end_date' => $result->baseEnd->toDateString(),
-                        'base_duration_days' => $result->baseDurationDays,
-                        'base_high' => $result->baseHigh,
-                        'base_low' => $result->baseLow,
-                        'range_compression_pct' => $result->rangeCompressionPct,
-                        'atr_contraction_ratio' => $result->atrContractionRatio,
-                        'volume_dry_up_score' => $result->volumeDryUpScore,
-                        'slope' => $result->slope,
-                        'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
-                        'ma_alignment' => $result->maAlignment,
-                        'relative_strength_score' => $result->relativeStrengthScore,
-                        'earnings_acceleration' => $result->earningsAcceleration,
-                        'sales_acceleration' => $result->salesAcceleration,
-                        'quarterly_eps_growth_pct' => $result->quarterlyEpsGrowthPct,
-                        'quarterly_revenue_growth_pct' => $result->quarterlyRevenueGrowthPct,
-                        'annual_eps_growth_pct' => $result->annualEpsGrowthPct,
-                        'roe_pct' => $result->roePct,
-                        'profit_margin_pct' => $result->profitMarginPct,
-                        'spike_relative_volume' => $result->spikeRelativeVolume,
-                        'eps_growth_sequence' => $result->epsGrowthSequence,
-                        'revenue_growth_sequence' => $result->revenueGrowthSequence,
-                        'heartbeat_score' => $result->heartbeatScore,
-                        'reason_summary' => $result->reasonSummary,
-                        'status' => 'new',
-                        'detected_at' => now(),
-                    ],
                 );
+                $wasRecentlyCreated = ! $alert->exists;
+                $alert->fill([
+                    'setup_score' => $result->setupScore,
+                    'company_name' => $result->companyName,
+                    'exchange' => $result->exchange,
+                    'market_cap' => $result->marketCap,
+                    'market_cap_category' => $result->marketCapCategory,
+                    'spike_volume' => $result->spikeVolume,
+                    'prior_52w_max_volume' => $result->prior52wMaxVolume,
+                    'max_104w_volume' => $result->max104wVolume,
+                    'is_52w_high_volume' => $result->is52wHighVolume,
+                    'is_104w_high_volume' => $result->is104wHighVolume,
+                    'days_since_previous_comparable_spike' => $result->daysSincePreviousComparableSpike,
+                    'base_start_date' => $result->baseStart->toDateString(),
+                    'base_end_date' => $result->baseEnd->toDateString(),
+                    'base_duration_days' => $result->baseDurationDays,
+                    'base_high' => $result->baseHigh,
+                    'base_low' => $result->baseLow,
+                    'range_compression_pct' => $result->rangeCompressionPct,
+                    'atr_contraction_ratio' => $result->atrContractionRatio,
+                    'volume_dry_up_score' => $result->volumeDryUpScore,
+                    'slope' => $result->slope,
+                    'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
+                    'ma_alignment' => $result->maAlignment,
+                    'relative_strength_score' => $result->relativeStrengthScore,
+                    'earnings_acceleration' => $result->earningsAcceleration,
+                    'sales_acceleration' => $result->salesAcceleration,
+                    'quarterly_eps_growth_pct' => $result->quarterlyEpsGrowthPct,
+                    'quarterly_revenue_growth_pct' => $result->quarterlyRevenueGrowthPct,
+                    'annual_eps_growth_pct' => $result->annualEpsGrowthPct,
+                    'roe_pct' => $result->roePct,
+                    'profit_margin_pct' => $result->profitMarginPct,
+                    'spike_relative_volume' => $result->spikeRelativeVolume,
+                    'eps_growth_sequence' => $result->epsGrowthSequence,
+                    'revenue_growth_sequence' => $result->revenueGrowthSequence,
+                    'heartbeat_score' => $result->heartbeatScore,
+                    'reason_summary' => $result->reasonSummary,
+                ]);
+                if ($wasRecentlyCreated) {
+                    $alert->status = 'new';
+                    $alert->detected_at = now();
+                }
+                $alert->save();
 
-                // Provision a Stock row & propagate to opted-in users' Setup watchlist.
-                try {
-                    $stock = $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
+                $shouldNotify = $result->setupScore >= $notifyMinScore;
+
+                // Provision a Stock row & propagate to opted-in users' Setup watchlist
+                // only when the result clears the notification threshold. Lower-scoring
+                // detector matches are still saved for review and UI filtering.
+                if ($shouldNotify) {
+                    try {
+                        $stock = $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
 
                     User::query()
                         ->where('notify_stock_buy_setup', true)
@@ -168,22 +210,58 @@ class EvaluateStockBuySetup implements ShouldQueue
                                 );
                             }
                         });
-                } catch (Throwable $e) {
-                    Log::warning('buy_setup.watchlist_provision_failed', [
-                        'symbol' => $symbol,
-                        'error' => $e->getMessage(),
-                    ]);
+                    } catch (Throwable $e) {
+                        Log::warning('buy_setup.watchlist_provision_failed', [
+                            'symbol' => $symbol,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
 
-                if ($alert->wasRecentlyCreated) {
+                if ($shouldNotify && $wasRecentlyCreated) {
                     SendStockBuySetupAlert::dispatch($alert->id);
                 }
+
+                $debug['matches'][] = [
+                    'setup_type' => $result->setupType,
+                    'status' => $wasRecentlyCreated ? 'created' : 'existing',
+                    'setup_score' => $result->setupScore,
+                    'heartbeat_score' => $result->heartbeatScore,
+                    'raw_score' => $scoreMeta['raw'],
+                    'max_score' => $scoreMeta['max'],
+                    'notify_min_score' => $notifyMinScore,
+                    'notification_eligible' => $shouldNotify,
+                    'score_breakdown' => $breakdown,
+                    'spike_date' => $spikeDate,
+                    'base_days' => $result->baseDurationDays,
+                    'range_pct' => $result->rangeCompressionPct,
+                    'atr_ratio' => $result->atrContractionRatio,
+                    'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
+                    'relative_strength' => $result->relativeStrengthScore,
+                    'reason' => $result->reasonSummary,
+                ];
             }
+            if (empty($debug['matches'])) {
+                $debug['status'] = 'rejected';
+                $debug['reason'] = 'no detector match was saved';
+            } else {
+                $debug['status'] = 'matched';
+                $debug['reason'] = null;
+            }
+            $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+            return $debug;
         } catch (Throwable $e) {
             Log::error('buy_setup.evaluate_failed', [
                 'symbol' => $symbol,
                 'msg' => $e->getMessage(),
             ]);
+
+            $debug['status'] = 'error';
+            $debug['reason'] = $e->getMessage();
+            $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+            return $debug;
         }
     }
 
@@ -222,7 +300,7 @@ class EvaluateStockBuySetup implements ShouldQueue
      *
      * @return array<int, array<string, mixed>>
      */
-    private function loadBars(MarketDataProvider $provider, string $symbol, int $lookback): array
+    private function loadBars(MarketDataProvider $provider, string $symbol, int $lookback, array &$stats = []): array
     {
         $to = CarbonImmutable::today();
         // Calendar window must be wider than trading days; FMP returns
@@ -234,6 +312,7 @@ class EvaluateStockBuySetup implements ShouldQueue
             ->whereBetween('bar_date', [$from->toDateString(), $to->toDateString()])
             ->orderBy('bar_date')
             ->get();
+        $stats['existing_bars'] = $existing->count();
 
         $lastStored = $existing->isNotEmpty()
             ? CarbonImmutable::parse($existing->last()->bar_date)
@@ -244,6 +323,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         $fresh = [];
         if ($fetchFrom <= $to) {
             $fresh = $provider->historicalDailyBars($symbol, $fetchFrom, $to);
+            $stats['fetched_bars'] = count($fresh);
             foreach ($fresh as $row) {
                 if (empty($row['date'])) {
                     continue;
@@ -261,6 +341,8 @@ class EvaluateStockBuySetup implements ShouldQueue
                 );
             }
         }
+
+        $stats['fetched_bars'] = $stats['fetched_bars'] ?? 0;
 
         // Reload merged series.
         return StockDailyBar::query()

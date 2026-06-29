@@ -5,10 +5,12 @@ namespace App\Services\Stocks;
 use App\Models\StockBuySetupAlert;
 
 /**
- * Produces a configurable 0-100 composite heartbeat score.
+ * Produces a configurable normalized 0-100 setup score.
  *
- * Component maximums live in config('market_data.buy_setup_scanner.score_weights').
- * Raw component points are summed and capped at 100.
+ * Component weights live in config('market_data.buy_setup_scanner.score_weights').
+ * Raw component points are summed, then normalized against the configured
+ * maximum possible points. This lets the weights total 80, 100, 110, etc.
+ * while the displayed setup score remains a true 0-100 ranking value.
  */
 class StockBuySetupScorer
 {
@@ -98,7 +100,30 @@ class StockBuySetupScorer
      */
     public function scoreFromBreakdown(array $breakdown): int
     {
-        return max(0, min(100, (int) array_sum(array_column($breakdown, 'points'))));
+        $max = (int) array_sum(array_column($breakdown, 'max'));
+        if ($max <= 0) {
+            return 0;
+        }
+
+        $raw = (int) array_sum(array_column($breakdown, 'points'));
+
+        return max(0, min(100, (int) round(($raw / $max) * 100)));
+    }
+
+    /**
+     * @param array<string, array{points: int, max: int}> $breakdown
+     * @return array{raw: int, max: int, normalized: int}
+     */
+    public function scoreMetaFromBreakdown(array $breakdown): array
+    {
+        $raw = (int) array_sum(array_column($breakdown, 'points'));
+        $max = (int) array_sum(array_column($breakdown, 'max'));
+
+        return [
+            'raw' => $raw,
+            'max' => $max,
+            'normalized' => $max > 0 ? max(0, min(100, (int) round(($raw / $max) * 100))) : 0,
+        ];
     }
 
     /**

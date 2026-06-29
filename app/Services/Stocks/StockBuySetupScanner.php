@@ -20,6 +20,24 @@ use Carbon\CarbonImmutable;
  */
 class StockBuySetupScanner
 {
+    private ?string $lastRejectionReason = null;
+
+    /**
+     * Human-readable reason for the most recent non-match. Useful for
+     * Artisan verbose/debug scans.
+     */
+    public function lastRejectionReason(): ?string
+    {
+        return $this->lastRejectionReason;
+    }
+
+    private function reject(string $reason): null
+    {
+        $this->lastRejectionReason = $reason;
+
+        return null;
+    }
+
 
     /**
      * Run all enabled buy setup detectors for a symbol and return one result
@@ -57,6 +75,7 @@ class StockBuySetupScanner
      */
     public function evaluate(array $bars, array $benchmarkBars = [], array $context = []): ?StockBuySetupResult
     {
+        $this->lastRejectionReason = null;
         $cfg = config('market_data.buy_setup_scanner', []);
         $recentWindow = (int) ($cfg['recent_spike_window_days'] ?? 42);
         $maxSpikeAge = (int) ($cfg['max_spike_age_days'] ?? 84);
@@ -70,7 +89,7 @@ class StockBuySetupScanner
         $n = count($bars);
         // Need at least 252 bars (~52 weeks) for the comparison universe.
         if ($n < 252) {
-            return null;
+            return $this->reject("insufficient history ({$n} < 252 bars)");
         }
 
         $symbol = strtoupper((string) ($context['symbol'] ?? ''));
@@ -88,12 +107,13 @@ class StockBuySetupScanner
             }
         }
         if ($spikeIdx === null || $spikeVol <= 0) {
-            return null;
+            return $this->reject("no recent volume spike found in {$recentWindow}-bar window");
         }
 
         // Spike must not be older than max_spike_age_days from the most recent bar.
         if (($n - 1 - $spikeIdx) > $maxSpikeAge) {
-            return null;
+            $age = $n - 1 - $spikeIdx;
+            return $this->reject("spike too old ({$age} > {$maxSpikeAge} bars)");
         }
 
         // Compare against the prior 252 bars (excluding the spike itself).
@@ -108,7 +128,7 @@ class StockBuySetupScanner
 
         // Gate: spike must exceed the prior 52w maximum.
         if ($spikeVol <= $prior52wMax) {
-            return null;
+            return $this->reject("no 52w high-volume spike ({$spikeVol} <= {$prior52wMax})");
         }
 
         // 104-week (504 bars) high-volume bonus.
@@ -142,7 +162,7 @@ class StockBuySetupScanner
         $baseStartIdx = max(0, $baseEndIdx - $maxBase + 1);
         $baseLen = $baseEndIdx - $baseStartIdx + 1;
         if ($baseLen < $minBase) {
-            return null;
+            return $this->reject("base too short ({$baseLen} < {$minBase} bars)");
         }
 
         $baseBars = array_slice($bars, $baseStartIdx, $baseLen);
@@ -153,18 +173,18 @@ class StockBuySetupScanner
             fn ($v) => $v > 0,
         );
         if (empty($lows)) {
-            return null;
+            return $this->reject("base has no valid low prices");
         }
 
         $baseHigh = max($highs);
         $baseLow = min($lows);
         if ($baseLow <= 0 || $baseHigh <= 0) {
-            return null;
+            return $this->reject("base has invalid high/low prices");
         }
         $rangePct = (($baseHigh - $baseLow) / $baseLow) * 100;
-        if ($rangePct > $maxRangePct) {
-            return null;
-        }
+        // Range compression is intentionally scored, not used as a hard gate.
+        // This lets the UI show near-misses such as a 26.9% base when the
+        // preferred target is 25%, ranked lower instead of disappearing.
 
         // ATR contraction = ATR of last 14 days of base vs first 14 days.
         $atrEarly = Indicators::atr(array_slice($baseBars, 0, min(30, $baseLen)), 14);
@@ -172,9 +192,8 @@ class StockBuySetupScanner
         $atrRatio = ($atrEarly && $atrEarly > 0 && $atrLate !== null)
             ? $atrLate / $atrEarly
             : 1.0;
-        if ($atrRatio > $maxAtrRatio) {
-            return null;
-        }
+        // ATR contraction is also scored instead of hard-rejected. A high
+        // ratio simply receives fewer/no points in the setup score.
 
         $slope = Indicators::slope($closes);
 

@@ -80,8 +80,28 @@ class ScanBuySetups extends Command
 
         $dispatched = 0;
         $sync = (bool) $this->option('sync');
+        $verbose = $this->getOutput()->isVerbose();
+        $startedAt = microtime(true);
+        $summary = [
+            'processed' => 0,
+            'matched' => 0,
+            'created' => 0,
+            'existing' => 0,
+            'rejected' => 0,
+            'errors' => 0,
+            'reasons' => [],
+            'top' => [],
+        ];
 
-        foreach ($rows as $row) {
+        if ($sync && ! $verbose) {
+            $this->line('Scanning '.count($rows).' symbols...');
+            $bar = $this->output->createProgressBar(count($rows));
+            $bar->start();
+        } else {
+            $bar = null;
+        }
+
+        foreach ($rows as $index => $row) {
             $symbol = $row['symbol'] ?? null;
             if (! $symbol) {
                 continue;
@@ -95,14 +115,47 @@ class ScanBuySetups extends Command
             ];
 
             if ($sync) {
-                EvaluateStockBuySetup::dispatchSync(...array_values($payload));
+                // Important: Dispatchable::dispatchSync() does not reliably return the
+                // job handle() result for this queued job in all Laravel versions.
+                // Verbose mode needs the structured debug array from handle(), so run
+                // the job through the container directly for foreground sync scans.
+                $job = new EvaluateStockBuySetup(
+                    $payload['symbol'],
+                    $payload['companyName'],
+                    $payload['exchange'],
+                    $payload['marketCap'],
+                );
+                $result = app()->call([$job, 'handle']);
+                if (! is_array($result)) {
+                    $result = [
+                        'symbol' => $symbol,
+                        'status' => 'unknown',
+                        'reason' => 'sync job returned no debug result',
+                    ];
+                }
+
+                $this->recordSyncResult($result, $summary);
+                if ($verbose) {
+                    $this->renderVerboseResult($index + 1, count($rows), $result);
+                } elseif ($bar !== null) {
+                    $bar->advance();
+                }
             } else {
                 EvaluateStockBuySetup::dispatch(...array_values($payload));
             }
             $dispatched++;
         }
 
-        $this->info("Dispatched: {$dispatched} per-symbol buy-setup evaluations.");
+        if (isset($bar) && $bar !== null) {
+            $bar->finish();
+            $this->newLine(2);
+        }
+
+        $this->info(($sync ? 'Processed' : 'Dispatched').": {$dispatched} per-symbol buy-setup evaluations.");
+
+        if ($sync) {
+            $this->renderSyncSummary($summary, microtime(true) - $startedAt);
+        }
 
         if (! $sync) {
             $queueConnection = (string) config('queue.default');
@@ -122,4 +175,172 @@ class ScanBuySetups extends Command
 
         return self::SUCCESS;
     }
+
+    /**
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $summary
+     */
+    private function recordSyncResult(array $result, array &$summary): void
+    {
+        $summary['processed']++;
+        $status = (string) ($result['status'] ?? 'unknown');
+
+        if ($status === 'matched') {
+            $summary['matched']++;
+        } elseif ($status === 'error') {
+            $summary['errors']++;
+        } else {
+            $summary['rejected']++;
+        }
+
+        $reason = (string) ($result['reason'] ?? '');
+        if ($reason !== '') {
+            $summary['reasons'][$reason] = ($summary['reasons'][$reason] ?? 0) + 1;
+        }
+
+        foreach ((array) ($result['matches'] ?? []) as $match) {
+            $matchStatus = (string) ($match['status'] ?? '');
+            if ($matchStatus === 'created') {
+                $summary['created']++;
+            } elseif ($matchStatus === 'existing') {
+                $summary['existing']++;
+            }
+
+            if (isset($match['setup_score'])) {
+                $summary['top'][] = [
+                    'symbol' => (string) ($result['symbol'] ?? ''),
+                    'setup_type' => (string) ($match['setup_type'] ?? ''),
+                    'score' => (int) ($match['setup_score'] ?? 0),
+                    'status' => $matchStatus,
+                ];
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function renderVerboseResult(int $index, int $total, array $result): void
+    {
+        $symbol = (string) ($result['symbol'] ?? '?');
+        $status = (string) ($result['status'] ?? 'unknown');
+        $elapsed = (int) ($result['elapsed_ms'] ?? 0);
+
+        $this->newLine();
+        $this->line(str_repeat('-', 72));
+        $this->line(sprintf('%d/%d  %s  [%s]  %d ms', $index, $total, $symbol, strtoupper($status), $elapsed));
+        $this->line(sprintf(
+            'Bars: %d total, %d existing, %d fetched | Benchmark: %d | Fundamentals: %s',
+            (int) ($result['bars'] ?? 0),
+            (int) ($result['existing_bars'] ?? 0),
+            (int) ($result['fetched_bars'] ?? 0),
+            (int) ($result['benchmark_bars'] ?? 0),
+            ! empty($result['fundamentals_loaded']) ? 'yes' : 'no',
+        ));
+
+        if ($status !== 'matched') {
+            $this->warn('Reject: '.((string) ($result['reason'] ?? 'no reason reported')));
+        }
+
+        foreach ((array) ($result['matches'] ?? []) as $match) {
+            $this->line(sprintf(
+                '✔ %s | setup_score=%s/100 raw=%s/%s spike=%s notify=%s',
+                (string) ($match['setup_type'] ?? 'setup'),
+                (string) ($match['setup_score'] ?? '—'),
+                (string) ($match['raw_score'] ?? '—'),
+                (string) ($match['max_score'] ?? '—'),
+                (string) ($match['spike_date'] ?? '—'),
+                ! empty($match['notification_eligible']) ? 'yes' : 'no (< '.(string) ($match['notify_min_score'] ?? '—').')',
+            ));
+
+            if (isset($match['base_days'])) {
+                $this->line(sprintf(
+                    '  base=%sd range=%s%% ATR=%s dist_to_bo=%s%% RS=%s',
+                    (string) ($match['base_days'] ?? '—'),
+                    (string) ($match['range_pct'] ?? '—'),
+                    (string) ($match['atr_ratio'] ?? '—'),
+                    (string) ($match['distance_to_breakout_pct'] ?? '—'),
+                    (string) ($match['relative_strength'] ?? '—'),
+                ));
+            }
+
+            if (! empty($match['score_breakdown']) && is_array($match['score_breakdown'])) {
+                $this->line('  Score components:');
+                foreach ($match['score_breakdown'] as $component) {
+                    if (! is_array($component)) {
+                        continue;
+                    }
+                    $label = (string) ($component['label'] ?? 'Component');
+                    $points = (int) ($component['points'] ?? 0);
+                    $max = (int) ($component['max'] ?? 0);
+                    $value = (string) ($component['value'] ?? '');
+                    $penalty = max(0, $max - $points);
+                    $this->line(sprintf(
+                        '    %-22s %3d/%-3d  penalty=%-3d  value=%s',
+                        $label,
+                        $points,
+                        $max,
+                        $penalty,
+                        $value,
+                    ));
+                }
+            }
+
+            if (! empty($match['reason'])) {
+                $this->line('  Summary: '.$match['reason']);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $summary
+     */
+    private function renderSyncSummary(array $summary, float $elapsedSeconds): void
+    {
+        $this->newLine();
+        $this->line(str_repeat('=', 72));
+        $this->info('Buy setup scan summary');
+        $this->line('Processed: '.$summary['processed']);
+        $this->line('Matched:   '.$summary['matched'].'  (created '.$summary['created'].', existing '.$summary['existing'].')');
+        $this->line('Rejected:  '.$summary['rejected']);
+        $this->line('Errors:    '.$summary['errors']);
+        $this->line('Elapsed:   '.$this->formatElapsed($elapsedSeconds));
+
+        if (! empty($summary['reasons'])) {
+            arsort($summary['reasons']);
+            $this->newLine();
+            $this->line('Top rejection reasons:');
+            foreach (array_slice($summary['reasons'], 0, 10, true) as $reason => $count) {
+                $this->line(sprintf('  %5d  %s', $count, $reason));
+            }
+        }
+
+        if (! empty($summary['top'])) {
+            usort($summary['top'], fn ($a, $b) => ($b['score'] ?? 0) <=> ($a['score'] ?? 0));
+            $this->newLine();
+            $this->line('Top setup matches:');
+            foreach (array_slice($summary['top'], 0, 10) as $row) {
+                $this->line(sprintf(
+                    '  %3d  %-12s %-36s %s',
+                    (int) ($row['score'] ?? 0),
+                    (string) ($row['symbol'] ?? ''),
+                    (string) ($row['setup_type'] ?? ''),
+                    (string) ($row['status'] ?? ''),
+                ));
+            }
+        }
+    }
+
+    private function formatElapsed(float $seconds): string
+    {
+        if ($seconds < 60) {
+            return number_format($seconds, 1).'s';
+        }
+
+        $minutes = floor($seconds / 60);
+        $remaining = $seconds - ($minutes * 60);
+
+        return sprintf('%dm %02ds', $minutes, (int) round($remaining));
+    }
+
 }
