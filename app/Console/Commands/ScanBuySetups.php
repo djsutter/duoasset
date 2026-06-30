@@ -17,6 +17,8 @@ class ScanBuySetups extends Command
 {
     protected $signature = 'stocks:scan-buy-setups
         {--symbol=* : restrict to one or more symbols (skips the screener)}
+        {--exchange= : restrict screener to one exchange or comma-separated exchanges, e.g. NYSE or NYSE,NASDAQ}
+        {--letter= : restrict screener universe to symbols starting with this letter, e.g. A}
         {--limit= : override max symbols per run}
         {--sync : process synchronously (debug)}';
 
@@ -32,7 +34,11 @@ class ScanBuySetups extends Command
 
         $config = config('market_data.buy_setup_scanner');
         $minMcap = (int) ($config['min_market_cap'] ?? 100_000_000);
-        $exchanges = (array) ($config['exchanges'] ?? []);
+        $exchanges = $this->resolveExchanges((array) ($config['exchanges'] ?? []));
+        $letter = $this->resolveLetter();
+        if ($letter === false) {
+            return self::INVALID;
+        }
         $limit = (int) ($this->option('limit') ?? ($config['max_symbols_per_run'] ?? 0));
 
         if (method_exists($provider, 'clearErrors')) {
@@ -47,12 +53,23 @@ class ScanBuySetups extends Command
                 $rows[] = ['symbol' => strtoupper(trim((string) $sym))];
             }
         } else {
-            $this->info("Loading FMP company-screener (marketCap >= {$minMcap}, exchanges: ".implode(',', $exchanges).')');
-            $rows = $provider->companyScreener([
+            $slice = [];
+            if ($letter !== null) {
+                $slice[] = "symbols starting with {$letter}";
+            }
+
+            $this->info("Loading FMP company-screener (marketCap >= {$minMcap}, exchanges: ".implode(',', $exchanges).($slice ? ', '.implode(', ', $slice) : '').')');
+
+            $filters = [
                 'marketCapMoreThan' => $minMcap,
                 'exchange' => $exchanges,
                 'limit' => $limit > 0 ? $limit : null,
-            ]);
+            ];
+            if ($letter !== null) {
+                $filters['symbolStartsWith'] = $letter;
+            }
+
+            $rows = $provider->companyScreener($filters);
             $this->info('Screener rows: '.count($rows));
 
             if (method_exists($provider, 'lastErrors')) {
@@ -182,6 +199,52 @@ class ScanBuySetups extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve the exchange slice for this run.
+     *
+     * This keeps the default config intact while allowing cron to walk one
+     * exchange at a time, e.g. --exchange=NYSE. Comma-separated values are
+     * accepted for convenience.
+     *
+     * @param array<int, string> $configured
+     * @return array<int, string>
+     */
+    private function resolveExchanges(array $configured): array
+    {
+        $option = trim((string) ($this->option('exchange') ?? ''));
+        if ($option === '') {
+            return array_values(array_filter(array_map(
+                fn ($exchange) => strtoupper(trim((string) $exchange)),
+                $configured,
+            )));
+        }
+
+        return array_values(array_filter(array_map(
+            fn ($exchange) => strtoupper(trim($exchange)),
+            explode(',', $option),
+        )));
+    }
+
+    /**
+     * Resolve the optional symbol first-letter slice.
+     */
+    private function resolveLetter(): string|false|null
+    {
+        $letter = strtoupper(trim((string) ($this->option('letter') ?? '')));
+
+        if ($letter === '') {
+            return null;
+        }
+
+        if (! preg_match('/^[A-Z]$/', $letter)) {
+            $this->error('The --letter option must be a single A-Z character.');
+
+            return false;
+        }
+
+        return $letter;
     }
 
     /**

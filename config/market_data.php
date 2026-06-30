@@ -51,10 +51,10 @@ return [
         'min_market_cap' => env('EPS_REVISION_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000)),
         'positive_threshold' => env('EPS_REVISION_POSITIVE_THRESHOLD', 20),
         'negative_threshold' => env('EPS_REVISION_NEGATIVE_THRESHOLD', -20),
-        'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV'],
+        'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'],
         // Soft cap on screener size per run; FMP company-screener can
         // return many thousands of rows. Set to 0 to disable the cap.
-        'max_symbols_per_run' => env('EPS_REVISION_MAX_SYMBOLS', 2000),
+        'max_symbols_per_run' => env('EPS_REVISION_MAX_SYMBOLS', 4000),
     ],
 
     /*
@@ -67,7 +67,7 @@ return [
     'buy_setup_scanner' => [
         'enabled' => env('BUY_SETUP_SCANNER_ENABLED', true),
         'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000)),
-        'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV'],
+        'exchanges' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_EXCHANGES', 'NYSE,NASDAQ,TSX,TSXV,AMEX,OTC')))),
         'max_symbols_per_run' => env('BUY_SETUP_MAX_SYMBOLS', 1000),
         'history_lookback_days' => env('BUY_SETUP_HISTORY_LOOKBACK_DAYS', 504),
         'benchmark_symbols' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_BENCHMARK_SYMBOLS', 'SPY,IWM')))),

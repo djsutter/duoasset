@@ -280,6 +280,14 @@ class FmpMarketDataProvider implements MarketDataProvider
         if (isset($filters['limit'])) {
             $query['limit'] = (int) $filters['limit'];
         }
+        $symbolStartsWith = null;
+        if (! empty($filters['symbolStartsWith'])) {
+            $symbolStartsWith = strtoupper(substr(trim((string) $filters['symbolStartsWith']), 0, 1));
+            // Some FMP plans/endpoints support a first-letter/prefix filter; when
+            // unsupported it is harmlessly ignored by the provider. We still
+            // apply the same filter locally below as a safety net.
+            $query['symbolStartsWith'] = $symbolStartsWith;
+        }
         // Avoid OTC, funds, ETFs by default for the EPS revision universe.
         $query['isEtf'] = $filters['isEtf'] ?? 'false';
         $query['isFund'] = $filters['isFund'] ?? 'false';
@@ -287,10 +295,19 @@ class FmpMarketDataProvider implements MarketDataProvider
 
         $rows = $this->get('company-screener', $query) ?? [];
 
-        return array_values(array_filter(array_map(
+        $normalized = array_values(array_filter(array_map(
             fn ($row) => $this->normalizeScreenerRow($row),
             $rows,
         )));
+
+        if ($symbolStartsWith !== null) {
+            $normalized = array_values(array_filter(
+                $normalized,
+                fn (array $row) => str_starts_with((string) ($row['symbol'] ?? ''), $symbolStartsWith),
+            ));
+        }
+
+        return $normalized;
     }
 
     /**
