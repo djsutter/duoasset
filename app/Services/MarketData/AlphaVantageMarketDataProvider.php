@@ -44,7 +44,7 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
          * request per second; the extra millisecond gives us safe headroom
          * against clock-skew false positives on their side.
          */
-        private readonly int $throttleMs = 1/*1001 // Since we have paid FMP, let's not throttle so much, bounce over to FMP.*/,
+        private readonly int $throttleMs = 1/* 1001 // Since we have paid FMP, let's not throttle so much, bounce over to FMP. */,
         /**
          * Optional FMP fallback. When Alpha Vantage returns a throttle
          * notice (Note/Information) or a non-2xx HTTP status for the

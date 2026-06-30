@@ -31,20 +31,26 @@ return new class extends Migration
 
         // The original unique key prevented more than one setup type for the
         // same symbol/spike date. Replace it so each detector can save its own
-        // row while staying idempotent.
-        Schema::table('stock_buy_setup_alerts', function (Blueprint $table) {
-            try {
+        // row while staying idempotent. Run the drop and add in separate
+        // Schema::table() calls so the queued Blueprint commands are flushed
+        // (and any failures caught) independently — otherwise a failing
+        // dropUnique() at flush time aborts the whole closure.
+        try {
+            Schema::table('stock_buy_setup_alerts', function (Blueprint $table) {
                 $table->dropUnique('stock_buy_setup_alerts_uniq');
-            } catch (Throwable) {
-                // Already dropped or unavailable on this driver.
-            }
+            });
+        } catch (Throwable) {
+            // Already dropped or unavailable on this driver (e.g. fresh
+            // schema created without the legacy index).
+        }
 
-            try {
+        try {
+            Schema::table('stock_buy_setup_alerts', function (Blueprint $table) {
                 $table->unique(['source', 'symbol', 'setup_type', 'spike_date'], 'stock_buy_setup_alerts_type_uniq');
-            } catch (Throwable) {
-                // Index may already exist.
-            }
-        });
+            });
+        } catch (Throwable) {
+            // Index may already exist.
+        }
     }
 
     public function down(): void

@@ -19,7 +19,7 @@ class StockBuySetupLiquidityPenalty
     private const FULL_PENALTY_TURNOVER_PCT = 0.01;
 
     /**
-     * @param array<int, array<string, mixed>> $bars Ascending OHLCV bars.
+     * @param  array<int, array<string, mixed>>  $bars  Ascending OHLCV bars.
      * @return array{average_volume: ?int, shares_basis: ?int, shares_basis_type: string, turnover_pct: ?float, max_penalty_pct: float, penalty_pct: float, penalty_points: int, adjusted_score: int}
      */
     public function apply(int $rawScore, string $marketCapCategory, ?int $floatShares, ?int $sharesOutstanding, array $bars): array
@@ -61,7 +61,7 @@ class StockBuySetupLiquidityPenalty
     }
 
     /**
-     * @param array<int, array<string, mixed>> $bars
+     * @param  array<int, array<string, mixed>>  $bars
      */
     private function averageVolume(array $bars): ?int
     {

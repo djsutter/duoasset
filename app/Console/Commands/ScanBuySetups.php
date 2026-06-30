@@ -208,7 +208,7 @@ class ScanBuySetups extends Command
      * exchange at a time, e.g. --exchange=NYSE. Comma-separated values are
      * accepted for convenience.
      *
-     * @param array<int, string> $configured
+     * @param  array<int, string>  $configured
      * @return array<int, string>
      */
     private function resolveExchanges(array $configured): array
@@ -248,8 +248,8 @@ class ScanBuySetups extends Command
     }
 
     /**
-     * @param array<string, mixed> $result
-     * @param array<string, mixed> $summary
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>  $summary
      */
     private function recordSyncResult(array $result, array &$summary): void
     {
@@ -289,7 +289,7 @@ class ScanBuySetups extends Command
     }
 
     /**
-     * @param array<string, mixed> $result
+     * @param  array<string, mixed>  $result
      */
     private function renderVerboseResult(int $index, int $total, array $result): void
     {
@@ -344,7 +344,6 @@ class ScanBuySetups extends Command
                 ));
             }
 
-
             if (! empty($match['score_breakdown']) && is_array($match['score_breakdown'])) {
                 $this->line('  Score components:');
                 foreach ($match['score_breakdown'] as $component) {
@@ -374,7 +373,7 @@ class ScanBuySetups extends Command
     }
 
     /**
-     * @param array<string, mixed> $summary
+     * @param  array<string, mixed>  $summary
      */
     private function renderSyncSummary(array $summary, float $elapsedSeconds): void
     {
@@ -423,5 +422,4 @@ class ScanBuySetups extends Command
 
         return sprintf('%dm %02ds', $minutes, (int) round($remaining));
     }
-
 }

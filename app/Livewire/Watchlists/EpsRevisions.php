@@ -128,7 +128,7 @@ class EpsRevisions extends Component
             ->when($minMcap !== null, function ($q) use ($minMcap) {
                 $q->where(function ($q) use ($minMcap) {
                     $q->whereNull('market_cap')
-                      ->orWhere('market_cap', '>=', $minMcap);
+                        ->orWhere('market_cap', '>=', $minMcap);
                 });
             })
             ->when($this->exchange, fn ($q) => $q->where('exchange', $this->exchange))

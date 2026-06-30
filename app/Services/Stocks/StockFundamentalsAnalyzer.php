@@ -12,8 +12,8 @@ namespace App\Services\Stocks;
 class StockFundamentalsAnalyzer
 {
     /**
-     * @param array<int, array<string, mixed>> $incomeRows
-     * @param array<int, array<string, mixed>> $balanceRows
+     * @param  array<int, array<string, mixed>>  $incomeRows
+     * @param  array<int, array<string, mixed>>  $balanceRows
      * @return array<string, mixed>
      */
     public function analyze(array $incomeRows, array $balanceRows = []): array
@@ -66,7 +66,7 @@ class StockFundamentalsAnalyzer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rows
+     * @param  array<int, array<string, mixed>>  $rows
      * @return array<int, float>
      */
     private function yoyGrowthSeries(array $rows, string $field): array

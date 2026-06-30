@@ -19,11 +19,11 @@ final class MarketCap
     /**
      * Compute market cap as price × shares_outstanding.
      *
-     * @param  float|int|string|null  $price   Current share price (any numeric form).
+     * @param  float|int|string|null  $price  Current share price (any numeric form).
      * @param  float|int|string|null  $shares  Shares outstanding.
      * @param  float|int|string|null  $fallback  Provider-reported market cap, used
      *                                           when price/shares are not both available.
-     * @return int|null  Whole-unit market cap, or null when nothing can be computed.
+     * @return int|null Whole-unit market cap, or null when nothing can be computed.
      */
     public static function compute(
         float|int|string|null $price,

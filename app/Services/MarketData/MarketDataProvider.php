@@ -61,7 +61,6 @@ interface MarketDataProvider
      */
     public function analystEstimates(string $symbol, string $period = 'quarter'): array;
 
-
     /**
      * Return normalized quarterly income statement rows for a symbol.
      *

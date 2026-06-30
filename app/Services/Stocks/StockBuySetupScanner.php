@@ -2,7 +2,6 @@
 
 namespace App\Services\Stocks;
 
-use App\Services\MarketData\MarketCap;
 use Carbon\CarbonImmutable;
 
 /**
@@ -37,7 +36,6 @@ class StockBuySetupScanner
 
         return null;
     }
-
 
     /**
      * Run all enabled buy setup detectors for a symbol and return one result
@@ -113,6 +111,7 @@ class StockBuySetupScanner
         // Spike must not be older than max_spike_age_days from the most recent bar.
         if (($n - 1 - $spikeIdx) > $maxSpikeAge) {
             $age = $n - 1 - $spikeIdx;
+
             return $this->reject("spike too old ({$age} > {$maxSpikeAge} bars)");
         }
 
@@ -173,13 +172,13 @@ class StockBuySetupScanner
             fn ($v) => $v > 0,
         );
         if (empty($lows)) {
-            return $this->reject("base has no valid low prices");
+            return $this->reject('base has no valid low prices');
         }
 
         $baseHigh = max($highs);
         $baseLow = min($lows);
         if ($baseLow <= 0 || $baseHigh <= 0) {
-            return $this->reject("base has invalid high/low prices");
+            return $this->reject('base has invalid high/low prices');
         }
         $rangePct = (($baseHigh - $baseLow) / $baseLow) * 100;
         // Range compression is intentionally scored, not used as a hard gate.

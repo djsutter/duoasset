@@ -212,7 +212,6 @@ class FmpMarketDataProvider implements MarketDataProvider
         )));
     }
 
-
     public function quarterlyIncomeStatements(string $symbol, int $limit = 8): array
     {
         $symbol = $this->normalizeSymbol($symbol);
@@ -635,7 +634,6 @@ class FmpMarketDataProvider implements MarketDataProvider
             'raw' => $row,
         ];
     }
-
 
     protected function normalizeIncomeStatementRow(mixed $row): ?array
     {

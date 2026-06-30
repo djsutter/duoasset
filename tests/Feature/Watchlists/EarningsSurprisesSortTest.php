@@ -3,8 +3,8 @@
 use App\Livewire\Watchlists\EarningsSurprises;
 use App\Models\EarningsEvent;
 use App\Models\User;
-use Livewire\Livewire;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -75,7 +75,7 @@ test('it can sort by revenue surprise percent', function () {
         ->set('minMarketCap', null)
         ->set('alertedOnly', false)
         ->set('direction', 'both');
-    
+
     // Sort by revenue_surprise_percent (default desc) -> [HIGH_REV, LOW_REV]
     $component->call('sortBy', 'revenue_surprise_percent');
     $events = $component->viewData('events');

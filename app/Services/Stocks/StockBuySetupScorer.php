@@ -96,7 +96,7 @@ class StockBuySetupScorer
     }
 
     /**
-     * @param array<string, array{points: int, max: int}> $breakdown
+     * @param  array<string, array{points: int, max: int}>  $breakdown
      */
     public function scoreFromBreakdown(array $breakdown): int
     {
@@ -111,7 +111,7 @@ class StockBuySetupScorer
     }
 
     /**
-     * @param array<string, array{points: int, max: int}> $breakdown
+     * @param  array<string, array{points: int, max: int}>  $breakdown
      * @return array{raw: int, max: int, normalized: int}
      */
     public function scoreMetaFromBreakdown(array $breakdown): array

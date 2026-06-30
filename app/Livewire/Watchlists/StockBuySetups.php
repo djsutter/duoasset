@@ -6,8 +6,8 @@ use App\Enums\MoatLevel;
 use App\Models\StockBuySetupAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
-use App\Services\Stocks\StockProvisioner;
 use App\Services\Stocks\StockBuySetupScorer;
+use App\Services\Stocks\StockProvisioner;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -73,7 +73,6 @@ class StockBuySetups extends Component
         $this->sortDirection = 'desc';
         $this->resetPage();
     }
-
 
     public function sortByColumn(string $column): void
     {

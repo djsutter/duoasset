@@ -9,9 +9,9 @@ use App\Models\User;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
+use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
-use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockFundamentalsAnalyzer;
 use App\Services\Stocks\StockProvisioner;
 use Carbon\CarbonImmutable;
@@ -226,31 +226,31 @@ class EvaluateStockBuySetup implements ShouldQueue
                     try {
                         $stock = $stocks->findOrCreate($symbol, $exchange, $companyName);
 
-                    User::query()
-                        ->where('notify_stock_buy_setup', true)
-                        ->chunkById(100, function ($users) use ($stock, $alert) {
-                            foreach ($users as $user) {
-                                $watchlist = Watchlist::firstOrCreate(
-                                    ['user_id' => $user->id, 'name' => 'Setup'],
-                                    [
-                                        'description' => 'Auto-created from Stock Buy Setup scanner.',
-                                        'is_default' => false,
-                                    ],
-                                );
+                        User::query()
+                            ->where('notify_stock_buy_setup', true)
+                            ->chunkById(100, function ($users) use ($stock, $alert) {
+                                foreach ($users as $user) {
+                                    $watchlist = Watchlist::firstOrCreate(
+                                        ['user_id' => $user->id, 'name' => 'Setup'],
+                                        [
+                                            'description' => 'Auto-created from Stock Buy Setup scanner.',
+                                            'is_default' => false,
+                                        ],
+                                    );
 
-                                WatchlistItem::firstOrCreate(
-                                    [
-                                        'watchlist_id' => $watchlist->id,
-                                        'stock_id' => $stock->id,
-                                    ],
-                                    [
-                                        'currency' => $stock->currency->value,
-                                        'moat_level' => MoatLevel::Medium->value,
-                                        'notes' => 'Buy setup ['.$alert->setup_type.'] ('.$alert->setup_score.'/100): '.$alert->reason_summary,
-                                    ],
-                                );
-                            }
-                        });
+                                    WatchlistItem::firstOrCreate(
+                                        [
+                                            'watchlist_id' => $watchlist->id,
+                                            'stock_id' => $stock->id,
+                                        ],
+                                        [
+                                            'currency' => $stock->currency->value,
+                                            'moat_level' => MoatLevel::Medium->value,
+                                            'notes' => 'Buy setup ['.$alert->setup_type.'] ('.$alert->setup_score.'/100): '.$alert->reason_summary,
+                                        ],
+                                    );
+                                }
+                            });
                     } catch (Throwable $e) {
                         Log::warning('buy_setup.watchlist_provision_failed', [
                             'symbol' => $symbol,
@@ -311,7 +311,6 @@ class EvaluateStockBuySetup implements ShouldQueue
         }
     }
 
-
     /**
      * @return array<string, mixed>
      */
@@ -340,7 +339,6 @@ class EvaluateStockBuySetup implements ShouldQueue
     {
         return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
-
 
     /**
      * @return array<string, mixed>
