@@ -19,7 +19,11 @@
     @endif
 
     <div class="da-card">
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-7">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-8">
+            <div>
+                <label class="da-label">{{ __('Symbol') }}</label>
+                <input type="text" wire:model.live.debounce.400ms="symbol" class="da-input uppercase" placeholder="AAPL">
+            </div>
             <div>
                 <label class="da-label">{{ __('Min |EPS surprise| %') }}</label>
                 <input type="number" step="0.01" wire:model.live.debounce.400ms="minSurprisePercent" class="da-input">
@@ -67,7 +71,18 @@
             <thead>
                 <tr>
                     <th>{{ __('Detected') }}</th>
-                    <th>{{ __('Symbol') }}</th>
+                    <th>
+                        <button type="button" wire:click="sortBy('symbol')" class="da-sort">
+                            {{ __('Symbol') }}
+                            @if ($sortField === 'symbol')
+                                @if ($sortDirection === 'asc')
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" /></svg>
+                                @else
+                                    <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                                @endif
+                            @endif
+                        </button>
+                    </th>
                     <th>{{ __('Company') }}</th>
                     <th>{{ __('Exchange') }}</th>
                     <th class="text-right">{{ __('Market Cap') }}</th>

@@ -41,6 +41,9 @@ class StockBuySetups extends Component
     #[Url(as: 'unwatched_only')]
     public bool $unwatchedOnly = false;
 
+    #[Url(as: 'symbol')]
+    public ?string $symbol = null;
+
     #[Url(as: 'sort')]
     public string $sortBy = 'setup_score';
 
@@ -69,6 +72,7 @@ class StockBuySetups extends Component
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->unwatchedOnly = false;
+        $this->symbol = null;
         $this->sortBy = 'setup_score';
         $this->sortDirection = 'desc';
         $this->resetPage();
@@ -76,7 +80,7 @@ class StockBuySetups extends Component
 
     public function sortByColumn(string $column): void
     {
-        $allowed = ['setup_score', 'heartbeat_score', 'detected_at', 'spike_date'];
+        $allowed = ['symbol', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'];
 
         if (! in_array($column, $allowed, true)) {
             return;
@@ -155,6 +159,7 @@ class StockBuySetups extends Component
         }
 
         $query = StockBuySetupAlert::query()
+            ->when($this->symbol, fn ($q) => $q->where('symbol', 'like', $this->symbol.'%'))
             ->when($this->setupType, fn ($q) => $q->where('setup_type', $this->setupType))
             ->when($minScore !== null, fn ($q) => $q->where('setup_score', '>=', $minScore))
             ->when($minMcap !== null, fn ($q) => $q->where('market_cap', '>=', $minMcap))
@@ -165,7 +170,7 @@ class StockBuySetups extends Component
             ->when($this->unwatchedOnly && $watchedSymbols->isNotEmpty(),
                 fn ($q) => $q->whereNotIn('symbol', $watchedSymbols->all()));
 
-        $sortBy = in_array($this->sortBy, ['setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
+        $sortBy = in_array($this->sortBy, ['symbol', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
         $direction = strtolower($this->sortDirection) === 'asc' ? 'asc' : 'desc';
 
         $alerts = $query

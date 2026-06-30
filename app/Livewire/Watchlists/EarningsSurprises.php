@@ -36,6 +36,9 @@ class EarningsSurprises extends Component
     #[Url(as: 'alerted')]
     public bool $alertedOnly = false;
 
+    #[Url(as: 'symbol')]
+    public ?string $symbol = null;
+
     /** "both" | "positive" | "negative" */
     #[Url(as: 'dir')]
     public string $direction = 'both';
@@ -64,6 +67,7 @@ class EarningsSurprises extends Component
         $this->minSurprisePercent = (string) config('market_data.earnings_scanner.min_eps_surprise_percent', 90);
         $this->minMarketCap = (string) config('market_data.earnings_scanner.min_market_cap', 100_000_000);
         $this->exchange = null;
+        $this->symbol = null;
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->alertedOnly = true;
@@ -161,6 +165,7 @@ class EarningsSurprises extends Component
 
         $query = EarningsEvent::query()
             ->with('alerts')
+            ->when($this->symbol, fn ($q) => $q->where('symbol', 'like', $this->symbol.'%'))
             ->when($minPct !== null, function ($q) use ($minPct) {
                 // Match by ABSOLUTE magnitude so the same threshold catches
                 // big beats and big misses.
