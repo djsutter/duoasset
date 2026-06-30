@@ -269,6 +269,10 @@ class StockBuySetupScanner
             spikeRelativeVolume: $baseAvgVol > 0 ? round($spikeVol / $baseAvgVol, 4) : null,
             epsGrowthSequence: $context['eps_growth_sequence'] ?? null,
             revenueGrowthSequence: $context['revenue_growth_sequence'] ?? null,
+            price: $this->nullableFloat($context['price'] ?? null),
+            sharesOutstanding: $this->nullableInt($context['shares_outstanding'] ?? null),
+            floatShares: $this->nullableInt($context['float_shares'] ?? null),
+            freeFloat: $this->nullableFloat($context['free_float'] ?? null),
         );
 
         $result->reasonSummary = $this->reasonSummary($result);
@@ -293,8 +297,11 @@ class StockBuySetupScanner
         if ($cap >= 2_000_000_000) {
             return 'mid';
         }
+        if ($cap >= 300_000_000) {
+            return 'small';
+        }
 
-        return 'small';
+        return 'micro';
     }
 
     private function maAlignmentString(float $price, ?float $sma50, ?float $sma150, ?float $sma200): string
@@ -340,6 +347,11 @@ class StockBuySetupScanner
         $bRet = ($bNow - $bThen) / $bThen;
 
         return round(($sRet - $bRet) * 100, 4);
+    }
+
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (int) $value;
     }
 
     private function nullableFloat(mixed $value): ?float

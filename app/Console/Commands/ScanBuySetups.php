@@ -112,6 +112,10 @@ class ScanBuySetups extends Command
                 'companyName' => $row['company_name'] ?? null,
                 'exchange' => $row['exchange'] ?? null,
                 'marketCap' => isset($row['market_cap']) ? (int) $row['market_cap'] : null,
+                'price' => isset($row['price']) && is_numeric($row['price']) ? (float) $row['price'] : null,
+                'sharesOutstanding' => isset($row['shares_outstanding']) ? (int) $row['shares_outstanding'] : null,
+                'floatShares' => isset($row['float_shares']) ? (int) $row['float_shares'] : null,
+                'freeFloat' => isset($row['free_float']) && is_numeric($row['free_float']) ? (float) $row['free_float'] : null,
             ];
 
             if ($sync) {
@@ -124,6 +128,10 @@ class ScanBuySetups extends Command
                     $payload['companyName'],
                     $payload['exchange'],
                     $payload['marketCap'],
+                    $payload['price'],
+                    $payload['sharesOutstanding'],
+                    $payload['floatShares'],
+                    $payload['freeFloat'],
                 );
                 $result = app()->call([$job, 'handle']);
                 if (! is_array($result)) {
@@ -263,6 +271,16 @@ class ScanBuySetups extends Command
                     (string) ($match['relative_strength'] ?? '—'),
                 ));
             }
+            if (array_key_exists('liquidity_penalty_pct', $match)) {
+                $this->line(sprintf(
+                    '  liquidity avg_vol=%s turnover=%s%% penalty=%s%% (-%s pts)',
+                    $match['avg_daily_volume'] !== null ? number_format((int) $match['avg_daily_volume']) : '—',
+                    $match['liquidity_turnover_pct'] !== null ? number_format((float) $match['liquidity_turnover_pct'], 6) : '—',
+                    number_format((float) ($match['liquidity_penalty_pct'] ?? 0), 2),
+                    (string) ($match['liquidity_penalty_points'] ?? 0),
+                ));
+            }
+
 
             if (! empty($match['score_breakdown']) && is_array($match['score_breakdown'])) {
                 $this->line('  Score components:');

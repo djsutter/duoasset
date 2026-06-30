@@ -17,6 +17,21 @@ final class StockBuySetupResult
 
     public int $heartbeatScore = 0;
 
+    /** Score before liquidity / sleepiness penalties are applied. */
+    public int $rawSetupScore = 0;
+
+    /** Average daily volume used by the liquidity turnover calculation. */
+    public ?int $avgDailyVolume = null;
+
+    /** Average daily volume divided by float shares or shares outstanding. */
+    public ?float $liquidityTurnoverPct = null;
+
+    /** Percent penalty applied to the raw setup score for sleepy liquidity. */
+    public float $liquidityPenaltyPct = 0.0;
+
+    /** Number of setup-score points removed by liquidityPenaltyPct. */
+    public int $liquidityPenaltyPoints = 0;
+
     public string $reasonSummary = '';
 
     public function __construct(

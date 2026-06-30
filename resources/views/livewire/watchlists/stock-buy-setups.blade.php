@@ -136,6 +136,7 @@
                             'setup_type' => $setupTypes[$alert->setup_type] ?? $alert->setup_type,
                             'setup_type_key' => $alert->setup_type,
                             'setup_score' => $alert->setup_score,
+                            'raw_setup_score' => $alert->raw_setup_score ?? $alert->heartbeat_score ?? $alert->setup_score,
                             'company' => $alert->company_name ?? '—',
                             'exchange' => $alert->exchange ?? '—',
                             'market_cap' => $alert->market_cap ? number_format((int) $alert->market_cap) : '—',
@@ -144,6 +145,10 @@
                             'shares_outstanding' => $alert->shares_outstanding ? number_format((int) $alert->shares_outstanding) : '—',
                             'float_shares' => $alert->float_shares ? number_format((int) $alert->float_shares) : '—',
                             'free_float' => $alert->free_float !== null ? number_format((float) $alert->free_float, 1).'%' : '—',
+                            'avg_daily_volume' => $alert->avg_daily_volume ? number_format((int) $alert->avg_daily_volume) : '—',
+                            'liquidity_turnover_pct' => $alert->liquidity_turnover_pct !== null ? number_format((float) $alert->liquidity_turnover_pct, 6).'%' : '—',
+                            'liquidity_penalty_pct' => $alert->liquidity_penalty_pct !== null ? number_format((float) $alert->liquidity_penalty_pct, 2).'%' : '—',
+                            'liquidity_penalty_points' => $alert->liquidity_penalty_points ?? 0,
                             'detected_at' => optional($alert->detected_at)->format('Y-m-d H:i') ?? '—',
                             'sent_at' => optional($alert->sent_at)->format('Y-m-d H:i') ?? '—',
                             'status' => $alert->status,
@@ -258,6 +263,7 @@
                                 <dt class="text-zinc-500">{{ __('Symbol') }}</dt><dd class="text-right font-medium" x-text="selected?.symbol"></dd>
                                 <dt class="text-zinc-500">{{ __('Setup type') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_type"></dd>
                                 <dt class="text-zinc-500">{{ __('Setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_score"></dd>
+                                <dt class="text-zinc-500">{{ __('Raw setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.raw_setup_score"></dd>
                                 <dt class="text-zinc-500">{{ __('Heartbeat') }}</dt><dd class="text-right font-medium" x-text="selected?.heartbeat_score"></dd>
                                 <dt class="text-zinc-500">{{ __('Status') }}</dt><dd class="text-right font-medium" x-text="selected?.status"></dd>
                                 <dt class="text-zinc-500">{{ __('Detected') }}</dt><dd class="text-right font-medium" x-text="selected?.detected_at"></dd>
@@ -276,6 +282,9 @@
                                 <dt class="text-zinc-500">{{ __('Shares out') }}</dt><dd class="text-right font-medium" x-text="selected?.shares_outstanding"></dd>
                                 <dt class="text-zinc-500">{{ __('Float shares') }}</dt><dd class="text-right font-medium" x-text="selected?.float_shares"></dd>
                                 <dt class="text-zinc-500">{{ __('Free float') }}</dt><dd class="text-right font-medium" x-text="selected?.free_float"></dd>
+                                <dt class="text-zinc-500">{{ __('Avg daily volume') }}</dt><dd class="text-right font-medium" x-text="selected?.avg_daily_volume"></dd>
+                                <dt class="text-zinc-500">{{ __('Liquidity turnover') }}</dt><dd class="text-right font-medium" x-text="selected?.liquidity_turnover_pct"></dd>
+                                <dt class="text-zinc-500">{{ __('Liquidity penalty') }}</dt><dd class="text-right font-medium"><span x-text="selected?.liquidity_penalty_pct"></span> <span class="text-zinc-400">(<span x-text="selected?.liquidity_penalty_points"></span> pts)</span></dd>
                             </dl>
                         </div>
 

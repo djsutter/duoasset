@@ -98,6 +98,12 @@ return [
                 'label' => 'Early breakout follow-through',
             ],
         ],
+        'sleepy_volume_penalties' => [
+            'large' => env('BUY_SETUP_SLEEPY_VOLUME_LARGE_CAP_PENALTY_PCT', 40),
+            'medium' => env('BUY_SETUP_SLEEPY_VOLUME_MEDIUM_CAP_PENALTY_PCT', 30),
+            'small' => env('BUY_SETUP_SLEEPY_VOLUME_SMALL_CAP_PENALTY_PCT', 20),
+            'micro' => env('BUY_SETUP_SLEEPY_VOLUME_MICRO_CAP_PENALTY_PCT', 15),
+        ],
         'score_weights' => [
             'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_WEIGHT', env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 25)),
             'base_duration' => env('BUY_SETUP_SCORE_BASE_DURATION_WEIGHT', env('BUY_SETUP_SCORE_BASE_DURATION_MAX', 10)),

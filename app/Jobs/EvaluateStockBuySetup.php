@@ -11,6 +11,7 @@ use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
+use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockFundamentalsAnalyzer;
 use App\Services\Stocks\StockProvisioner;
 use Carbon\CarbonImmutable;
@@ -46,12 +47,17 @@ class EvaluateStockBuySetup implements ShouldQueue
         public ?string $companyName = null,
         public ?string $exchange = null,
         public ?int $marketCap = null,
+        public ?float $price = null,
+        public ?int $sharesOutstanding = null,
+        public ?int $floatShares = null,
+        public ?float $freeFloat = null,
     ) {}
 
     public function handle(
         MarketDataProvider $provider,
         StockBuySetupScanner $scanner,
         StockBuySetupScorer $scorer,
+        StockBuySetupLiquidityPenalty $liquidityPenalty,
         StockFundamentalsAnalyzer $fundamentals,
         StockProvisioner $stocks,
     ): array {
@@ -81,6 +87,15 @@ class EvaluateStockBuySetup implements ShouldQueue
             $lookback = (int) ($config['history_lookback_days'] ?? 504);
             $notifyMinScore = (int) ($config['notify_min_setup_score'] ?? $config['min_heartbeat_score'] ?? 50);
 
+            $profile = $this->loadProfile($provider, $symbol);
+            $companyName = $this->companyName ?: ($profile['company_name'] ?? null);
+            $exchange = $this->exchange ?: ($profile['exchange'] ?? null);
+            $price = $this->price ?? $this->nullableFloat($profile['price'] ?? null);
+            $sharesOutstanding = $this->sharesOutstanding ?? $this->nullableInt($profile['shares_outstanding'] ?? null);
+            $floatShares = $this->floatShares ?? $this->nullableInt($profile['float_shares'] ?? null);
+            $freeFloat = $this->freeFloat ?? $this->nullableFloat($profile['free_float'] ?? null);
+            $marketCap = \App\Services\MarketData\MarketCap::compute($price, $sharesOutstanding, $this->marketCap ?? ($profile['market_cap'] ?? null));
+
             $barStats = [];
             $bars = $this->loadBars($provider, $symbol, $lookback, $barStats);
             $debug['bars'] = count($bars);
@@ -102,9 +117,13 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             $results = $scanner->evaluateAll($bars, $benchmarkBars, array_merge([
                 'symbol' => $symbol,
-                'company_name' => $this->companyName,
-                'exchange' => $this->exchange,
-                'market_cap' => $this->marketCap,
+                'company_name' => $companyName,
+                'exchange' => $exchange,
+                'market_cap' => $marketCap,
+                'price' => $price,
+                'shares_outstanding' => $sharesOutstanding,
+                'float_shares' => $floatShares,
+                'free_float' => $freeFloat,
             ], $fundamentalMetrics));
 
             if (empty($results)) {
@@ -118,9 +137,22 @@ class EvaluateStockBuySetup implements ShouldQueue
             foreach ($results as $result) {
                 $breakdown = $scorer->breakdown($result);
                 $scoreMeta = $scorer->scoreMetaFromBreakdown($breakdown);
-                $score = $scoreMeta['normalized'];
-                $result->heartbeatScore = $score;
+                $rawScore = $scoreMeta['normalized'];
+                $liquidity = $liquidityPenalty->apply(
+                    $rawScore,
+                    $result->marketCapCategory,
+                    $result->floatShares,
+                    $result->sharesOutstanding,
+                    $bars,
+                );
+                $score = (int) $liquidity['adjusted_score'];
+                $result->rawSetupScore = $rawScore;
+                $result->heartbeatScore = $rawScore;
                 $result->setupScore = $score;
+                $result->avgDailyVolume = $liquidity['average_volume'];
+                $result->liquidityTurnoverPct = $liquidity['turnover_pct'];
+                $result->liquidityPenaltyPct = (float) $liquidity['penalty_pct'];
+                $result->liquidityPenaltyPoints = (int) $liquidity['penalty_points'];
 
                 $spikeDate = $result->spikeDate->toDateString();
 
@@ -135,10 +167,19 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $wasRecentlyCreated = ! $alert->exists;
                 $alert->fill([
                     'setup_score' => $result->setupScore,
+                    'raw_setup_score' => $result->rawSetupScore,
                     'company_name' => $result->companyName,
                     'exchange' => $result->exchange,
                     'market_cap' => $result->marketCap,
                     'market_cap_category' => $result->marketCapCategory,
+                    'price' => $result->price,
+                    'shares_outstanding' => $result->sharesOutstanding,
+                    'float_shares' => $result->floatShares,
+                    'free_float' => $result->freeFloat,
+                    'avg_daily_volume' => $result->avgDailyVolume,
+                    'liquidity_turnover_pct' => $result->liquidityTurnoverPct,
+                    'liquidity_penalty_pct' => $result->liquidityPenaltyPct,
+                    'liquidity_penalty_points' => $result->liquidityPenaltyPoints,
                     'spike_volume' => $result->spikeVolume,
                     'prior_52w_max_volume' => $result->prior52wMaxVolume,
                     'max_104w_volume' => $result->max104wVolume,
@@ -183,7 +224,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                 // detector matches are still saved for review and UI filtering.
                 if ($shouldNotify) {
                     try {
-                        $stock = $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
+                        $stock = $stocks->findOrCreate($symbol, $exchange, $companyName);
 
                     User::query()
                         ->where('notify_stock_buy_setup', true)
@@ -226,11 +267,16 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'setup_type' => $result->setupType,
                     'status' => $wasRecentlyCreated ? 'created' : 'existing',
                     'setup_score' => $result->setupScore,
+                    'raw_setup_score' => $result->rawSetupScore,
                     'heartbeat_score' => $result->heartbeatScore,
                     'raw_score' => $scoreMeta['raw'],
                     'max_score' => $scoreMeta['max'],
                     'notify_min_score' => $notifyMinScore,
                     'notification_eligible' => $shouldNotify,
+                    'avg_daily_volume' => $result->avgDailyVolume,
+                    'liquidity_turnover_pct' => $result->liquidityTurnoverPct,
+                    'liquidity_penalty_pct' => $result->liquidityPenaltyPct,
+                    'liquidity_penalty_points' => $result->liquidityPenaltyPoints,
                     'score_breakdown' => $breakdown,
                     'spike_date' => $spikeDate,
                     'base_days' => $result->baseDurationDays,
@@ -263,6 +309,36 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             return $debug;
         }
+    }
+
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadProfile(MarketDataProvider $provider, string $symbol): array
+    {
+        try {
+            $profile = $provider->profile($symbol);
+
+            return is_array($profile) ? $profile : [];
+        } catch (Throwable $e) {
+            Log::warning('buy_setup.profile_failed', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (int) $value;
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
 
 

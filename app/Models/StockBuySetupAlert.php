@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $symbol
  * @property string $setup_type
  * @property int $setup_score
+ * @property int $raw_setup_score
  * @property string|null $company_name
  * @property string|null $exchange
  * @property int|null $market_cap Computed: price × shares_outstanding (falls back to stored column).
@@ -22,6 +23,10 @@ use Illuminate\Database\Eloquent\Model;
  * @property int|null $shares_outstanding
  * @property int|null $float_shares
  * @property string|null $free_float
+ * @property int|null $avg_daily_volume
+ * @property string|null $liquidity_turnover_pct
+ * @property string|null $liquidity_penalty_pct
+ * @property int $liquidity_penalty_points
  * @property \Illuminate\Support\Carbon $spike_date
  * @property int|null $spike_volume
  * @property int|null $prior_52w_max_volume
@@ -66,6 +71,7 @@ class StockBuySetupAlert extends Model
         'symbol',
         'setup_type',
         'setup_score',
+        'raw_setup_score',
         'company_name',
         'exchange',
         'market_cap',
@@ -74,6 +80,10 @@ class StockBuySetupAlert extends Model
         'shares_outstanding',
         'float_shares',
         'free_float',
+        'avg_daily_volume',
+        'liquidity_turnover_pct',
+        'liquidity_penalty_pct',
+        'liquidity_penalty_points',
         'spike_date',
         'spike_volume',
         'prior_52w_max_volume',
@@ -140,11 +150,16 @@ class StockBuySetupAlert extends Model
         'eps_growth_sequence' => 'array',
         'revenue_growth_sequence' => 'array',
         'setup_score' => 'integer',
+        'raw_setup_score' => 'integer',
         'market_cap' => 'integer',
         'price' => 'decimal:4',
         'shares_outstanding' => 'integer',
         'float_shares' => 'integer',
         'free_float' => 'decimal:4',
+        'avg_daily_volume' => 'integer',
+        'liquidity_turnover_pct' => 'decimal:6',
+        'liquidity_penalty_pct' => 'decimal:4',
+        'liquidity_penalty_points' => 'integer',
         'heartbeat_score' => 'integer',
         'detected_at' => 'datetime',
         'sent_at' => 'datetime',
