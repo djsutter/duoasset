@@ -104,6 +104,10 @@ return [
             'small' => env('BUY_SETUP_SLEEPY_VOLUME_SMALL_CAP_PENALTY_PCT', 20),
             'micro' => env('BUY_SETUP_SLEEPY_VOLUME_MICRO_CAP_PENALTY_PCT', 15),
         ],
+        'acceleration_scales' => [
+            'earnings_acceleration' => env('BUY_SETUP_EPS_ACCELERATION_SCALE', 75),
+            'sales_acceleration' => env('BUY_SETUP_SALES_ACCELERATION_SCALE', 100),
+        ],
         'score_weights' => [
             'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_WEIGHT', env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 7)),
             'base_duration' => env('BUY_SETUP_SCORE_BASE_DURATION_WEIGHT', env('BUY_SETUP_SCORE_BASE_DURATION_MAX', 10)),

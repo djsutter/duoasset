@@ -20,6 +20,7 @@ class StockBuySetupScorer
     public function breakdown(StockBuySetupResult|StockBuySetupAlert $r): array
     {
         $weights = $this->weights();
+        $scales = $this->accelerationScales();
 
         return [
             'spike_rarity' => [
@@ -72,13 +73,21 @@ class StockBuySetupScorer
             ],
             'earnings_acceleration' => [
                 'label' => 'Earnings accel.',
-                'points' => $this->positiveBonusPoints($this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null), $weights['earnings_acceleration']),
+                'points' => $this->logarithmicBonusPoints(
+                    $this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null),
+                    $weights['earnings_acceleration'],
+                    $scales['earnings_acceleration'],
+                ),
                 'max' => $weights['earnings_acceleration'],
                 'value' => ($this->nullableFloat($r->earningsAcceleration ?? $r->earnings_acceleration ?? null) !== null) ? number_format((float) ($r->earningsAcceleration ?? $r->earnings_acceleration), 1).' pts' : 'n/a',
             ],
             'sales_acceleration' => [
                 'label' => 'Sales accel.',
-                'points' => $this->positiveBonusPoints($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null), $weights['sales_acceleration']),
+                'points' => $this->logarithmicBonusPoints(
+                    $this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null),
+                    $weights['sales_acceleration'],
+                    $scales['sales_acceleration'],
+                ),
                 'max' => $weights['sales_acceleration'],
                 'value' => ($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null) !== null) ? number_format((float) ($r->salesAcceleration ?? $r->sales_acceleration), 1).' pts' : 'n/a',
             ],
@@ -254,9 +263,35 @@ class StockBuySetupScorer
         };
     }
 
-    private function positiveBonusPoints(?float $value, int $max): int
+    /**
+     * @return array{earnings_acceleration: float, sales_acceleration: float}
+     */
+    private function accelerationScales(): array
     {
-        return $max > 0 && $value !== null && $value > 0 ? $max : 0;
+        $configured = (array) config('market_data.buy_setup_scanner.acceleration_scales', []);
+
+        return [
+            'earnings_acceleration' => max(0.0001, (float) ($configured['earnings_acceleration'] ?? 75)),
+            'sales_acceleration' => max(0.0001, (float) ($configured['sales_acceleration'] ?? 100)),
+        ];
+    }
+
+    /**
+     * Scores positive acceleration on a smooth logarithmic curve.
+     *
+     * The configured scale is the raw acceleration value that earns the
+     * component's full weight. Values above the scale remain capped at the
+     * maximum, while smaller positive values receive proportionate credit.
+     */
+    private function logarithmicBonusPoints(?float $value, int $max, float $scale): int
+    {
+        if ($max <= 0 || $value === null || $value <= 0) {
+            return 0;
+        }
+
+        $normalized = log1p($value) / log1p(max(0.0001, $scale));
+
+        return (int) round($max * min(1.0, max(0.0, $normalized)));
     }
 
     private function nullableFloat(mixed $value): ?float
