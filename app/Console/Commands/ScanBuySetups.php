@@ -33,7 +33,7 @@ class ScanBuySetups extends Command
         }
 
         $config = config('market_data.buy_setup_scanner');
-        $minMcap = (int) ($config['min_market_cap'] ?? 100_000_000);
+        $minMcap = (int) ($config['min_market_cap'] ?? 25_000_000);
         $exchanges = $this->resolveExchanges((array) ($config['exchanges'] ?? []));
         $letter = $this->resolveLetter();
         if ($letter === false) {
@@ -323,6 +323,14 @@ class ScanBuySetups extends Command
                 (string) ($match['spike_date'] ?? '—'),
                 ! empty($match['notification_eligible']) ? 'yes' : 'no (< '.(string) ($match['notify_min_score'] ?? '—').')',
             ));
+
+            if (array_key_exists('spike_rarity_points', $match)) {
+                $this->line(sprintf(
+                    '  spike_rarity=%s/7 age=%s bars',
+                    (string) ($match['spike_rarity_points'] ?? 0),
+                    $match['spike_age_bars'] !== null ? (string) $match['spike_age_bars'] : '—',
+                ));
+            }
 
             if (isset($match['base_days'])) {
                 $this->line(sprintf(

@@ -8,11 +8,9 @@ use Carbon\CarbonImmutable;
  * Pure detection logic for the Stock Buy Setup scanner.
  *
  * Given an ascending-date series of OHLCV bars for a single symbol,
- * evaluate() returns a StockBuySetupResult when:
- *   1. A high-volume spike sits inside the configured recent window
- *      (default: last 42 trading days), AND
- *   2. The bars preceding the spike form a tight consolidation base
- *      (range compression, ATR contraction, near-zero slope).
+ * evaluate() scores every sufficiently liquid, adequately capitalized symbol.
+ * A high-volume spike is a probability bonus, not a hard qualification gate.
+ * Spike rarity is searched no farther back than 104 weeks (504 bars).
  *
  * No DB / no HTTP — everything is in-memory so the scanner is fully
  * deterministic and easy to unit-test with synthetic series.
@@ -76,7 +74,7 @@ class StockBuySetupScanner
         $this->lastRejectionReason = null;
         $cfg = config('market_data.buy_setup_scanner', []);
         $recentWindow = (int) ($cfg['recent_spike_window_days'] ?? 42);
-        $maxSpikeAge = (int) ($cfg['max_spike_age_days'] ?? 84);
+        $maxSpikeLookback = min(504, max(1, (int) ($cfg['spike_lookback_days'] ?? 504)));
         $minHistory = (int) ($cfg['history_lookback_days'] ?? 504);
         $minBase = (int) ($cfg['min_base_days'] ?? 60);
         $maxBase = (int) ($cfg['max_base_days'] ?? 120);
@@ -91,64 +89,116 @@ class StockBuySetupScanner
         }
 
         $symbol = strtoupper((string) ($context['symbol'] ?? ''));
+        $marketCap = $context['market_cap'] ?? null;
+        $minimumMarketCap = 25_000_000;
+        if (is_numeric($marketCap) && (int) $marketCap < $minimumMarketCap) {
+            return $this->reject('market cap below $25 million');
+        }
 
         // ---------------- Spike detection ----------------
-        // Find the highest-volume bar inside the recent window.
+        // A spike is now a scored bonus, never a hard qualification gate.
+        // Search no farther back than 104 weeks (504 trading bars), then keep
+        // the candidate with the strongest rarity/recency score. When no bar
+        // qualifies as a 52w/104w high-volume event, retain the highest-volume
+        // recent bar as the base anchor and award zero Spike rarity points.
         $spikeIdx = null;
         $spikeVol = 0;
-        $start = max(0, $n - $recentWindow);
-        for ($i = $start; $i < $n; $i++) {
-            $v = (int) ($bars[$i]['volume'] ?? 0);
-            if ($v > $spikeVol) {
-                $spikeVol = $v;
-                $spikeIdx = $i;
-            }
-        }
-        if ($spikeIdx === null || $spikeVol <= 0) {
-            return $this->reject("no recent volume spike found in {$recentWindow}-bar window");
-        }
-
-        // Spike must not be older than max_spike_age_days from the most recent bar.
-        if (($n - 1 - $spikeIdx) > $maxSpikeAge) {
-            $age = $n - 1 - $spikeIdx;
-
-            return $this->reject("spike too old ({$age} > {$maxSpikeAge} bars)");
-        }
-
-        // Compare against the prior 252 bars (excluding the spike itself).
-        $priorStart = max(0, $spikeIdx - 252);
         $prior52wMax = 0;
-        for ($i = $priorStart; $i < $spikeIdx; $i++) {
-            $v = (int) ($bars[$i]['volume'] ?? 0);
-            if ($v > $prior52wMax) {
-                $prior52wMax = $v;
-            }
-        }
-
-        // Gate: spike must exceed the prior 52w maximum.
-        if ($spikeVol <= $prior52wMax) {
-            return $this->reject("no 52w high-volume spike ({$spikeVol} <= {$prior52wMax})");
-        }
-
-        // 104-week (504 bars) high-volume bonus.
-        $is104w = false;
         $max104w = 0;
-        if ($spikeIdx >= 504) {
-            $start104 = $spikeIdx - 504;
-            for ($i = $start104; $i < $spikeIdx; $i++) {
-                $v = (int) ($bars[$i]['volume'] ?? 0);
-                if ($v > $max104w) {
-                    $max104w = $v;
+        $is52w = false;
+        $is104w = false;
+        $spikeAgeBars = null;
+        $spikeRarityPoints = 0;
+        $spikeRarityDescription = 'No qualifying spike in the last 104 weeks';
+
+        $searchStart = max($minBase, $n - 1 - $maxSpikeLookback);
+        $bestRank = [-1, -1, -1];
+
+        for ($candidateIdx = $searchStart; $candidateIdx < $n; $candidateIdx++) {
+            $candidateVol = (int) ($bars[$candidateIdx]['volume'] ?? 0);
+            if ($candidateVol <= 0) {
+                continue;
+            }
+
+            $candidateAge = $n - 1 - $candidateIdx;
+            $candidatePrior52Start = max(0, $candidateIdx - 252);
+            $candidatePrior52Max = 0;
+            for ($i = $candidatePrior52Start; $i < $candidateIdx; $i++) {
+                $candidatePrior52Max = max($candidatePrior52Max, (int) ($bars[$i]['volume'] ?? 0));
+            }
+
+            $candidatePrior104Max = 0;
+            if ($candidateIdx >= 504) {
+                for ($i = $candidateIdx - 504; $i < $candidateIdx; $i++) {
+                    $candidatePrior104Max = max($candidatePrior104Max, (int) ($bars[$i]['volume'] ?? 0));
                 }
             }
-            $is104w = $spikeVol > $max104w;
+
+            $candidateIs52w = $candidatePrior52Max > 0 && $candidateVol > $candidatePrior52Max;
+            $candidateIs104w = $candidatePrior104Max > 0 && $candidateVol > $candidatePrior104Max;
+            $candidatePoints = $this->spikeRarityPoints($candidateAge, $candidateIs52w, $candidateIs104w);
+            $rank = [$candidatePoints, -$candidateAge, $candidateVol];
+
+            if ($rank > $bestRank) {
+                $bestRank = $rank;
+                $spikeIdx = $candidateIdx;
+                $spikeVol = $candidateVol;
+                $prior52wMax = $candidatePrior52Max;
+                $max104w = $candidatePrior104Max;
+                $is52w = $candidateIs52w;
+                $is104w = $candidateIs104w;
+                $spikeAgeBars = $candidateAge;
+                $spikeRarityPoints = $candidatePoints;
+            }
         }
 
-        // Days since previous comparable spike (>= 80% of current spike vol),
-        // measured in bar indices (trading days).
+        // With no qualifying record-volume event, anchor the remaining setup
+        // calculations to the highest-volume bar in the configured recent
+        // window. This preserves current setup relevance while scoring the
+        // spike component at zero.
+        if ($spikeRarityPoints === 0) {
+            $fallbackStart = max(0, $n - max(1, $recentWindow));
+            for ($i = $fallbackStart; $i < $n; $i++) {
+                $volume = (int) ($bars[$i]['volume'] ?? 0);
+                if ($volume > $spikeVol || $spikeIdx === null) {
+                    $spikeIdx = $i;
+                    $spikeVol = $volume;
+                }
+            }
+
+            if ($spikeIdx === null) {
+                $spikeIdx = $n - 1;
+                $spikeVol = (int) ($bars[$spikeIdx]['volume'] ?? 0);
+            }
+
+            $spikeAgeBars = $n - 1 - $spikeIdx;
+            $priorStart = max(0, $spikeIdx - 252);
+            $prior52wMax = 0;
+            for ($i = $priorStart; $i < $spikeIdx; $i++) {
+                $prior52wMax = max($prior52wMax, (int) ($bars[$i]['volume'] ?? 0));
+            }
+            $max104w = 0;
+            if ($spikeIdx >= 504) {
+                for ($i = $spikeIdx - 504; $i < $spikeIdx; $i++) {
+                    $max104w = max($max104w, (int) ($bars[$i]['volume'] ?? 0));
+                }
+            }
+            $is52w = false;
+            $is104w = false;
+        }
+
+        $spikeRarityDescription = match (true) {
+            $spikeRarityPoints <= 0 => 'No qualifying spike in the last 104 weeks',
+            $is104w => "104-week high-volume spike ({$spikeAgeBars} bars ago)",
+            $is52w => "52-week high-volume spike ({$spikeAgeBars} bars ago)",
+            default => "High-volume spike ({$spikeAgeBars} bars ago)",
+        };
+
+        // Days since previous comparable spike (>= 80% of current spike vol).
         $threshold = (int) floor($spikeVol * 0.8);
         $prevSpike = null;
-        for ($i = $spikeIdx - 1; $i >= $priorStart; $i--) {
+        $comparisonStart = max(0, $spikeIdx - 504);
+        for ($i = $spikeIdx - 1; $i >= $comparisonStart; $i--) {
             if ((int) ($bars[$i]['volume'] ?? 0) >= $threshold) {
                 $prevSpike = $spikeIdx - $i;
                 break;
@@ -231,7 +281,6 @@ class StockBuySetupScanner
         // Relative strength: 6-month return of symbol vs benchmark.
         $rs = $this->relativeStrength($bars, $benchmarkBars);
 
-        $marketCap = $context['market_cap'] ?? null;
         $result = new StockBuySetupResult(
             symbol: $symbol,
             setupType: StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE,
@@ -243,9 +292,12 @@ class StockBuySetupScanner
             spikeVolume: $spikeVol,
             prior52wMaxVolume: $prior52wMax,
             max104wVolume: $max104w,
-            is52wHighVolume: $spikeVol > $prior52wMax,
+            is52wHighVolume: $is52w,
             is104wHighVolume: $is104w,
             daysSincePreviousComparableSpike: $prevSpike,
+            spikeAgeBars: $spikeAgeBars,
+            spikeRarityPoints: $spikeRarityPoints,
+            spikeRarityDescription: $spikeRarityDescription,
             baseStart: CarbonImmutable::parse($bars[$baseStartIdx]['date']),
             baseEnd: CarbonImmutable::parse($bars[$baseEndIdx]['date']),
             baseDurationDays: $baseLen,
@@ -277,6 +329,38 @@ class StockBuySetupScanner
         $result->reasonSummary = $this->reasonSummary($result);
 
         return $result;
+    }
+
+
+    /**
+     * Score spike rarity and recency. Events older than the 104-week search
+     * horizon are never inspected and therefore receive zero points.
+     */
+    private function spikeRarityPoints(int $ageBars, bool $is52w, bool $is104w): int
+    {
+        if ($ageBars > 504) {
+            return 0;
+        }
+
+        if ($is104w) {
+            return match (true) {
+                $ageBars <= 20 => 7,
+                $ageBars <= 40 => 6,
+                $ageBars <= 60 => 5,
+                $ageBars <= 90 => 4,
+                default => 3,
+            };
+        }
+
+        if ($is52w) {
+            return match (true) {
+                $ageBars <= 40 => 3,
+                $ageBars <= 90 => 2,
+                default => 1,
+            };
+        }
+
+        return 0;
     }
 
     /**
@@ -361,9 +445,7 @@ class StockBuySetupScanner
     private function reasonSummary(StockBuySetupResult $r): string
     {
         $bits = [];
-        $bits[] = $r->is104wHighVolume
-            ? '104w high-volume spike'
-            : ($r->is52wHighVolume ? '52w high-volume spike' : 'high-volume spike');
+        $bits[] = $r->spikeRarityDescription;
         $bits[] = "base {$r->baseDurationDays}d (range ".number_format($r->rangeCompressionPct, 1).'%)';
         $bits[] = 'ATR ratio '.number_format($r->atrContractionRatio, 2);
         if ($r->relativeStrengthScore !== null) {

@@ -34,6 +34,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property bool $is_52w_high_volume
  * @property bool $is_104w_high_volume
  * @property int|null $days_since_previous_comparable_spike
+ * @property int|null $spike_age_bars
+ * @property int $spike_rarity_points
+ * @property string|null $spike_rarity_description
  * @property \Illuminate\Support\Carbon|null $base_start_date
  * @property \Illuminate\Support\Carbon|null $base_end_date
  * @property int|null $base_duration_days
@@ -91,6 +94,9 @@ class StockBuySetupAlert extends Model
         'is_52w_high_volume',
         'is_104w_high_volume',
         'days_since_previous_comparable_spike',
+        'spike_age_bars',
+        'spike_rarity_points',
+        'spike_rarity_description',
         'base_start_date',
         'base_end_date',
         'base_duration_days',
@@ -130,6 +136,8 @@ class StockBuySetupAlert extends Model
         'is_52w_high_volume' => 'boolean',
         'is_104w_high_volume' => 'boolean',
         'days_since_previous_comparable_spike' => 'integer',
+        'spike_age_bars' => 'integer',
+        'spike_rarity_points' => 'integer',
         'base_duration_days' => 'integer',
         'base_high' => 'decimal:6',
         'base_low' => 'decimal:6',

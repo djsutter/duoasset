@@ -19,7 +19,7 @@ return [
     */
     'earnings_scanner' => [
         'enabled' => env('EARNINGS_SCANNER_ENABLED', true),
-        'min_market_cap' => env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000),
+        'min_market_cap' => env('EARNINGS_SCANNER_MIN_MARKET_CAP', 25000000),
 
         // Back-compat: legacy single "min" threshold still respected when
         // the explicit positive/negative pair is not set in env.
@@ -48,7 +48,7 @@ return [
     */
     'revision_scanner' => [
         'enabled' => env('EPS_REVISION_SCANNER_ENABLED', true),
-        'min_market_cap' => env('EPS_REVISION_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000)),
+        'min_market_cap' => env('EPS_REVISION_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 25000000)),
         'positive_threshold' => env('EPS_REVISION_POSITIVE_THRESHOLD', 20),
         'negative_threshold' => env('EPS_REVISION_NEGATIVE_THRESHOLD', -20),
         'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'],
@@ -66,13 +66,13 @@ return [
     */
     'buy_setup_scanner' => [
         'enabled' => env('BUY_SETUP_SCANNER_ENABLED', true),
-        'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 100000000)),
+        'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 25000000)),
         'exchanges' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_EXCHANGES', 'NYSE,NASDAQ,TSX,TSXV,AMEX,OTC')))),
         'max_symbols_per_run' => env('BUY_SETUP_MAX_SYMBOLS', 1000),
         'history_lookback_days' => env('BUY_SETUP_HISTORY_LOOKBACK_DAYS', 504),
         'benchmark_symbols' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_BENCHMARK_SYMBOLS', 'SPY,IWM')))),
         'recent_spike_window_days' => env('BUY_SETUP_RECENT_SPIKE_WINDOW_DAYS', 42),
-        'max_spike_age_days' => env('BUY_SETUP_MAX_SPIKE_AGE_DAYS', 84),
+        'spike_lookback_days' => env('BUY_SETUP_SPIKE_LOOKBACK_DAYS', 504),
         'min_base_days' => env('BUY_SETUP_MIN_BASE_DAYS', 60),
         'max_base_days' => env('BUY_SETUP_MAX_BASE_DAYS', 120),
         'max_range_compression_pct' => env('BUY_SETUP_MAX_RANGE_COMPRESSION_PCT', 25),
@@ -105,7 +105,7 @@ return [
             'micro' => env('BUY_SETUP_SLEEPY_VOLUME_MICRO_CAP_PENALTY_PCT', 15),
         ],
         'score_weights' => [
-            'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_WEIGHT', env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 25)),
+            'spike_rarity' => env('BUY_SETUP_SCORE_SPIKE_RARITY_WEIGHT', env('BUY_SETUP_SCORE_SPIKE_RARITY_MAX', 7)),
             'base_duration' => env('BUY_SETUP_SCORE_BASE_DURATION_WEIGHT', env('BUY_SETUP_SCORE_BASE_DURATION_MAX', 10)),
             'range_compression' => env('BUY_SETUP_SCORE_RANGE_COMPRESSION_WEIGHT', env('BUY_SETUP_SCORE_RANGE_COMPRESSION_MAX', 15)),
             'atr_contraction' => env('BUY_SETUP_SCORE_ATR_CONTRACTION_WEIGHT', env('BUY_SETUP_SCORE_ATR_CONTRACTION_MAX', 10)),

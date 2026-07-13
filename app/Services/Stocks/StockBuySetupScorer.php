@@ -26,7 +26,7 @@ class StockBuySetupScorer
                 'label' => 'Spike rarity',
                 'points' => $this->spikeRarityPoints($r, $weights['spike_rarity']),
                 'max' => $weights['spike_rarity'],
-                'value' => ((bool) ($r->is104wHighVolume ?? $r->is_104w_high_volume ?? false)) ? '104-week high-volume spike' : '52-week high-volume spike',
+                'value' => (string) ($r->spikeRarityDescription ?? $r->spike_rarity_description ?? 'No qualifying spike in the last 104 weeks'),
             ],
             'base_duration' => [
                 'label' => 'Base duration',
@@ -132,7 +132,7 @@ class StockBuySetupScorer
     public function weights(): array
     {
         $defaults = [
-            'spike_rarity' => 25,
+            'spike_rarity' => 7,
             'base_duration' => 10,
             'range_compression' => 15,
             'atr_contraction' => 10,
@@ -147,9 +147,17 @@ class StockBuySetupScorer
         $configured = (array) config('market_data.buy_setup_scanner.score_weights', []);
 
         return collect($defaults)
-            ->mapWithKeys(fn (int $default, string $key) => [
-                $key => max(0, (int) ($configured[$key] ?? $default)),
-            ])
+            ->mapWithKeys(function (int $default, string $key) use ($configured) {
+                $weight = max(0, (int) ($configured[$key] ?? $default));
+
+                // Spike rarity is intentionally capped at seven points. It is
+                // a probability bonus, not a qualification gate.
+                if ($key === 'spike_rarity') {
+                    $weight = min(7, $weight);
+                }
+
+                return [$key => $weight];
+            })
             ->all();
     }
 
@@ -159,15 +167,9 @@ class StockBuySetupScorer
             return 0;
         }
 
-        if ((bool) ($r->is104wHighVolume ?? $r->is_104w_high_volume ?? false)) {
-            return $max;
-        }
+        $points = (int) ($r->spikeRarityPoints ?? $r->spike_rarity_points ?? 0);
 
-        if ((bool) ($r->is52wHighVolume ?? $r->is_52w_high_volume ?? false)) {
-            return (int) round($max * 0.60);
-        }
-
-        return (int) round($max * 0.20);
+        return min($max, max(0, $points));
     }
 
     private function baseDurationPoints(int $days, int $max): int
