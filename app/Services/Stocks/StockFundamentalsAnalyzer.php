@@ -73,13 +73,39 @@ class StockFundamentalsAnalyzer
     {
         $out = [];
         $count = count($rows);
+
         for ($i = 4; $i < $count; $i++) {
             $current = $this->toFloat($rows[$i][$field] ?? null);
             $prior = $this->toFloat($rows[$i - 4][$field] ?? null);
-            if ($current === null || $prior === null || $prior <= 0 || $current <= 0) {
+
+            if ($current === null || $prior === null) {
                 continue;
             }
-            $out[] = round((($current - $prior) / $prior) * 100, 4);
+
+            if ($field === 'eps') {
+                // A zero prior EPS cannot produce a meaningful percentage change.
+                if (abs($prior) < 0.000001) {
+                    continue;
+
+                /*
+                 * Use the absolute prior EPS as the denominator so that:
+                 *
+                 * -0.80 -> -0.40 = +50% improvement
+                 * -0.40 -> -0.80 = -100% deterioration
+                 * -0.10 ->  0.10 = +200% improvement
+                 */
+                $growth = (($current - $prior) / abs($prior)) * 100;
+            }
+            else {
+                // Revenue and similar fields require positive comparable values.
+                if ($prior <= 0 || $current <= 0) {
+                    continue;
+                }
+
+                    $growth = (($current - $prior) / $prior) * 100;
+                }
+
+                $out[] = round($growth, 4);
         }
 
         return $out;

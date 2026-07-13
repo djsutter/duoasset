@@ -3,8 +3,6 @@
 use App\Services\Stocks\StockBuySetupScorer;
 
 it('preserves separation between exceptional sales acceleration values', function () {
-    config()->set('market_data.buy_setup_scanner.acceleration_scales.sales_acceleration', 3000);
-
     $scorer = new StockBuySetupScorer;
     $method = new ReflectionMethod($scorer, 'logarithmicBonusPoints');
     $method->setAccessible(true);
