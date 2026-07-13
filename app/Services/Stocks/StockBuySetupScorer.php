@@ -272,16 +272,20 @@ class StockBuySetupScorer
 
         return [
             'earnings_acceleration' => max(0.0001, (float) ($configured['earnings_acceleration'] ?? 75)),
-            'sales_acceleration' => max(0.0001, (float) ($configured['sales_acceleration'] ?? 100)),
+            'sales_acceleration' => max(0.0001, (float) ($configured['sales_acceleration'] ?? 3000)),
         ];
     }
 
     /**
      * Scores positive acceleration on a smooth logarithmic curve.
      *
-     * The configured scale is the raw acceleration value that earns the
-     * component's full weight. Values above the scale remain capped at the
-     * maximum, while smaller positive values receive proportionate credit.
+     * The configured scale is the positive acceleration value that maps to
+     * the component's full weight. Scoring uses true logarithmic
+     * normalization: log(1 + value) / log(1 + scale). This preserves a
+     * meaningful distinction between exceptional values (for example, 104
+     * versus 2,715 sales-acceleration points) while compressing extreme
+     * outliers. Values at or above the configured scale are capped at the
+     * component maximum.
      */
     private function logarithmicBonusPoints(?float $value, int $max, float $scale): int
     {
