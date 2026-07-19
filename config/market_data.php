@@ -123,4 +123,201 @@ return [
         'notification_email' => env('BUY_SETUP_NOTIFICATION_EMAIL'),
     ],
 
+    /*
+    |----------------------------------------------------------------------
+    | Sector Money Flows — ETF universe
+    |----------------------------------------------------------------------
+    | The single source of truth for the sector ETF groupings used by the
+    | Sector Money Flows engine (see docs/sector-money-flows.md, Phase 5).
+    |
+    | Each sector is measured with ~5 representative provider ETFs. Combining
+    | multiple issuers reduces provider-specific noise. Each ETF carries a
+    | `weight` so imperfect sector equivalents can be down-weighted later
+    | without code changes; all default to 1.0.
+    |
+    | `existing_sector_slug` optionally maps a money-flow sector to a slug in
+    | the existing `sectors` taxonomy table. It is NOT a database relationship
+    | in Phase 1 — it is a hint that makes later sector-to-stock confirmation
+    | easier. Note the app's taxonomy has fewer sectors than GICS, so several
+    | money-flow sectors intentionally map to the same slug (both consumer
+    | sectors -> "consumer") or to a differently-named slug (communication
+    | services -> "telecommunications", real estate -> "real-estate").
+    |
+    | Sector keys are canonical and must be used consistently everywhere.
+    | IMPORTANT: IYW belongs to Technology only; Communication Services uses
+    | XLC/VOX/IYZ/RSPC/FCOM.
+    */
+    'sector_etfs' => [
+
+        'technology' => [
+            'label' => 'Technology',
+            'existing_sector_slug' => 'technology',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLK', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VGT', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYW', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPT', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FTEC', 'weight' => 1.0],
+            ],
+        ],
+
+        'financials' => [
+            'label' => 'Financials',
+            'existing_sector_slug' => 'financials',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLF', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VFH', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYF', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPF', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FNCL', 'weight' => 1.0],
+            ],
+        ],
+
+        'healthcare' => [
+            'label' => 'Healthcare',
+            'existing_sector_slug' => 'healthcare',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLV', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VHT', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYH', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPH', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FHLC', 'weight' => 1.0],
+            ],
+        ],
+
+        'communication_services' => [
+            'label' => 'Communication Services',
+            'existing_sector_slug' => 'telecommunications',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLC', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VOX', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYZ', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPC', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FCOM', 'weight' => 1.0],
+            ],
+        ],
+
+        'consumer_discretionary' => [
+            'label' => 'Consumer Discretionary',
+            'existing_sector_slug' => 'consumer',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLY', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VCR', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYC', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPD', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FDIS', 'weight' => 1.0],
+            ],
+        ],
+
+        'consumer_staples' => [
+            'label' => 'Consumer Staples',
+            'existing_sector_slug' => 'consumer',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLP', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VDC', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYK', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPS', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FSTA', 'weight' => 1.0],
+            ],
+        ],
+
+        'industrials' => [
+            'label' => 'Industrials',
+            'existing_sector_slug' => 'industrials',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLI', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VIS', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYJ', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPN', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FIDU', 'weight' => 1.0],
+            ],
+        ],
+
+        'energy' => [
+            'label' => 'Energy',
+            'existing_sector_slug' => 'energy',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLE', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VDE', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYE', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPG', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FENY', 'weight' => 1.0],
+            ],
+        ],
+
+        'utilities' => [
+            'label' => 'Utilities',
+            'existing_sector_slug' => 'utilities',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLU', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VPU', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IDU', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPU', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FUTY', 'weight' => 1.0],
+            ],
+        ],
+
+        'real_estate' => [
+            'label' => 'Real Estate',
+            'existing_sector_slug' => 'real-estate',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLRE', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VNQ', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYR', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPR', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FREL', 'weight' => 1.0],
+            ],
+        ],
+
+        'materials' => [
+            'label' => 'Materials',
+            'existing_sector_slug' => 'materials',
+            'etfs' => [
+                'spdr' => ['symbol' => 'XLB', 'weight' => 1.0],
+                'vanguard' => ['symbol' => 'VAW', 'weight' => 1.0],
+                'ishares' => ['symbol' => 'IYM', 'weight' => 1.0],
+                'invesco' => ['symbol' => 'RSPM', 'weight' => 1.0],
+                'fidelity' => ['symbol' => 'FMAT', 'weight' => 1.0],
+            ],
+        ],
+
+    ],
+
+    /*
+    |----------------------------------------------------------------------
+    | Sector Money Flows — engine settings (Phase 1: retrieval scope)
+    |----------------------------------------------------------------------
+    | Operational settings for the moneyflow:update engine. Scoring,
+    | strength, confidence and direction weights are intentionally NOT
+    | defined here yet — they are introduced in Phase 2 alongside the
+    | calculators that consume them, so real scores can be observed before
+    | the weighting is fixed.
+    |
+    | Periods are expressed in TRADING SESSIONS, not calendar days. The
+    | engine compares against the close N valid sessions earlier (e.g.
+    | monthly = the close 2 sessions ago), never a calendar-month offset.
+    */
+    'moneyflow' => [
+        'enabled' => env('MONEYFLOW_ENABLED', true),
+
+        // Broad-market benchmark used for per-period relative strength.
+        'benchmark_symbol' => env('MONEYFLOW_BENCHMARK_SYMBOL', 'SPY'),
+
+        // Calendar-day window requested from FMP. Wider than the longest
+        // trading-session period so weekends/holidays still yield 21+ bars.
+        'history_lookback_days' => (int) env('MONEYFLOW_HISTORY_LOOKBACK_DAYS', 90),
+
+        // Market calendar timezone. Sector ETFs are U.S.-listed; the
+        // engine and scheduler should reference this explicitly rather
+        // than mixing America/Toronto and America/New_York ad hoc.
+        'market_timezone' => env('MONEYFLOW_MARKET_TIMEZONE', 'America/New_York'),
+
+        // Comparison windows in trading sessions.
+        'periods' => [
+            'daily' => (int) env('MONEYFLOW_PERIOD_DAILY_SESSIONS', 1),
+            'weekly' => (int) env('MONEYFLOW_PERIOD_WEEKLY_SESSIONS', 5),
+            'monthly' => (int) env('MONEYFLOW_PERIOD_MONTHLY_SESSIONS', 2),
+        ],
+    ],
+
 ];
