@@ -1,5 +1,13 @@
 # Change Log
 
+## Unreleased
+- Add the Sector Money Flows engine: `moneyflow:update` captures per-sector flow
+  snapshots (hourly + daily/weekly/monthly) from the major North American sector
+  ETFs, with cross-sectional ranking, velocity/acceleration, issuer breadth,
+  confidence and a direction classifier. Adds a Money Flows dashboard, an
+  embeddable widget with a full-ranking modal, and hourly/EOD scheduler entries.
+  See docs/sector-money-flows.md.
+
 ## Release 0.0.9 - 2026-03-28
 - Rename all remaining DTOs to Data
 - Rename the remaining DTOs under app/DTO

@@ -15,6 +15,9 @@ pest()->extend(Tests\TestCase::class)
     ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
 
+// Shared test helpers (Http fakes) not discovered as test files.
+require_once __DIR__.'/Support/money_flow_fakes.php';
+
 /*
 |--------------------------------------------------------------------------
 | Expectations

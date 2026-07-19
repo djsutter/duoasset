@@ -46,6 +46,11 @@ class MainNavigation extends Component
                 'title' => 'Stocks',
             ],
             [
+                'route' => 'money-flows.index',
+                'icon' => 'chart-bar',
+                'title' => 'Money Flows',
+            ],
+            [
                 'route' => 'watchlists.stock-buy-setups',
                 'icon' => 'chart-bar',
                 'title' => 'Setups',

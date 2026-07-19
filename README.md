@@ -81,6 +81,12 @@ Because the heavy work is queued, make sure a worker is running:
 php artisan queue:work
 ```
 
+### 3.1 Running the Money Flow scanner
+
+```bash
+php artisan moneyflow:update --interval=hourly
+```
+
 ### 4. Scheduler
 
 The scanner is wired into `routes/console.php` and runs automatically once the Laravel scheduler is active:

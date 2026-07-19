@@ -86,6 +86,7 @@ class StockFundamentalsAnalyzer
                 // A zero prior EPS cannot produce a meaningful percentage change.
                 if (abs($prior) < 0.000001) {
                     continue;
+                }
 
                 /*
                  * Use the absolute prior EPS as the denominator so that:
@@ -95,17 +96,16 @@ class StockFundamentalsAnalyzer
                  * -0.10 ->  0.10 = +200% improvement
                  */
                 $growth = (($current - $prior) / abs($prior)) * 100;
-            }
-            else {
+            } else {
                 // Revenue and similar fields require positive comparable values.
                 if ($prior <= 0 || $current <= 0) {
                     continue;
                 }
 
-                    $growth = (($current - $prior) / $prior) * 100;
-                }
+                $growth = (($current - $prior) / $prior) * 100;
+            }
 
-                $out[] = round($growth, 4);
+            $out[] = round($growth, 4);
         }
 
         return $out;

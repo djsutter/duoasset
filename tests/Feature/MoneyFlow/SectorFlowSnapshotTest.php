@@ -70,10 +70,27 @@ it('allows the same sector on different trading dates', function () {
     expect(SectorFlowSnapshot::where('sector', 'technology')->count())->toBe(2);
 });
 
+it('lets an hourly and an eod capture coexist on the same sector/date, latest wins', function () {
+    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-17')->hourly('10')
+        ->create(['captured_at' => now()->setTime(10, 0), 'strength' => 50]);
+    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-17')
+        ->create(['captured_at' => now()->setTime(16, 30), 'strength' => 70]);
+
+    expect(SectorFlowSnapshot::where('sector', 'technology')->count())->toBe(2);
+
+    $latest = SectorFlowSnapshot::query()->latestPerSector()->get();
+    expect($latest)->toHaveCount(1);
+    expect((float) $latest->first()->strength)->toBe(70.0);
+    expect($latest->first()->interval)->toBe(SectorFlowSnapshot::INTERVAL_EOD);
+});
+
 it('latestPerSector returns the newest snapshot for each sector', function () {
-    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-15')->create(['strength' => 10]);
-    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-17')->create(['strength' => 90]);
-    SectorFlowSnapshot::factory()->forSectorDate('energy', '2026-07-16')->create(['strength' => 40]);
+    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-15')
+        ->create(['strength' => 10, 'captured_at' => now()->subDays(2)]);
+    SectorFlowSnapshot::factory()->forSectorDate('technology', '2026-07-17')
+        ->create(['strength' => 90, 'captured_at' => now()]);
+    SectorFlowSnapshot::factory()->forSectorDate('energy', '2026-07-16')
+        ->create(['strength' => 40, 'captured_at' => now()->subDay()]);
 
     $latest = SectorFlowSnapshot::query()->latestPerSector()->get();
 

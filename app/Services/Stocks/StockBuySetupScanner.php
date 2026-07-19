@@ -331,7 +331,6 @@ class StockBuySetupScanner
         return $result;
     }
 
-
     /**
      * Score spike rarity and recency. Events older than the 104-week search
      * horizon are never inspected and therefore receive zero points.

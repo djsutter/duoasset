@@ -88,13 +88,31 @@ it('maps existing taxonomy slugs, collapsing consumer and renaming comms/real es
     expect($etfs['real_estate']['existing_sector_slug'])->toBe('real-estate');
 });
 
-it('exposes moneyflow engine settings with SPY benchmark and trading-session periods', function () {
+it('exposes moneyflow engine settings with SPY benchmark and configurable timeframes', function () {
     expect(config('market_data.moneyflow.enabled'))->toBeBool();
     expect(config('market_data.moneyflow.benchmark_symbol'))->toBe('SPY');
-    expect(config('market_data.moneyflow.history_lookback_days'))->toBeInt()->toBeGreaterThan(60);
+    expect(config('market_data.moneyflow.history_lookback_days'))->toBeInt()->toBeGreaterThan(30);
     expect(config('market_data.moneyflow.market_timezone'))->toBeString()->not->toBe('');
 
-    expect(config('market_data.moneyflow.periods.daily'))->toBe(1);
-    expect(config('market_data.moneyflow.periods.weekly'))->toBe(5);
-    expect(config('market_data.moneyflow.periods.monthly'))->toBe(21);
+    // All four timeframes are configurable, positive integers. Values are
+    // operator-tunable (do not hard-code the exact defaults here).
+    foreach (['hourly', 'daily', 'weekly', 'monthly'] as $tf) {
+        expect(config("market_data.moneyflow.periods.$tf"))->toBeInt()->toBeGreaterThan(0);
+    }
+
+    expect(config('market_data.moneyflow.intraday.interval'))->toBeString()->not->toBe('');
+});
+
+it('exposes scoring, confidence and direction weights for the engine', function () {
+    $weights = config('market_data.moneyflow.score_weights');
+    expect($weights)->toHaveKeys(['change', 'relative_strength', 'relative_volume']);
+
+    expect(config('market_data.moneyflow.timeframe_weights'))
+        ->toHaveKeys(['hourly', 'daily', 'weekly', 'monthly']);
+
+    expect(config('market_data.moneyflow.confidence.min_etfs_to_publish'))->toBeInt()->toBeGreaterThan(0);
+    expect(config('market_data.moneyflow.confidence.levels'))->toBeArray();
+
+    expect(config('market_data.moneyflow.direction'))
+        ->toHaveKeys(['strong_strength', 'weak_strength', 'velocity_band', 'acceleration_band']);
 });

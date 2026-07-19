@@ -312,11 +312,79 @@ return [
         // than mixing America/Toronto and America/New_York ad hoc.
         'market_timezone' => env('MONEYFLOW_MARKET_TIMEZONE', 'America/New_York'),
 
-        // Comparison windows in trading sessions.
+        // Comparison windows expressed in bars. Daily/weekly/monthly are
+        // trading SESSIONS on the daily series; hourly is intraday BARS on
+        // the 1-hour series. e.g. monthly = the close N sessions earlier.
         'periods' => [
+            'hourly' => (int) env('MONEYFLOW_PERIOD_HOURLY_BARS', 1),
             'daily' => (int) env('MONEYFLOW_PERIOD_DAILY_SESSIONS', 1),
             'weekly' => (int) env('MONEYFLOW_PERIOD_WEEKLY_SESSIONS', 5),
             'monthly' => (int) env('MONEYFLOW_PERIOD_MONTHLY_SESSIONS', 2),
+        ],
+
+        // Intraday (hourly) capture — lets intraday traders watch flows move
+        // through the session. Uses the FMP intraday chart endpoint.
+        'intraday' => [
+            'interval' => env('MONEYFLOW_INTRADAY_INTERVAL', '1hour'),
+            'lookback_days' => (int) env('MONEYFLOW_INTRADAY_LOOKBACK_DAYS', 15),
+            // Baseline window (in hourly bars) for hourly relative volume.
+            'relative_volume_lookback_bars' => (int) env('MONEYFLOW_INTRADAY_RVOL_BARS', 20),
+        ],
+
+        // Baseline window (in sessions) for daily/weekly/monthly relative
+        // volume and for each ETF's own return-volatility normalization.
+        'baseline_lookback_sessions' => (int) env('MONEYFLOW_BASELINE_SESSIONS', 60),
+
+        /*
+        | Absolute scoring. Each ETF's per-timeframe metrics are normalized
+        | against its OWN history (return vs own volatility; relative volume
+        | vs own average) into 0-100 component scores, blended by
+        | `score_weights`, aggregated across issuers (weighted), then blended
+        | across timeframes by `timeframe_weights` into `strength`. Cross-
+        | sectional rank/percentile are computed separately and never feed
+        | the absolute score.
+        */
+        'score_weights' => [
+            'change' => (float) env('MONEYFLOW_SCORE_CHANGE_WEIGHT', 0.4),
+            'relative_strength' => (float) env('MONEYFLOW_SCORE_RS_WEIGHT', 0.4),
+            'relative_volume' => (float) env('MONEYFLOW_SCORE_RVOL_WEIGHT', 0.2),
+        ],
+        'timeframe_weights' => [
+            'hourly' => (float) env('MONEYFLOW_TF_HOURLY_WEIGHT', 0.1),
+            'daily' => (float) env('MONEYFLOW_TF_DAILY_WEIGHT', 0.2),
+            'weekly' => (float) env('MONEYFLOW_TF_WEEKLY_WEIGHT', 0.3),
+            'monthly' => (float) env('MONEYFLOW_TF_MONTHLY_WEIGHT', 0.4),
+        ],
+        // Squash scales for the tanh normalization (larger = less sensitive).
+        'normalization' => [
+            'change_z_scale' => (float) env('MONEYFLOW_NORM_CHANGE_Z_SCALE', 2.0),
+            'relative_volume_scale' => (float) env('MONEYFLOW_NORM_RVOL_SCALE', 1.0),
+            // Relative-strength scale (percentage points) per timeframe.
+            'relative_strength_scale' => [
+                'hourly' => (float) env('MONEYFLOW_NORM_RS_HOURLY', 1.0),
+                'daily' => (float) env('MONEYFLOW_NORM_RS_DAILY', 2.0),
+                'weekly' => (float) env('MONEYFLOW_NORM_RS_WEEKLY', 4.0),
+                'monthly' => (float) env('MONEYFLOW_NORM_RS_MONTHLY', 8.0),
+            ],
+        ],
+
+        // Confidence from issuer agreement. Fewer than min_etfs_to_publish
+        // valid ETFs => the sector is skipped (no normal score published).
+        'confidence' => [
+            'min_etfs_to_publish' => (int) env('MONEYFLOW_MIN_ETFS_TO_PUBLISH', 3),
+            'levels' => [
+                5 => 100,
+                4 => 85,
+                3 => 70,
+            ],
+        ],
+
+        // Pure direction classifier thresholds (composite velocity/accel).
+        'direction' => [
+            'strong_strength' => (float) env('MONEYFLOW_DIR_STRONG_STRENGTH', 60),
+            'weak_strength' => (float) env('MONEYFLOW_DIR_WEAK_STRENGTH', 40),
+            'velocity_band' => (float) env('MONEYFLOW_DIR_VELOCITY_BAND', 0.5),
+            'acceleration_band' => (float) env('MONEYFLOW_DIR_ACCELERATION_BAND', 0.5),
         ],
     ],
 

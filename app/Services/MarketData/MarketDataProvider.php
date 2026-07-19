@@ -107,4 +107,16 @@ interface MarketDataProvider
      * @return array<int, array<string, mixed>>
      */
     public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array;
+
+    /**
+     * Return normalized intraday OHLCV bars for a single symbol over the
+     * requested inclusive date range at the given interval (e.g. "1hour").
+     * Sorted ascending by datetime.
+     *
+     * Each row keys (where available):
+     *   date (Y-m-d H:i:s), open, high, low, close, volume.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array;
 }

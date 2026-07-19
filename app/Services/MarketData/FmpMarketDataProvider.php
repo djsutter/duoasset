@@ -426,6 +426,73 @@ class FmpMarketDataProvider implements MarketDataProvider
         });
     }
 
+    public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array
+    {
+        $symbol = $this->normalizeSymbol($symbol);
+        if ($symbol === '') {
+            return [];
+        }
+
+        $interval = trim($interval) !== '' ? trim($interval) : '1hour';
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+        $cacheKey = "fmp.intraday.$interval.$symbol.$fromStr.$toStr";
+
+        // Intraday bars move during the session; keep the cache short so
+        // hourly captures see fresh data but repeated symbols in one run hit.
+        return Cache::remember($cacheKey, now()->addMinutes(15), function () use ($symbol, $interval, $fromStr, $toStr) {
+            // FMP stable endpoint: /historical-chart/1hour?symbol=AAPL&from=...&to=...
+            $payload = $this->get("historical-chart/$interval", [
+                'symbol' => $symbol,
+                'from' => $fromStr,
+                'to' => $toStr,
+            ]);
+
+            if (! is_array($payload)) {
+                return [];
+            }
+
+            $rows = $payload['historical'] ?? $payload;
+            if (! is_array($rows)) {
+                return [];
+            }
+
+            $out = [];
+            foreach ($rows as $row) {
+                $norm = $this->normalizeIntradayRow($row);
+                if ($norm !== null) {
+                    $out[] = $norm;
+                }
+            }
+
+            // FMP returns most-recent first; callers expect ascending order.
+            usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+            return $out;
+        });
+    }
+
+    private function normalizeIntradayRow(mixed $row): ?array
+    {
+        if (! is_array($row)) {
+            return null;
+        }
+
+        $date = $row['date'] ?? null;
+        if (! $date) {
+            return null;
+        }
+
+        return [
+            'date' => substr((string) $date, 0, 19),
+            'open' => $this->toFloat($row['open'] ?? null),
+            'high' => $this->toFloat($row['high'] ?? null),
+            'low' => $this->toFloat($row['low'] ?? null),
+            'close' => $this->toFloat($row['close'] ?? null),
+            'volume' => $this->toInt($row['volume'] ?? null),
+        ];
+    }
+
     private function normalizeBarRow(mixed $row): ?array
     {
         if (! is_array($row)) {

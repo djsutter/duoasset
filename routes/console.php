@@ -38,6 +38,26 @@ Schedule::command('earnings:scan-revisions')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Sector Money Flows — intraday hourly captures so intraday traders can watch
+// flows move through the U.S. session (10:00–16:00 ET, a few minutes past the
+// hour so each 1h bar has closed).
+Schedule::command('moneyflow:update --interval=hourly')
+    ->weekdays()
+    ->timezone('America/New_York')
+    ->between('10:00', '16:00')
+    ->hourlyAt(5)
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Sector Money Flows — authoritative end-of-day capture, after U.S. market
+// data is finalized.
+Schedule::command('moneyflow:update --interval=eod')
+    ->weekdays()
+    ->timezone('America/New_York')
+    ->dailyAt('17:15')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');

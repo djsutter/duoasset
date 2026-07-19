@@ -3,8 +3,8 @@
 use App\Livewire\Watchlists\StockBuySetups;
 use App\Models\StockBuySetupAlert;
 use App\Models\User;
-use Livewire\Livewire;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
