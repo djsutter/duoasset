@@ -97,7 +97,12 @@ The scanner is wired into `routes/console.php` and runs automatically once the L
 Enable it via cron:
 
 ```cron
-* * * * * cd /path/to/duoasset && php artisan schedule:run >> /dev/null 2>&1
+41 7 * * * /path/to/duoasset/scripts/duoasset-setup-scan.sh >> /path/to/duoasset/storage/logs/duoasset-buy-setups.log 2>&1
+30 8 * * * /path/to/duoasset/scripts/duoasset-earnings-scan.sh >> /path/to/duoasset/storage/logs/duoasset-earnings-scan.log 2>&1
+30 9 * * * /path/to/duoasset/scripts/duoasset-quote.sh >> /path/to/duoasset/storage/logs/duoasset-quotes.log 2>&1
+30 13-20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow-hourly.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow-hourly.log 2>&1
+30 20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow-hourly.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow.log 2>&1
+#* * * * * cd /path/to/duoasset && php artisan schedule:run >> /dev/null 2>&1
 ```
 
 ### 5. Health Check
