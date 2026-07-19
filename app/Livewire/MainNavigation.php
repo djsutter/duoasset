@@ -47,6 +47,9 @@ class MainNavigation extends Component
             ],
             [
                 'route' => 'money-flows.index',
+                'parameters' => [
+                    'interval' => 'hourly',
+                ],
                 'icon' => 'chart-bar',
                 'title' => 'Money Flows',
             ],
