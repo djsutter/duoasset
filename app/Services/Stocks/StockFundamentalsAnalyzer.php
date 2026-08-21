@@ -12,6 +12,13 @@ namespace App\Services\Stocks;
 class StockFundamentalsAnalyzer
 {
     /**
+     * EPS values smaller than one cent are too close to zero to use as a
+     * percentage-growth denominator. Without this floor, a fraction-of-a-cent
+     * prior EPS can create meaningless multi-thousand-percent growth rates.
+     */
+    private const MIN_EPS_DENOMINATOR = 0.01;
+
+    /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
      * @return array<string, mixed>
@@ -66,8 +73,13 @@ class StockFundamentalsAnalyzer
     }
 
     /**
+     * Preserve one output slot per comparable quarter. Invalid/undefined
+     * comparisons are represented as null instead of being removed so that
+     * "latest" growth and acceleration can never silently fall back to stale
+     * prior-quarter values.
+     *
      * @param  array<int, array<string, mixed>>  $rows
-     * @return array<int, float>
+     * @return array<int, float|null>
      */
     private function yoyGrowthSeries(array $rows, string $field): array
     {
@@ -79,12 +91,15 @@ class StockFundamentalsAnalyzer
             $prior = $this->toFloat($rows[$i - 4][$field] ?? null);
 
             if ($current === null || $prior === null) {
+                $out[] = null;
                 continue;
             }
 
             if ($field === 'eps') {
-                // A zero prior EPS cannot produce a meaningful percentage change.
-                if (abs($prior) < 0.000001) {
+                // Percentage EPS growth is economically meaningless when the
+                // prior-year EPS is less than one cent in absolute value.
+                if (abs($prior) < self::MIN_EPS_DENOMINATOR) {
+                    $out[] = null;
                     continue;
                 }
 
@@ -99,6 +114,7 @@ class StockFundamentalsAnalyzer
             } else {
                 // Revenue and similar fields require positive comparable values.
                 if ($prior <= 0 || $current <= 0) {
+                    $out[] = null;
                     continue;
                 }
 
@@ -111,7 +127,7 @@ class StockFundamentalsAnalyzer
         return $out;
     }
 
-    /** @param array<int, float> $series */
+    /** @param array<int, float|null> $series */
     private function acceleration(array $series): ?float
     {
         $count = count($series);
@@ -119,13 +135,27 @@ class StockFundamentalsAnalyzer
             return null;
         }
 
-        return round($series[$count - 1] - $series[$count - 2], 4);
+        $latest = $series[$count - 1];
+        $previous = $series[$count - 2];
+
+        // Acceleration is only meaningful for consecutive valid periods.
+        if ($latest === null || $previous === null) {
+            return null;
+        }
+
+        return round($latest - $previous, 4);
     }
 
-    /** @param array<int, float> $series */
+    /** @param array<int, float|null> $series */
     private function lastValue(array $series): ?float
     {
-        return $series ? $series[array_key_last($series)] : null;
+        if (! $series) {
+            return null;
+        }
+
+        $value = $series[array_key_last($series)];
+
+        return $value === null ? null : (float) $value;
     }
 
     /** @param array<int, array<string, mixed>> $rows */
@@ -140,8 +170,21 @@ class StockFundamentalsAnalyzer
         $latest = $this->sum($latestFour, $field);
         $prior = $this->sum($priorFour, $field);
 
-        if ($latest === null || $prior === null || $prior <= 0 || $latest <= 0) {
+        if ($latest === null || $prior === null) {
             return null;
+        }
+
+        if ($field === 'eps') {
+            // Keep the existing CANSLIM-style requirement that both annual
+            // periods be profitable, while also preventing a tiny positive
+            // prior EPS total from producing an absurd growth percentage.
+            if ($latest <= 0 || $prior < self::MIN_EPS_DENOMINATOR) {
+                return null;
+            }
+        } else {
+            if ($prior <= 0 || $latest <= 0) {
+                return null;
+            }
         }
 
         return round((($latest - $prior) / $prior) * 100, 4);

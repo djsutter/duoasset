@@ -227,11 +227,19 @@ class StockBuySetupScorer
 
     private function breakoutDistancePoints(float $pct, int $max): int
     {
+        // StockBuySetupScanner stores this as a signed value:
+        //   positive = below the base high / breakout level
+        //   negative = above the base high / already broken out
+        //
+        // Score actual proximity to the breakout level rather than allowing
+        // every negative value to satisfy "$pct <= 2" and receive full points.
+        $distance = abs($pct);
+
         return match (true) {
             $max <= 0 => 0,
-            $pct <= 2 => $max,
-            $pct <= 5 => (int) round($max * 0.70),
-            $pct <= 10 => (int) round($max * 0.40),
+            $distance <= 2 => $max,
+            $distance <= 5 => (int) round($max * 0.70),
+            $distance <= 10 => (int) round($max * 0.40),
             default => 0,
         };
     }
