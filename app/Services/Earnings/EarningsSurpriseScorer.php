@@ -64,8 +64,10 @@ class EarningsSurpriseScorer
         if ($actual === null || $estimated === null) {
             return null;
         }
-        if (abs($estimated) < 1e-9) {
-            // Avoid divide-by-zero. Caller may fall back to provider value.
+
+        // Percentage surprise becomes meaningless when the EPS estimate
+        // is effectively zero.
+        if (abs($estimated) < 0.01) {
             return null;
         }
 
