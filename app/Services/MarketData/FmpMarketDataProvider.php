@@ -376,9 +376,10 @@ class FmpMarketDataProvider implements MarketDataProvider
             'name' => (string) ($profile['company_name'] ?? $profile['companyName'] ?? ''),
             'exchange' => strtoupper((string) ($profile['exchange'] ?? '')),
             'currency' => strtoupper((string) ($profile['currency'] ?? '')),
-            'country' => '',
-            'sector' => '',
-            'industry' => '',
+            'country' => (string) ($profile['country'] ?? ''),
+            'sector' => (string) ($profile['sector'] ?? ''),
+            'industry' => (string) ($profile['industry'] ?? ''),
+            'sub_industry' => (string) ($profile['sub_industry'] ?? ''),
         ];
     }
 
@@ -544,6 +545,10 @@ class FmpMarketDataProvider implements MarketDataProvider
                 'free_float' => $this->toFloat($row['freeFloat'] ?? null),
                 'currency' => $row['currency'] ?? null,
                 'price' => $this->toFloat($row['price'] ?? null),
+                'sector' => $row['sector'] ?? null,
+                'industry' => $row['industry'] ?? null,
+                'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
+                'country' => $row['country'] ?? null,
             ];
         });
     }
@@ -783,6 +788,10 @@ class FmpMarketDataProvider implements MarketDataProvider
             'float_shares' => $this->toInt($row['floatShares'] ?? null),
             'free_float' => $this->toFloat($row['freeFloat'] ?? null),
             'price' => $this->toFloat($row['price'] ?? null),
+            'sector' => $row['sector'] ?? null,
+            'industry' => $row['industry'] ?? null,
+            'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
+            'country' => $row['country'] ?? null,
             'raw' => $row,
         ];
     }
