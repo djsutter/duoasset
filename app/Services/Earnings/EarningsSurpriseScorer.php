@@ -68,7 +68,7 @@ class EarningsSurpriseScorer
         // Percentage surprise becomes economically meaningless when the EPS
         // estimate is effectively zero. Avoid allowing a fraction-of-a-cent
         // estimate to generate a multi-thousand-percent surprise.
-        if (abs($estimated) < 0.01) {
+        if (abs($estimated) < 0.02) {
             return null;
         }
 
