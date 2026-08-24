@@ -44,6 +44,9 @@ class StockBuySetups extends Component
     #[Url(as: 'symbol')]
     public ?string $symbol = null;
 
+    #[Url(as: 'company')]
+    public ?string $company = null;
+
     #[Url(as: 'sort')]
     public string $sortBy = 'setup_score';
 
@@ -73,6 +76,7 @@ class StockBuySetups extends Component
         $this->dateTo = null;
         $this->unwatchedOnly = false;
         $this->symbol = null;
+        $this->company = null;
         $this->sortBy = 'setup_score';
         $this->sortDirection = 'desc';
         $this->resetPage();
@@ -80,7 +84,7 @@ class StockBuySetups extends Component
 
     public function sortByColumn(string $column): void
     {
-        $allowed = ['symbol', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'];
+        $allowed = ['symbol', 'company_name', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'];
 
         if (! in_array($column, $allowed, true)) {
             return;
@@ -160,6 +164,7 @@ class StockBuySetups extends Component
 
         $query = StockBuySetupAlert::query()
             ->when($this->symbol, fn ($q) => $q->where('symbol', 'like', $this->symbol.'%'))
+            ->when($this->company, fn ($q) => $q->where('company_name', 'like', '%'.$this->company.'%'))
             ->when($this->setupType, fn ($q) => $q->where('setup_type', $this->setupType))
             ->when($minScore !== null, fn ($q) => $q->where('setup_score', '>=', $minScore))
             ->when($minMcap !== null, fn ($q) => $q->where('market_cap', '>=', $minMcap))
@@ -170,7 +175,7 @@ class StockBuySetups extends Component
             ->when($this->unwatchedOnly && $watchedSymbols->isNotEmpty(),
                 fn ($q) => $q->whereNotIn('symbol', $watchedSymbols->all()));
 
-        $sortBy = in_array($this->sortBy, ['symbol', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
+        $sortBy = in_array($this->sortBy, ['symbol', 'company_name', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
         $direction = strtolower($this->sortDirection) === 'asc' ? 'asc' : 'desc';
 
         $alerts = $query

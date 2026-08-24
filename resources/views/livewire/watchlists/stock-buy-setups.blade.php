@@ -23,10 +23,14 @@
     @endif
 
     <div class="da-card">
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-8">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-9">
             <div>
                 <label class="da-label">{{ __('Symbol') }}</label>
                 <input type="text" wire:model.live.debounce.400ms="symbol" class="da-input uppercase" placeholder="AAPL">
+            </div>
+            <div>
+                <label class="da-label">{{ __('Company') }}</label>
+                <input type="text" wire:model.live.debounce.400ms="company" class="da-input" placeholder="Apple">
             </div>
             <div>
                 <label class="da-label">{{ __('Setup type') }}</label>
@@ -79,6 +83,7 @@
                 <select wire:model.live="sortBy" class="da-input">
                     <option value="setup_score">{{ __('Setup score') }}</option>
                     <option value="symbol">{{ __('Symbol') }}</option>
+                    <option value="company_name">{{ __('Company') }}</option>
                     <option value="heartbeat_score">{{ __('Heartbeat score') }}</option>
                     <option value="detected_at">{{ __('Detected date') }}</option>
                     <option value="spike_date">{{ __('Spike date') }}</option>
@@ -120,9 +125,23 @@
                             @endif
                         </button>
                     </th>
-                    <th>{{ __('Company') }}</th>
+                    <th>
+                        <button type="button" wire:click="sortByColumn('company_name')" class="inline-flex items-center gap-1 font-semibold hover:text-sky-600 dark:hover:text-sky-400">
+                            {{ __('Company') }}
+                            @if ($sortBy === 'company_name')
+                                <span class="text-xs">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                            @endif
+                        </button>
+                    </th>
                     <th>{{ __('Mcap cat.') }}</th>
-                    <th>{{ __('Spike date') }}</th>
+                    <th>
+                        <button type="button" wire:click="sortByColumn('spike_date')" class="inline-flex items-center gap-1 font-semibold hover:text-sky-600 dark:hover:text-sky-400">
+                            {{ __('Spike date') }}
+                            @if ($sortBy === 'spike_date')
+                                <span class="text-xs">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                            @endif
+                        </button>
+                    </th>
                     <th class="text-right">{{ __('Spike vol') }}</th>
                     <th class="text-right">{{ __('Base days') }}</th>
                     <th class="text-right">{{ __('Range %') }}</th>
