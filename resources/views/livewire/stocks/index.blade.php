@@ -91,10 +91,10 @@
                     <th><button type="button" wire:click="sortBy('industry')" class="da-sort">{{ __('Industry') }}</button></th>
                     <th><button type="button" wire:click="sortBy('sub_industry')" class="da-sort">{{ __('Sub-Industry') }}</button></th>
                     <th class="text-right">{{ __('Last') }}</th>
-                    <th class="text-right">{{ __('Change') }}</th>
-                    <th class="text-right">{{ __('Change %') }}</th>
+                    <th class="text-right"><button type="button" wire:click="sortBy('daily_change')" class="da-sort">{{ __('Change') }}</button></th>
+                    <th class="text-right"><button type="button" wire:click="sortBy('daily_change_percent')" class="da-sort">{{ __('Change %') }}</button></th>
                     <th class="text-right">{{ __('Volume') }}</th>
-                    <th>{{ __('Checked') }}</th>
+                    <th><button type="button" wire:click="sortBy('last_checked_at')" class="da-sort">{{ __('Checked') }}</button></th>
                 </tr>
             </thead>
             <tbody>

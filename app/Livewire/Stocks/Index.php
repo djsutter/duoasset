@@ -134,6 +134,9 @@ class Index extends Component
             'sub_industry' => $q->leftJoin('sub_industries', 'stocks.sub_industry_id', '=', 'sub_industries.id')
                 ->orderBy('sub_industries.name', $direction)
                 ->select('stocks.*'),
+            'daily_change', 'change' => $q->orderBy('daily_change', $direction),
+            'daily_change_percent', 'change_percent', 'change_pct' => $q->orderBy('daily_change_percent', $direction),
+            'last_checked_at', 'checked' => $q->orderBy('last_checked_at', $direction),
             default => $q->orderBy('symbol', $direction),
         };
 
