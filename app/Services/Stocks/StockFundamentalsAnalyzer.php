@@ -92,6 +92,7 @@ class StockFundamentalsAnalyzer
 
             if ($current === null || $prior === null) {
                 $out[] = null;
+
                 continue;
             }
 
@@ -100,6 +101,7 @@ class StockFundamentalsAnalyzer
                 // prior-year EPS is less than one cent in absolute value.
                 if (abs($prior) < self::MIN_EPS_DENOMINATOR) {
                     $out[] = null;
+
                     continue;
                 }
 
@@ -115,6 +117,7 @@ class StockFundamentalsAnalyzer
                 // Revenue and similar fields require positive comparable values.
                 if ($prior <= 0 || $current <= 0) {
                     $out[] = null;
+
                     continue;
                 }
 

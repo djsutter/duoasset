@@ -1,7 +1,5 @@
 <?php
 
-use App\Enums\Currency;
-use App\Enums\Exchange;
 use App\Livewire\Stocks\Index as StocksIndex;
 use App\Models\Industry;
 use App\Models\Sector;
@@ -19,7 +17,7 @@ uses(RefreshDatabase::class);
 test('stock provisioner resolves correct sector, industry, and sub-industry across different sectors', function () {
     $this->seed(ClassificationSeeder::class);
 
-    $provisioner = new StockProvisioner();
+    $provisioner = new StockProvisioner;
 
     // 1. Energy
     $energyStock = $provisioner->findOrCreate(
@@ -84,7 +82,7 @@ test('stock provisioner resolves correct sector, industry, and sub-industry acro
 test('stock provisioner maps sector aliases accurately', function () {
     $this->seed(ClassificationSeeder::class);
 
-    $provisioner = new StockProvisioner();
+    $provisioner = new StockProvisioner;
 
     expect($provisioner->resolveSector('Basic Materials')->slug)->toBe('materials')
         ->and($provisioner->resolveSector('Financial Services')->slug)->toBe('financials')
@@ -98,7 +96,7 @@ test('stock provisioner maps sector aliases accurately', function () {
 test('stock provisioner uses unknown classification when no sector is provided and no provider exists', function () {
     $this->seed(ClassificationSeeder::class);
 
-    $provisioner = new StockProvisioner();
+    $provisioner = new StockProvisioner;
 
     $unknownStock = $provisioner->findOrCreate(
         symbol: 'UNKNOWN_CO',
@@ -142,7 +140,7 @@ test('stock provisioner queries market data provider profile when metadata is mi
 test('stock provisioner can refresh classification of an existing stock', function () {
     $this->seed(ClassificationSeeder::class);
 
-    $provisioner = new StockProvisioner();
+    $provisioner = new StockProvisioner;
 
     // Create a stock initially with Unknown or broken classification
     $stock = Stock::factory()->create([
