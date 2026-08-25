@@ -589,6 +589,81 @@
                                     </div>
                                 </div>
 
+                                {{-- Prior-Year Revenue Sales-Acceleration Penalties --}}
+                                @php
+                                    $currentPenalties = $configState['setup_types'][$selectedConfigSetupType]['prior_year_revenue_penalties'] ?? [];
+                                @endphp
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                                {{ __('Prior-Year Revenue Penalties') }}
+                                            </h3>
+                                            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                                {{ __('Dampens sales-acceleration bonus points when prior-year revenue is below configured floor thresholds (0 to 10 levels).') }}
+                                            </p>
+                                        </div>
+                                        @if (count($currentPenalties) < 10)
+                                            <button type="button"
+                                                    wire:click="addPriorYearRevenuePenalty('{{ $selectedConfigSetupType }}')"
+                                                    class="da-btn-secondary text-xs whitespace-nowrap">
+                                                + {{ __('Add Penalty Level') }}
+                                            </button>
+                                        @endif
+                                    </div>
+
+                                    @if (empty($currentPenalties))
+                                        <p class="text-xs text-zinc-500 italic py-2">
+                                            {{ __('No prior-year revenue penalties configured for this setup type (0% penalty applied).') }}
+                                        </p>
+                                    @else
+                                        <div class="overflow-x-auto">
+                                            <table class="da-table text-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{{ __('Prior-Year Revenue Floor (< $)') }}</th>
+                                                        <th>{{ __('Sales Accel Penalty (%)') }}</th>
+                                                        <th class="w-16 text-center">{{ __('Action') }}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach ($currentPenalties as $pIdx => $penalty)
+                                                        <tr wire:key="type-penalty-row-{{ $selectedConfigSetupType }}-{{ $pIdx }}">
+                                                            <td>
+                                                                <input type="number"
+                                                                       step="1000"
+                                                                       min="0"
+                                                                       wire:key="type-penalty-thresh-{{ $selectedConfigSetupType }}-{{ $pIdx }}"
+                                                                       wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.prior_year_revenue_penalties.{{ $pIdx }}.threshold"
+                                                                       class="da-input py-1 text-xs"
+                                                                       placeholder="e.g. 100000">
+                                                            </td>
+                                                            <td>
+                                                                <input type="number"
+                                                                       step="1"
+                                                                       min="0"
+                                                                       max="100"
+                                                                       wire:key="type-penalty-pct-{{ $selectedConfigSetupType }}-{{ $pIdx }}"
+                                                                       wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.prior_year_revenue_penalties.{{ $pIdx }}.penalty_pct"
+                                                                       class="da-input py-1 text-xs"
+                                                                       placeholder="e.g. 25">
+                                                            </td>
+                                                            <td class="text-center">
+                                                                <button type="button"
+                                                                        wire:click="removePriorYearRevenuePenalty({{ $pIdx }}, '{{ $selectedConfigSetupType }}')"
+                                                                        class="text-rose-500 hover:text-rose-700 text-xs font-semibold p-1"
+                                                                        title="{{ __('Remove') }}">
+                                                                    ✕
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </div>
+
                                 {{-- Weighted Score Components --}}
                                 @php
                                     $currentTypeWeights = $configState['setup_types'][$selectedConfigSetupType]['score_weights'] ?? [];

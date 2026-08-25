@@ -37,6 +37,7 @@ test('it returns default configuration matching specification when no setting ex
         ->and($heartbeat['max_range_compression_pct'])->toBe(40.0)
         ->and($heartbeat['max_atr_ratio'])->toBe(0.85)
         ->and($heartbeat['sleepy_volume_large_cap_penalty_pct'])->toBe(40.0)
+        ->and($heartbeat['prior_year_revenue_penalties'])->toEqual([['threshold' => 100000, 'penalty_pct' => 25]])
         ->and($heartbeat['score_weights']['spike_rarity']['weight'])->toBe(25)
         ->and($heartbeat['score_weights']['base_duration']['weight'])->toBe(10)
         ->and($heartbeat['score_weights']['range_compression']['weight'])->toBe(15);
@@ -87,4 +88,47 @@ test('it allows adding custom setup types and resetting to defaults', function (
     $resetConfig = (new BuySetupConfigService)->getConfig();
     expect($resetConfig['setup_types'])->not->toHaveKey('breakout_momentum')
         ->and($resetConfig['setup_types'])->toHaveKey('heartbeat_consolidation_spike');
+});
+
+test('it saves and retrieves configurable prior year revenue penalties per setup type', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    // Configure 2 custom tiers for heartbeat_consolidation_spike
+    $config['setup_types']['heartbeat_consolidation_spike']['prior_year_revenue_penalties'] = [
+        ['threshold' => 100000, 'penalty_pct' => 25],
+        ['threshold' => 500000, 'penalty_pct' => 12],
+    ];
+
+    // Configure 0 levels (empty array) for range_compression_breakout
+    $config['setup_types']['range_compression_breakout']['prior_year_revenue_penalties'] = [];
+
+    $service->saveConfig($config);
+
+    $freshService = new BuySetupConfigService;
+    $heartbeatPenalties = $freshService->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
+    expect($heartbeatPenalties)->toHaveCount(2)
+        ->and($heartbeatPenalties[0])->toEqual(['threshold' => 100000, 'penalty_pct' => 25])
+        ->and($heartbeatPenalties[1])->toEqual(['threshold' => 500000, 'penalty_pct' => 12]);
+
+    $rangePenalties = $freshService->getPriorYearRevenuePenalties('range_compression_breakout');
+    expect($rangePenalties)->toBeEmpty();
+});
+
+test('it caps prior year revenue penalties at 10 sets and sanitizes invalid values', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    // Supply 12 tiers
+    $twelveTiers = [];
+    for ($i = 1; $i <= 12; $i++) {
+        $twelveTiers[] = ['threshold' => $i * 100000, 'penalty_pct' => min(100, $i * 5)];
+    }
+    $config['setup_types']['heartbeat_consolidation_spike']['prior_year_revenue_penalties'] = $twelveTiers;
+
+    $service->saveConfig($config);
+
+    $savedPenalties = (new BuySetupConfigService)->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
+    expect($savedPenalties)->toHaveCount(10)
+        ->and($savedPenalties[9]['threshold'])->toBe(1000000.0);
 });

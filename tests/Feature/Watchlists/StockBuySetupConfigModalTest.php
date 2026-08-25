@@ -146,3 +146,67 @@ test('multiple setup types retain distinct configurations when switching and reo
         ->assertSet('configState.setup_types.sales_acceleration.recent_spike_window_days', 42)
         ->assertSet('configState.setup_types.sales_acceleration.score_weights.sales_acceleration.weight', 40);
 });
+
+test('user can add, edit, and remove prior year revenue penalties in the modal', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->assertSet('selectedConfigSetupType', 'heartbeat_consolidation_spike')
+        // Default has 1 penalty level: 100k / 25%
+        ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 1)
+        // Add a second penalty level
+        ->call('addPriorYearRevenuePenalty', 'heartbeat_consolidation_spike')
+        ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 2)
+        // Configure two tiers: 100k / 25% and 500k / 12%
+        ->set('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties.0.threshold', 100000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties.0.penalty_pct', 25)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties.1.threshold', 500000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties.1.penalty_pct', 12)
+        ->call('saveConfig');
+
+    $service = app(BuySetupConfigService::class);
+    $penalties = $service->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
+    expect($penalties)->toHaveCount(2)
+        ->and($penalties[0]['threshold'])->toBe(100000.0)
+        ->and($penalties[0]['penalty_pct'])->toBe(25.0)
+        ->and($penalties[1]['threshold'])->toBe(500000.0)
+        ->and($penalties[1]['penalty_pct'])->toBe(12.0);
+
+    // Remove one level
+    $component->call('removePriorYearRevenuePenalty', 0, 'heartbeat_consolidation_spike')
+        ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 1)
+        ->call('saveConfig');
+
+    $updatedPenalties = (new BuySetupConfigService)->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
+    expect($updatedPenalties)->toHaveCount(1)
+        ->and($updatedPenalties[0]['threshold'])->toBe(500000.0);
+
+    // Remove remaining level to get 0 levels
+    $component->call('removePriorYearRevenuePenalty', 0, 'heartbeat_consolidation_spike')
+        ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 0)
+        ->call('saveConfig');
+
+    $emptyPenalties = (new BuySetupConfigService)->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
+    expect($emptyPenalties)->toBeEmpty();
+});
+
+test('user cannot add more than 10 prior year revenue penalty levels', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal');
+
+    // Add up to 10
+    for ($i = 0; $i < 9; $i++) {
+        $component->call('addPriorYearRevenuePenalty', 'heartbeat_consolidation_spike');
+    }
+    $component->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 10);
+
+    // Attempting to add an 11th should be rejected
+    $component->call('addPriorYearRevenuePenalty', 'heartbeat_consolidation_spike')
+        ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 10)
+        ->assertSee('A maximum of 10 prior-year revenue penalty levels is allowed.');
+});

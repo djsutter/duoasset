@@ -38,6 +38,9 @@ class BuySetupConfigService
                 'sleepy_volume_medium_cap_penalty_pct' => 30.0,
                 'sleepy_volume_small_cap_penalty_pct' => 20.0,
                 'sleepy_volume_micro_cap_penalty_pct' => 15.0,
+                'prior_year_revenue_penalties' => [
+                    ['threshold' => 100000, 'penalty_pct' => 25],
+                ],
                 'score_weights' => [
                     'spike_rarity' => ['weight' => 25, 'enabled' => true],
                     'base_duration' => ['weight' => 10, 'enabled' => true],
@@ -65,6 +68,9 @@ class BuySetupConfigService
                 'sleepy_volume_medium_cap_penalty_pct' => 30.0,
                 'sleepy_volume_small_cap_penalty_pct' => 20.0,
                 'sleepy_volume_micro_cap_penalty_pct' => 15.0,
+                'prior_year_revenue_penalties' => [
+                    ['threshold' => 100000, 'penalty_pct' => 25],
+                ],
                 'score_weights' => [
                     'spike_rarity' => ['weight' => 25, 'enabled' => true],
                     'base_duration' => ['weight' => 10, 'enabled' => true],
@@ -92,6 +98,9 @@ class BuySetupConfigService
                 'sleepy_volume_medium_cap_penalty_pct' => 30.0,
                 'sleepy_volume_small_cap_penalty_pct' => 20.0,
                 'sleepy_volume_micro_cap_penalty_pct' => 15.0,
+                'prior_year_revenue_penalties' => [
+                    ['threshold' => 100000, 'penalty_pct' => 25],
+                ],
                 'score_weights' => [
                     'spike_rarity' => ['weight' => 25, 'enabled' => true],
                     'base_duration' => ['weight' => 10, 'enabled' => true],
@@ -119,6 +128,9 @@ class BuySetupConfigService
                 'sleepy_volume_medium_cap_penalty_pct' => 30.0,
                 'sleepy_volume_small_cap_penalty_pct' => 20.0,
                 'sleepy_volume_micro_cap_penalty_pct' => 15.0,
+                'prior_year_revenue_penalties' => [
+                    ['threshold' => 100000, 'penalty_pct' => 25],
+                ],
                 'score_weights' => [
                     'spike_rarity' => ['weight' => 25, 'enabled' => true],
                     'base_duration' => ['weight' => 10, 'enabled' => true],
@@ -369,6 +381,26 @@ class BuySetupConfigService
     }
 
     /**
+     * @return array<int, array{threshold: float|int, penalty_pct: float|int}>
+     */
+    public function getPriorYearRevenuePenalties(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $defaultPenalties = self::DEFAULT_CONFIG['setup_types']['heartbeat_consolidation_spike']['prior_year_revenue_penalties'];
+
+        $penalties = $type['prior_year_revenue_penalties'] ?? $defaultPenalties;
+
+        if (! is_array($penalties)) {
+            return [];
+        }
+
+        // Sort ascending by threshold
+        usort($penalties, fn ($a, $b) => ((float) ($a['threshold'] ?? 0)) <=> ((float) ($b['threshold'] ?? 0)));
+
+        return array_values($penalties);
+    }
+
+    /**
      * Default technical thresholds for a setup type.
      *
      * @return array<string, mixed>
@@ -391,6 +423,7 @@ class BuySetupConfigService
             'sleepy_volume_medium_cap_penalty_pct' => $defaultType['sleepy_volume_medium_cap_penalty_pct'],
             'sleepy_volume_small_cap_penalty_pct' => $defaultType['sleepy_volume_small_cap_penalty_pct'],
             'sleepy_volume_micro_cap_penalty_pct' => $defaultType['sleepy_volume_micro_cap_penalty_pct'],
+            'prior_year_revenue_penalties' => $defaultType['prior_year_revenue_penalties'],
             'score_weights' => $defaultType['score_weights'],
         ];
     }
@@ -486,6 +519,30 @@ class BuySetupConfigService
             }
         }
 
+        $penalties = [];
+        if (isset($saved['prior_year_revenue_penalties']) && is_array($saved['prior_year_revenue_penalties'])) {
+            foreach (array_slice($saved['prior_year_revenue_penalties'], 0, 10) as $item) {
+                if (is_array($item)) {
+                    $threshold = isset($item['threshold']) && is_numeric($item['threshold'])
+                        ? max(0, (float) $item['threshold'])
+                        : null;
+                    $penaltyPct = isset($item['penalty_pct']) && is_numeric($item['penalty_pct'])
+                        ? min(100, max(0, (float) $item['penalty_pct']))
+                        : null;
+
+                    if ($threshold !== null && $penaltyPct !== null) {
+                        $penalties[] = [
+                            'threshold' => $threshold,
+                            'penalty_pct' => $penaltyPct,
+                        ];
+                    }
+                }
+            }
+            usort($penalties, fn ($a, $b) => ((float) $a['threshold']) <=> ((float) $b['threshold']));
+        } elseif (! isset($saved['prior_year_revenue_penalties'])) {
+            $penalties = (array) ($default['prior_year_revenue_penalties'] ?? []);
+        }
+
         return [
             'key' => $key,
             'label' => (string) ($saved['label'] ?? $default['label'] ?? $key),
@@ -500,6 +557,7 @@ class BuySetupConfigService
             'sleepy_volume_medium_cap_penalty_pct' => (float) ($saved['sleepy_volume_medium_cap_penalty_pct'] ?? $default['sleepy_volume_medium_cap_penalty_pct']),
             'sleepy_volume_small_cap_penalty_pct' => (float) ($saved['sleepy_volume_small_cap_penalty_pct'] ?? $default['sleepy_volume_small_cap_penalty_pct']),
             'sleepy_volume_micro_cap_penalty_pct' => (float) ($saved['sleepy_volume_micro_cap_penalty_pct'] ?? $default['sleepy_volume_micro_cap_penalty_pct']),
+            'prior_year_revenue_penalties' => $penalties,
             'score_weights' => $weights,
         ];
     }

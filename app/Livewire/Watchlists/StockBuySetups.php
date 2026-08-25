@@ -174,6 +174,47 @@ class StockBuySetups extends Component
         $this->configFlash = 'Setup type removed.';
     }
 
+    public function addPriorYearRevenuePenalty(?string $setupType = null): void
+    {
+        $type = $setupType ?: $this->selectedConfigSetupType;
+        if (! isset($this->configState['setup_types'][$type])) {
+            return;
+        }
+
+        $penalties = $this->configState['setup_types'][$type]['prior_year_revenue_penalties'] ?? [];
+        if (! is_array($penalties)) {
+            $penalties = [];
+        }
+
+        if (count($penalties) >= 10) {
+            $this->configFlash = 'A maximum of 10 prior-year revenue penalty levels is allowed.';
+
+            return;
+        }
+
+        $penalties[] = [
+            'threshold' => 100000,
+            'penalty_pct' => 25,
+        ];
+
+        $this->configState['setup_types'][$type]['prior_year_revenue_penalties'] = $penalties;
+        $this->configFlash = null;
+    }
+
+    public function removePriorYearRevenuePenalty(int $index, ?string $setupType = null): void
+    {
+        $type = $setupType ?: $this->selectedConfigSetupType;
+        if (! isset($this->configState['setup_types'][$type]['prior_year_revenue_penalties'][$index])) {
+            return;
+        }
+
+        unset($this->configState['setup_types'][$type]['prior_year_revenue_penalties'][$index]);
+        $this->configState['setup_types'][$type]['prior_year_revenue_penalties'] = array_values(
+            $this->configState['setup_types'][$type]['prior_year_revenue_penalties']
+        );
+        $this->configFlash = null;
+    }
+
     public function saveConfig(): void
     {
         $configService = app(BuySetupConfigService::class);

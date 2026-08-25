@@ -32,9 +32,12 @@ class StockBuySetupScorer
             $scales['sales_acceleration'],
         );
 
+        $priorYear = $priorYearRevenue ?? $this->nullableFloat($r->priorYearRevenue ?? $r->prior_year_revenue ?? null);
+
         $salesAccelerationPoints = $this->applyPriorYearRevenuePenalty(
             $salesAccelerationPoints,
-            $priorYearRevenue,
+            $priorYear,
+            $type,
         );
 
         return [
@@ -303,19 +306,37 @@ class StockBuySetupScorer
      * The penalty is applied to the earned component points after logarithmic
      * scoring, so it scales automatically with each setup type's configurable
      * sales_acceleration weight.
+     *
+     * @param  array<int, array{threshold: float|int, penalty_pct: float|int}>|null  $penalties
      */
-    private function applyPriorYearRevenuePenalty(int $points, ?float $priorYearRevenue): int
-    {
+    public function applyPriorYearRevenuePenalty(
+        int $points,
+        ?float $priorYearRevenue,
+        ?string $setupType = null,
+        ?array $penalties = null,
+    ): int {
         if ($points <= 0 || $priorYearRevenue === null) {
             return $points;
         }
 
-        if ($priorYearRevenue < 100_000) {
-            return (int) round($points * 0.75);
+        $tiers = $penalties ?? app(BuySetupConfigService::class)->getPriorYearRevenuePenalties($setupType);
+
+        if (empty($tiers)) {
+            return $points;
         }
 
-        if ($priorYearRevenue < 500_000) {
-            return (int) round($points * 0.88);
+        // Sort ascending by threshold to ensure lowest threshold is checked first
+        usort($tiers, fn ($a, $b) => ((float) ($a['threshold'] ?? 0)) <=> ((float) ($b['threshold'] ?? 0)));
+
+        foreach ($tiers as $tier) {
+            $threshold = (float) ($tier['threshold'] ?? 0);
+            $penaltyPct = (float) ($tier['penalty_pct'] ?? 0);
+
+            if ($priorYearRevenue < $threshold) {
+                $multiplier = max(0.0, 1.0 - ($penaltyPct / 100.0));
+
+                return max(0, (int) round($points * $multiplier));
+            }
         }
 
         return $points;
