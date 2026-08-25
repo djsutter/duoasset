@@ -17,11 +17,25 @@ class StockBuySetupScorer
     /**
      * @return array<string, array{label: string, points: int, max: int, value?: string}>
      */
-    public function breakdown(StockBuySetupResult|StockBuySetupAlert $r, ?string $setupType = null): array
-    {
+    public function breakdown(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType = null,
+        ?float $priorYearRevenue = null,
+    ): array {
         $type = $setupType ?? ($r->setupType ?? $r->setup_type ?? null);
         $weights = $this->weights($type);
         $scales = $this->accelerationScales();
+
+        $salesAccelerationPoints = $this->logarithmicBonusPoints(
+            $this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null),
+            $weights['sales_acceleration'],
+            $scales['sales_acceleration'],
+        );
+
+        $salesAccelerationPoints = $this->applyPriorYearRevenuePenalty(
+            $salesAccelerationPoints,
+            $priorYearRevenue,
+        );
 
         return [
             'spike_rarity' => [
@@ -84,25 +98,27 @@ class StockBuySetupScorer
             ],
             'sales_acceleration' => [
                 'label' => 'Sales accel.',
-                'points' => $this->logarithmicBonusPoints(
-                    $this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null),
-                    $weights['sales_acceleration'],
-                    $scales['sales_acceleration'],
-                ),
+                'points' => $salesAccelerationPoints,
                 'max' => $weights['sales_acceleration'],
                 'value' => ($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null) !== null) ? number_format((float) ($r->salesAcceleration ?? $r->sales_acceleration), 1).' pts' : 'n/a',
             ],
         ];
     }
 
-    public function score(StockBuySetupResult $r, ?string $setupType = null): int
-    {
-        return $this->scoreFromBreakdown($this->breakdown($r, $setupType));
+    public function score(
+        StockBuySetupResult $r,
+        ?string $setupType = null,
+        ?float $priorYearRevenue = null,
+    ): int {
+        return $this->scoreFromBreakdown($this->breakdown($r, $setupType, $priorYearRevenue));
     }
 
-    public function scoreFromAlert(StockBuySetupAlert $alert, ?string $setupType = null): int
-    {
-        return $this->scoreFromBreakdown($this->breakdown($alert, $setupType));
+    public function scoreFromAlert(
+        StockBuySetupAlert $alert,
+        ?string $setupType = null,
+        ?float $priorYearRevenue = null,
+    ): int {
+        return $this->scoreFromBreakdown($this->breakdown($alert, $setupType, $priorYearRevenue));
     }
 
     /**
@@ -278,6 +294,31 @@ class StockBuySetupScorer
         $normalized = log1p($value) / log1p(max(0.0001, $scale));
 
         return (int) round($max * min(1.0, max(0.0, $normalized)));
+    }
+
+    /**
+     * Reduce the final earned sales-acceleration points when the YoY
+     * comparison is based on a very small prior-year revenue denominator.
+     *
+     * The penalty is applied to the earned component points after logarithmic
+     * scoring, so it scales automatically with each setup type's configurable
+     * sales_acceleration weight.
+     */
+    private function applyPriorYearRevenuePenalty(int $points, ?float $priorYearRevenue): int
+    {
+        if ($points <= 0 || $priorYearRevenue === null) {
+            return $points;
+        }
+
+        if ($priorYearRevenue < 100_000) {
+            return (int) round($points * 0.75);
+        }
+
+        if ($priorYearRevenue < 500_000) {
+            return (int) round($points * 0.88);
+        }
+
+        return $points;
     }
 
     private function nullableFloat(mixed $value): ?float

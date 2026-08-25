@@ -136,7 +136,11 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
 
             foreach ($results as $result) {
-                $breakdown = $scorer->breakdown($result, $result->setupType);
+                $breakdown = $scorer->breakdown(
+                    $result,
+                    $result->setupType,
+                    $this->nullableFloat($fundamentalMetrics['prior_year_revenue'] ?? null),
+                );
                 $scoreMeta = $scorer->scoreMetaFromBreakdown($breakdown);
                 $rawScore = $scoreMeta['normalized'];
                 $liquidity = $liquidityPenalty->apply(
@@ -291,6 +295,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'atr_ratio' => $result->atrContractionRatio,
                     'distance_to_breakout_pct' => $result->distanceToBreakoutPct,
                     'relative_strength' => $result->relativeStrengthScore,
+                    'prior_year_revenue' => $fundamentalMetrics['prior_year_revenue'] ?? null,
                     'reason' => $result->reasonSummary,
                 ];
             }
@@ -362,8 +367,14 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
 
             $balance = $provider->quarterlyBalanceSheets($symbol, 8);
+            $metrics = $fundamentals->analyze($income, $balance);
 
-            return $fundamentals->analyze($income, $balance);
+            // FMP supplies absolute revenue on each quarterly income statement,
+            // not a dedicated prior_year_revenue field. Derive the comparable
+            // prior-year quarter here for sales-acceleration denominator damping.
+            $metrics['prior_year_revenue'] = $this->priorYearRevenue($income);
+
+            return $metrics;
         } catch (Throwable $e) {
             Log::warning('buy_setup.fundamentals_failed', [
                 'symbol' => $symbol,
@@ -372,6 +383,58 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             return [];
         }
+    }
+
+    /**
+     * Return revenue from the comparable quarter one year before the most
+     * recent quarterly income statement.
+     *
+     * Prefer an exact fiscal-year/period match when FMP provides those fields.
+     * Fall back to the fifth row after sorting newest-first, which is the same
+     * quarter one year earlier for a normal quarterly series.
+     *
+     * @param  array<int, array<string, mixed>>  $income
+     */
+    private function priorYearRevenue(array $income): ?float
+    {
+        $rows = array_values(array_filter(
+            $income,
+            fn (array $row) => isset($row['date'])
+                && array_key_exists('revenue', $row)
+                && is_numeric($row['revenue']),
+        ));
+
+        if (count($rows) < 5) {
+            return null;
+        }
+
+        usort(
+            $rows,
+            fn (array $a, array $b) => strcmp((string) $b['date'], (string) $a['date']),
+        );
+
+        $latest = $rows[0];
+        $latestPeriod = $latest['period'] ?? null;
+        $latestFiscalYear = isset($latest['fiscalYear']) && is_numeric($latest['fiscalYear'])
+            ? (int) $latest['fiscalYear']
+            : null;
+
+        if ($latestPeriod !== null && $latestFiscalYear !== null) {
+            foreach (array_slice($rows, 1) as $row) {
+                $rowFiscalYear = isset($row['fiscalYear']) && is_numeric($row['fiscalYear'])
+                    ? (int) $row['fiscalYear']
+                    : null;
+
+                if (
+                    ($row['period'] ?? null) === $latestPeriod
+                    && $rowFiscalYear === $latestFiscalYear - 1
+                ) {
+                    return (float) $row['revenue'];
+                }
+            }
+        }
+
+        return (float) $rows[4]['revenue'];
     }
 
     /**
