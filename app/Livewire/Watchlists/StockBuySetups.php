@@ -6,9 +6,11 @@ use App\Enums\MoatLevel;
 use App\Models\StockBuySetupAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
+use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\StockBuySetupScorer;
 use App\Services\Stocks\StockProvisioner;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -55,9 +57,23 @@ class StockBuySetups extends Component
 
     public ?string $flash = null;
 
+    public bool $configModalOpen = false;
+
+    public string $configTab = 'types';
+
+    public array $configState = [];
+
+    public string $selectedConfigSetupType = 'heartbeat_consolidation_spike';
+
+    public string $newSetupTypeKey = '';
+
+    public string $newSetupTypeLabel = '';
+
+    public ?string $configFlash = null;
+
     public function mount(): void
     {
-        $this->minScore ??= (string) config('market_data.buy_setup_scanner.min_setup_score', 50);
+        $this->minScore ??= (string) app(BuySetupConfigService::class)->getMinSetupScore();
     }
 
     public function updating(): void
@@ -68,7 +84,7 @@ class StockBuySetups extends Component
     public function clearFilters(): void
     {
         $this->setupType = null;
-        $this->minScore = (string) config('market_data.buy_setup_scanner.min_setup_score', 50);
+        $this->minScore = (string) app(BuySetupConfigService::class)->getMinSetupScore();
         $this->minMarketCap = null;
         $this->exchange = null;
         $this->marketCapCategory = null;
@@ -80,6 +96,113 @@ class StockBuySetups extends Component
         $this->sortBy = 'setup_score';
         $this->sortDirection = 'desc';
         $this->resetPage();
+    }
+
+    public function openConfigModal(): void
+    {
+        $configService = app(BuySetupConfigService::class);
+        $this->configState = $configService->getConfig();
+        $this->configState['exchanges_text'] = implode(', ', (array) ($this->configState['exchanges'] ?? []));
+        $this->configState['benchmark_symbols_text'] = implode(', ', (array) ($this->configState['benchmark_symbols'] ?? []));
+
+        $types = array_keys($this->configState['setup_types'] ?? []);
+        if (! in_array($this->selectedConfigSetupType, $types, true)) {
+            $this->selectedConfigSetupType = $types[0] ?? 'heartbeat_consolidation_spike';
+        }
+
+        $this->configFlash = null;
+        $this->newSetupTypeKey = '';
+        $this->newSetupTypeLabel = '';
+        $this->configModalOpen = true;
+    }
+
+    public function closeConfigModal(): void
+    {
+        $this->configModalOpen = false;
+        $this->configFlash = null;
+    }
+
+    public function selectConfigSetupType(string $key): void
+    {
+        if (isset($this->configState['setup_types'][$key])) {
+            $this->selectedConfigSetupType = $key;
+            $this->configFlash = null;
+        }
+    }
+
+    public function updatedSelectedConfigSetupType(): void
+    {
+        $this->configFlash = null;
+    }
+
+    public function addSetupType(): void
+    {
+        $this->validate([
+            'newSetupTypeKey' => 'required|string|min:2|max:50',
+            'newSetupTypeLabel' => 'required|string|min:2|max:100',
+        ]);
+
+        $key = Str::slug($this->newSetupTypeKey, '_');
+
+        if (isset($this->configState['setup_types'][$key])) {
+            $this->addError('newSetupTypeKey', 'This setup type key already exists.');
+
+            return;
+        }
+
+        $configService = app(BuySetupConfigService::class);
+        $newType = $configService->createDefaultSetupType($key, $this->newSetupTypeLabel);
+
+        $this->configState['setup_types'][$key] = $newType;
+        $this->selectedConfigSetupType = $key;
+        $this->newSetupTypeKey = '';
+        $this->newSetupTypeLabel = '';
+        $this->configFlash = "Setup type '{$newType['label']}' added.";
+    }
+
+    public function removeSetupType(string $key): void
+    {
+        if ($key === 'heartbeat_consolidation_spike') {
+            $this->configFlash = 'The default setup type cannot be deleted.';
+
+            return;
+        }
+
+        unset($this->configState['setup_types'][$key]);
+        $types = array_keys($this->configState['setup_types'] ?? []);
+        $this->selectedConfigSetupType = $types[0] ?? 'heartbeat_consolidation_spike';
+        $this->configFlash = 'Setup type removed.';
+    }
+
+    public function saveConfig(): void
+    {
+        $configService = app(BuySetupConfigService::class);
+
+        if (isset($this->configState['exchanges_text'])) {
+            $this->configState['exchanges'] = array_values(array_filter(array_map('trim', explode(',', (string) $this->configState['exchanges_text']))));
+        }
+        if (isset($this->configState['benchmark_symbols_text'])) {
+            $this->configState['benchmark_symbols'] = array_values(array_filter(array_map('trim', explode(',', (string) $this->configState['benchmark_symbols_text']))));
+        }
+
+        $saved = $configService->saveConfig($this->configState);
+        $this->configState = $saved;
+        $this->configState['exchanges_text'] = implode(', ', (array) ($this->configState['exchanges'] ?? []));
+        $this->configState['benchmark_symbols_text'] = implode(', ', (array) ($this->configState['benchmark_symbols'] ?? []));
+
+        $this->configFlash = 'Buy setup configuration saved successfully.';
+        $this->flash = 'Buy setup configuration updated.';
+    }
+
+    public function resetConfigToDefaults(): void
+    {
+        $configService = app(BuySetupConfigService::class);
+        $defaults = $configService->resetToDefaults();
+        $this->configState = $defaults;
+        $this->configState['exchanges_text'] = implode(', ', (array) ($this->configState['exchanges'] ?? []));
+        $this->configState['benchmark_symbols_text'] = implode(', ', (array) ($this->configState['benchmark_symbols'] ?? []));
+        $this->selectedConfigSetupType = 'heartbeat_consolidation_spike';
+        $this->configFlash = 'Configuration reset to default values.';
     }
 
     public function sortByColumn(string $column): void
@@ -185,12 +308,14 @@ class StockBuySetups extends Component
 
         $scorer = app(StockBuySetupScorer::class);
         $scoreBreakdowns = $alerts->getCollection()
-            ->mapWithKeys(fn (StockBuySetupAlert $alert) => [$alert->id => $scorer->breakdown($alert)]);
+            ->mapWithKeys(fn (StockBuySetupAlert $alert) => [$alert->id => $scorer->breakdown($alert, $alert->setup_type)]);
+
+        $configService = app(BuySetupConfigService::class);
 
         return view('livewire.watchlists.stock-buy-setups', [
             'alerts' => $alerts,
             'watched' => $watchedSymbols,
-            'exchanges' => config('market_data.buy_setup_scanner.exchanges', []),
+            'exchanges' => $configService->getExchanges(),
             'setupTypes' => $this->setupTypes(),
             'scoreBreakdowns' => $scoreBreakdowns,
         ]);
@@ -201,7 +326,7 @@ class StockBuySetups extends Component
      */
     private function setupTypes(): array
     {
-        $configured = (array) config('market_data.buy_setup_scanner.setup_types', []);
+        $configured = app(BuySetupConfigService::class)->getSetupTypes();
 
         return collect($configured)
             ->filter(fn (array $type) => (bool) ($type['enabled'] ?? false))

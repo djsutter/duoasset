@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
+use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
@@ -83,9 +84,9 @@ class EvaluateStockBuySetup implements ShouldQueue
         }
 
         try {
-            $config = config('market_data.buy_setup_scanner');
-            $lookback = (int) ($config['history_lookback_days'] ?? 504);
-            $notifyMinScore = (int) ($config['notify_min_setup_score'] ?? $config['min_heartbeat_score'] ?? 50);
+            $configService = app(BuySetupConfigService::class);
+            $lookback = $configService->getHistoryLookbackDays();
+            $notifyMinScore = $configService->getNotifyMinSetupScore();
 
             $profile = $this->loadProfile($provider, $symbol);
             $companyName = $this->companyName ?: ($profile['company_name'] ?? null);
@@ -109,7 +110,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                 return $debug;
             }
 
-            $benchmarks = (array) ($config['benchmark_symbols'] ?? ['SPY', 'IWM']);
+            $benchmarks = $configService->getBenchmarkSymbols();
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
             $debug['benchmark_bars'] = count($benchmarkBars);
             $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol);
@@ -135,7 +136,7 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
 
             foreach ($results as $result) {
-                $breakdown = $scorer->breakdown($result);
+                $breakdown = $scorer->breakdown($result, $result->setupType);
                 $scoreMeta = $scorer->scoreMetaFromBreakdown($breakdown);
                 $rawScore = $scoreMeta['normalized'];
                 $liquidity = $liquidityPenalty->apply(
@@ -144,6 +145,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     $result->floatShares,
                     $result->sharesOutstanding,
                     $bars,
+                    $result->setupType,
                 );
                 $score = (int) $liquidity['adjusted_score'];
                 $result->rawSetupScore = $rawScore;

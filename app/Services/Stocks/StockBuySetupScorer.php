@@ -17,9 +17,10 @@ class StockBuySetupScorer
     /**
      * @return array<string, array{label: string, points: int, max: int, value?: string}>
      */
-    public function breakdown(StockBuySetupResult|StockBuySetupAlert $r): array
+    public function breakdown(StockBuySetupResult|StockBuySetupAlert $r, ?string $setupType = null): array
     {
-        $weights = $this->weights();
+        $type = $setupType ?? ($r->setupType ?? $r->setup_type ?? null);
+        $weights = $this->weights($type);
         $scales = $this->accelerationScales();
 
         return [
@@ -94,14 +95,14 @@ class StockBuySetupScorer
         ];
     }
 
-    public function score(StockBuySetupResult $r): int
+    public function score(StockBuySetupResult $r, ?string $setupType = null): int
     {
-        return $this->scoreFromBreakdown($this->breakdown($r));
+        return $this->scoreFromBreakdown($this->breakdown($r, $setupType));
     }
 
-    public function scoreFromAlert(StockBuySetupAlert $alert): int
+    public function scoreFromAlert(StockBuySetupAlert $alert, ?string $setupType = null): int
     {
-        return $this->scoreFromBreakdown($this->breakdown($alert));
+        return $this->scoreFromBreakdown($this->breakdown($alert, $setupType));
     }
 
     /**
@@ -138,36 +139,9 @@ class StockBuySetupScorer
     /**
      * @return array<string, int>
      */
-    public function weights(): array
+    public function weights(?string $setupType = null): array
     {
-        $defaults = [
-            'spike_rarity' => 7,
-            'base_duration' => 10,
-            'range_compression' => 15,
-            'atr_contraction' => 10,
-            'volume_dry_up' => 10,
-            'breakout_distance' => 10,
-            'ma_alignment' => 10,
-            'relative_strength' => 10,
-            'earnings_acceleration' => 5,
-            'sales_acceleration' => 5,
-        ];
-
-        $configured = (array) config('market_data.buy_setup_scanner.score_weights', []);
-
-        return collect($defaults)
-            ->mapWithKeys(function (int $default, string $key) use ($configured) {
-                $weight = max(0, (int) ($configured[$key] ?? $default));
-
-                // Spike rarity is intentionally capped at seven points. It is
-                // a probability bonus, not a qualification gate.
-                if ($key === 'spike_rarity') {
-                    $weight = min(7, $weight);
-                }
-
-                return [$key => $weight];
-            })
-            ->all();
+        return app(BuySetupConfigService::class)->getScoreWeights($setupType);
     }
 
     private function spikeRarityPoints(StockBuySetupResult|StockBuySetupAlert $r, int $max): int
@@ -178,7 +152,7 @@ class StockBuySetupScorer
 
         $points = (int) ($r->spikeRarityPoints ?? $r->spike_rarity_points ?? 0);
 
-        return min($max, max(0, $points));
+        return min($max, max(0, (int) round(($points / 7) * $max)));
     }
 
     private function baseDurationPoints(int $days, int $max): int

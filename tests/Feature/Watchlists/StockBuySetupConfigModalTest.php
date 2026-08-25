@@ -1,0 +1,148 @@
+<?php
+
+use App\Livewire\Watchlists\StockBuySetups;
+use App\Models\User;
+use App\Services\Stocks\BuySetupConfigService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
+
+uses(RefreshDatabase::class);
+
+test('user can open and close the buy setup configuration modal', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->assertSet('configModalOpen', false)
+        ->call('openConfigModal')
+        ->assertSet('configModalOpen', true)
+        ->assertSee('Buy Setup Configuration')
+        ->call('closeConfigModal')
+        ->assertSet('configModalOpen', false);
+});
+
+test('user can update scanner settings and score weights in the modal', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.min_market_cap', 250000000)
+        ->set('configState.notify_min_setup_score', 65)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.spike_rarity.weight', 30)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.base_duration.enabled', false)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    expect($service->getMinMarketCap())->toBe(250000000)
+        ->and($service->getNotifyMinSetupScore())->toBe(65);
+
+    $weights = $service->getScoreWeights('heartbeat_consolidation_spike');
+    expect($weights['spike_rarity'])->toBe(30)
+        ->and($weights['base_duration'])->toBe(0);
+});
+
+test('user can add a new setup type and delete a custom setup type in the modal', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('newSetupTypeKey', 'floor_bounce')
+        ->set('newSetupTypeLabel', 'Floor Bounce Setup')
+        ->call('addSetupType')
+        ->assertSet('selectedConfigSetupType', 'floor_bounce')
+        ->call('saveConfig');
+
+    $service = app(BuySetupConfigService::class);
+    $types = $service->getSetupTypes();
+    expect($types)->toHaveKey('floor_bounce')
+        ->and($types['floor_bounce']['label'])->toBe('Floor Bounce Setup');
+
+    // Remove custom setup type
+    $component->call('removeSetupType', 'floor_bounce')
+        ->call('saveConfig');
+
+    $updatedTypes = (new BuySetupConfigService)->getSetupTypes();
+    expect($updatedTypes)->not->toHaveKey('floor_bounce');
+});
+
+test('default setup type cannot be deleted and reset to defaults works', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->call('removeSetupType', 'heartbeat_consolidation_spike')
+        ->assertSee('The default setup type cannot be deleted.')
+        ->set('configState.min_market_cap', 999999999)
+        ->call('saveConfig');
+
+    expect(app(BuySetupConfigService::class)->getMinMarketCap())->toBe(999999999);
+
+    $component->call('resetConfigToDefaults');
+    expect(app(BuySetupConfigService::class)->getMinMarketCap())->toBe(100000000);
+});
+
+test('multiple setup types retain distinct configurations when switching and reopening modal', function () {
+    $user = User::factory()->create();
+
+    // 1. Open modal, add sales_acceleration setup type, and configure custom values for both types
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('newSetupTypeKey', 'sales_acceleration')
+        ->set('newSetupTypeLabel', 'Sales Acceleration')
+        ->call('addSetupType')
+        ->assertSet('selectedConfigSetupType', 'sales_acceleration')
+        // Configure sales_acceleration with distinct values
+        ->set('configState.setup_types.sales_acceleration.recent_spike_window_days', 42)
+        ->set('configState.setup_types.sales_acceleration.min_base_days', 30)
+        ->set('configState.setup_types.sales_acceleration.max_base_days', 90)
+        ->set('configState.setup_types.sales_acceleration.score_weights.sales_acceleration.weight', 40)
+        ->set('configState.setup_types.sales_acceleration.score_weights.spike_rarity.weight', 5)
+        // Configure heartbeat_consolidation_spike with different values
+        ->set('configState.setup_types.heartbeat_consolidation_spike.recent_spike_window_days', 65)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.min_base_days', 50)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.sales_acceleration.weight', 5)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.spike_rarity.weight', 25)
+        ->call('saveConfig')
+        ->call('closeConfigModal');
+
+    // Verify service persistence
+    $service = app(BuySetupConfigService::class);
+    $salesType = $service->getSetupType('sales_acceleration');
+    $heartbeatType = $service->getSetupType('heartbeat_consolidation_spike');
+
+    expect($salesType['recent_spike_window_days'])->toBe(42)
+        ->and($salesType['min_base_days'])->toBe(30)
+        ->and($salesType['max_base_days'])->toBe(90)
+        ->and($salesType['score_weights']['sales_acceleration']['weight'])->toBe(40)
+        ->and($salesType['score_weights']['spike_rarity']['weight'])->toBe(5)
+        ->and($heartbeatType['recent_spike_window_days'])->toBe(65)
+        ->and($heartbeatType['min_base_days'])->toBe(50)
+        ->and($heartbeatType['score_weights']['sales_acceleration']['weight'])->toBe(5)
+        ->and($heartbeatType['score_weights']['spike_rarity']['weight'])->toBe(25);
+
+    // 2. Re-open modal and verify values on switching selected setup type
+    $component->call('openConfigModal')
+        ->call('selectConfigSetupType', 'heartbeat_consolidation_spike')
+        ->assertSet('selectedConfigSetupType', 'heartbeat_consolidation_spike')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.recent_spike_window_days', 65)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.sales_acceleration.weight', 5)
+        ->call('selectConfigSetupType', 'sales_acceleration')
+        ->assertSet('selectedConfigSetupType', 'sales_acceleration')
+        ->assertSet('configState.setup_types.sales_acceleration.recent_spike_window_days', 42)
+        ->assertSet('configState.setup_types.sales_acceleration.score_weights.sales_acceleration.weight', 40);
+
+    // 3. Edit heartbeat_consolidation_spike, save, close, reopen, and verify sales_acceleration remains intact
+    $component->call('selectConfigSetupType', 'heartbeat_consolidation_spike')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.recent_spike_window_days', 75)
+        ->call('saveConfig')
+        ->call('closeConfigModal')
+        ->call('openConfigModal')
+        ->call('selectConfigSetupType', 'sales_acceleration')
+        ->assertSet('configState.setup_types.sales_acceleration.recent_spike_window_days', 42)
+        ->assertSet('configState.setup_types.sales_acceleration.score_weights.sales_acceleration.weight', 40);
+});

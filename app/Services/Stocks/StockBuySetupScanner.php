@@ -3,6 +3,7 @@
 namespace App\Services\Stocks;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Str;
 
 /**
  * Pure detection logic for the Stock Buy Setup scanner.
@@ -37,9 +38,7 @@ class StockBuySetupScanner
 
     /**
      * Run all enabled buy setup detectors for a symbol and return one result
-     * per matched setup type. For now the production detector is
-     * heartbeat_consolidation_spike; additional setup types can be added here
-     * without changing storage or UI filtering.
+     * per matched setup type.
      *
      * @param  array<int, array{date:string, open:?float, high:?float, low:?float, close:?float, volume:?int}>  $bars
      * @param  array<int, array<string, mixed>>  $benchmarkBars
@@ -48,13 +47,23 @@ class StockBuySetupScanner
      */
     public function evaluateAll(array $bars, array $benchmarkBars = [], array $context = []): array
     {
-        $types = (array) config('market_data.buy_setup_scanner.setup_types', []);
-        $heartbeatEnabled = (bool) ($types[StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE]['enabled'] ?? true);
+        $configService = app(BuySetupConfigService::class);
+        $types = $configService->getSetupTypes();
 
         $results = [];
 
-        if ($heartbeatEnabled) {
-            $result = $this->evaluate($bars, $benchmarkBars, $context);
+        foreach ($types as $key => $typeConfig) {
+            if (! (bool) ($typeConfig['enabled'] ?? false)) {
+                continue;
+            }
+
+            $method = 'evaluate'.Str::studly($key);
+            if (method_exists($this, $method)) {
+                $result = $this->$method($bars, $benchmarkBars, $context, $typeConfig);
+            } else {
+                $result = $this->evaluate($bars, $benchmarkBars, $context, $typeConfig, $key);
+            }
+
             if ($result !== null) {
                 $results[] = $result;
             }
@@ -68,17 +77,21 @@ class StockBuySetupScanner
      *                                                                                                                 Daily bars, ascending by date. Recommend ≥ 252 bars (1y).
      * @param  array<int, array<string, mixed>>  $benchmarkBars  Same shape (e.g. SPY) for RS.
      * @param  array{symbol?:string, company_name?:string, exchange?:string, market_cap?:int}  $context
+     * @param  array<string, mixed>|null  $typeConfig
      */
-    public function evaluate(array $bars, array $benchmarkBars = [], array $context = []): ?StockBuySetupResult
+    public function evaluate(array $bars, array $benchmarkBars = [], array $context = [], ?array $typeConfig = null, ?string $setupType = null): ?StockBuySetupResult
     {
         $this->lastRejectionReason = null;
-        $cfg = config('market_data.buy_setup_scanner', []);
-        $recentWindow = (int) ($cfg['recent_spike_window_days'] ?? 42);
-        $maxSpikeLookback = min(504, max(1, (int) ($cfg['spike_lookback_days'] ?? 504)));
-        $minHistory = (int) ($cfg['history_lookback_days'] ?? 504);
-        $minBase = (int) ($cfg['min_base_days'] ?? 60);
+        $configService = app(BuySetupConfigService::class);
+        $resolvedType = $setupType ?? ($typeConfig['key'] ?? StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE);
+        $cfg = $typeConfig ?? $configService->getSetupType($resolvedType);
+
+        $recentWindow = (int) ($cfg['recent_spike_window_days'] ?? 60);
+        $maxSpikeLookback = min(504, max(1, (int) ($cfg['max_spike_age_days'] ?? $cfg['spike_lookback_days'] ?? 84)));
+        $minHistory = (int) ($cfg['history_lookback_days'] ?? $configService->getHistoryLookbackDays());
+        $minBase = (int) ($cfg['min_base_days'] ?? 45);
         $maxBase = (int) ($cfg['max_base_days'] ?? 120);
-        $maxRangePct = (float) ($cfg['max_range_compression_pct'] ?? 25);
+        $maxRangePct = (float) ($cfg['max_range_compression_pct'] ?? 40);
         $maxAtrRatio = (float) ($cfg['max_atr_ratio'] ?? 0.85);
 
         $bars = array_values($bars);
@@ -283,7 +296,7 @@ class StockBuySetupScanner
 
         $result = new StockBuySetupResult(
             symbol: $symbol,
-            setupType: StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE,
+            setupType: $resolvedType,
             companyName: $context['company_name'] ?? null,
             exchange: $context['exchange'] ?? null,
             marketCap: is_numeric($marketCap) ? (int) $marketCap : null,

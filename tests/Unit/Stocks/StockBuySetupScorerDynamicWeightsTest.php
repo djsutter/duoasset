@@ -1,0 +1,56 @@
+<?php
+
+use App\Models\StockBuySetupAlert;
+use App\Services\Stocks\BuySetupConfigService;
+use App\Services\Stocks\StockBuySetupScorer;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+uses(Tests\TestCase::class, RefreshDatabase::class);
+
+test('it normalizes setup score to 100 even when components are disabled or weights change', function () {
+    $scorer = new StockBuySetupScorer;
+    $configService = app(BuySetupConfigService::class);
+
+    $alert = new StockBuySetupAlert([
+        'setup_type' => 'heartbeat_consolidation_spike',
+        'spike_rarity_points' => 7, // full points on spike rarity
+        'base_duration_days' => 90, // full points on base duration
+        'range_compression_pct' => 8.0, // full points on range compression
+        'atr_contraction_ratio' => 0.55, // full points on atr contraction
+        'volume_dry_up_score' => 0.35, // full points on volume dry-up
+        'distance_to_breakout_pct' => 1.0, // full points on breakout distance
+        'ma_alignment' => '50>150>200, price>50', // full points on MA
+        'relative_strength_score' => 25.0, // full points on relative strength
+        'earnings_acceleration' => 75.0,
+        'sales_acceleration' => 3000.0,
+    ]);
+
+    // With all default weights enabled (total = 100), max score is 100
+    $defaultScore = $scorer->scoreFromAlert($alert);
+    expect($defaultScore)->toBe(100);
+
+    // Disable BASE_DURATION_WEIGHT as mentioned in user issue
+    $config = $configService->getConfig();
+    $config['setup_types']['heartbeat_consolidation_spike']['score_weights']['base_duration']['enabled'] = false;
+    $configService->saveConfig($config);
+
+    $breakdown = $scorer->breakdown($alert);
+    expect($breakdown['base_duration']['points'])->toBe(0)
+        ->and($breakdown['base_duration']['max'])->toBe(0);
+
+    // Remaining enabled weights sum to 90. Since all other components scored full points, 90/90 normalizes to 100!
+    $adjustedScore = $scorer->scoreFromAlert($alert);
+    expect($adjustedScore)->toBe(100);
+});
+
+test('it properly scales spike rarity points up to 25 points based on configured weight', function () {
+    $scorer = new StockBuySetupScorer;
+    $alert = new StockBuySetupAlert([
+        'setup_type' => 'heartbeat_consolidation_spike',
+        'spike_rarity_points' => 7,
+    ]);
+
+    $breakdown = $scorer->breakdown($alert);
+    expect($breakdown['spike_rarity']['max'])->toBe(25)
+        ->and($breakdown['spike_rarity']['points'])->toBe(25);
+});

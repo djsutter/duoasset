@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\EvaluateStockBuySetup;
 use App\Services\MarketData\MarketDataProvider;
+use App\Services\Stocks\BuySetupConfigService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -26,20 +27,21 @@ class ScanBuySetups extends Command
 
     public function handle(MarketDataProvider $provider): int
     {
-        if (! config('market_data.buy_setup_scanner.enabled', true)) {
+        $configService = app(BuySetupConfigService::class);
+
+        if (! $configService->isScannerEnabled()) {
             $this->warn('Stock Buy Setup scanner is disabled (BUY_SETUP_SCANNER_ENABLED=false).');
 
             return self::SUCCESS;
         }
 
-        $config = config('market_data.buy_setup_scanner');
-        $minMcap = (int) ($config['min_market_cap'] ?? 25_000_000);
-        $exchanges = $this->resolveExchanges((array) ($config['exchanges'] ?? []));
+        $minMcap = $configService->getMinMarketCap();
+        $exchanges = $this->resolveExchanges($configService->getExchanges());
         $letter = $this->resolveLetter();
         if ($letter === false) {
             return self::INVALID;
         }
-        $limit = (int) ($this->option('limit') ?? ($config['max_symbols_per_run'] ?? 0));
+        $limit = (int) ($this->option('limit') ?? $configService->getMaxSymbols());
 
         if (method_exists($provider, 'clearErrors')) {
             $provider->clearErrors();

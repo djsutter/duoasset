@@ -6,6 +6,7 @@ use App\Models\EarningsNotificationDelivery;
 use App\Models\StockBuySetupAlert;
 use App\Models\User;
 use App\Notifications\StockBuySetupDetected;
+use App\Services\Stocks\BuySetupConfigService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -66,7 +67,7 @@ class SendStockBuySetupAlert implements ShouldQueue
                 }
             });
 
-        $extra = config('market_data.buy_setup_scanner.notification_email');
+        $extra = app(BuySetupConfigService::class)->getNotificationEmail();
         if ($extra) {
             Notification::route('mail', $extra)->notify($notification);
         }

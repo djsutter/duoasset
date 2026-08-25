@@ -22,12 +22,12 @@ class StockBuySetupLiquidityPenalty
      * @param  array<int, array<string, mixed>>  $bars  Ascending OHLCV bars.
      * @return array{average_volume: ?int, shares_basis: ?int, shares_basis_type: string, turnover_pct: ?float, max_penalty_pct: float, penalty_pct: float, penalty_points: int, adjusted_score: int}
      */
-    public function apply(int $rawScore, string $marketCapCategory, ?int $floatShares, ?int $sharesOutstanding, array $bars): array
+    public function apply(int $rawScore, string $marketCapCategory, ?int $floatShares, ?int $sharesOutstanding, array $bars, ?string $setupType = null): array
     {
         $avgVolume = $this->averageVolume($bars);
         $sharesBasis = $floatShares && $floatShares > 0 ? $floatShares : ($sharesOutstanding && $sharesOutstanding > 0 ? $sharesOutstanding : null);
         $basisType = $floatShares && $floatShares > 0 ? 'float_shares' : (($sharesOutstanding && $sharesOutstanding > 0) ? 'shares_outstanding' : 'unknown');
-        $maxPenaltyPct = $this->maxPenaltyPct($marketCapCategory);
+        $maxPenaltyPct = $this->maxPenaltyPct($marketCapCategory, $setupType);
 
         if ($rawScore <= 0 || $avgVolume === null || $sharesBasis === null || $maxPenaltyPct <= 0) {
             return [
@@ -80,9 +80,9 @@ class StockBuySetupLiquidityPenalty
         return (int) round(array_sum($volumes) / count($volumes));
     }
 
-    private function maxPenaltyPct(string $marketCapCategory): float
+    private function maxPenaltyPct(string $marketCapCategory, ?string $setupType = null): float
     {
-        $penalties = (array) config('market_data.buy_setup_scanner.sleepy_volume_penalties', []);
+        $penalties = app(BuySetupConfigService::class)->getSleepyVolumePenalties($setupType);
         $category = strtolower(trim($marketCapCategory));
 
         if ($category === 'mega') {
