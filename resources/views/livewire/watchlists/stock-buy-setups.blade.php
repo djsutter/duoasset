@@ -801,6 +801,34 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                {{-- Per-Setup Market Cap Range --}}
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div>
+                                        <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                            {{ __('Market Cap Range') }}
+                                        </h3>
+                                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {{ __('Only stocks whose market cap falls within this inclusive range are eligible for this setup type. Independent from other setup types.') }}
+                                        </p>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('Minimum Market Cap ($)') }}</label>
+                                            <input type="number" step="1" min="0"
+                                                   wire:key="type-min-mcap-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.min_market_cap"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Maximum Market Cap ($)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-max-mcap-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.max_market_cap"
+                                                   class="da-input">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         @else
                             {{-- Scanner & Global Filters --}}
@@ -833,10 +861,17 @@
                                     </div>
                                 </div>
 
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                    {{ __('Global fallback market-cap range, used only when a setup type does not define its own Minimum/Maximum Market Cap (see the per-setup type tabs above).') }}
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                                     <div>
                                         <label class="da-label">{{ __('Min Market Cap ($)') }}</label>
                                         <input type="number" step="1" wire:model="configState.min_market_cap" class="da-input">
+                                    </div>
+                                    <div>
+                                        <label class="da-label">{{ __('Max Market Cap ($)') }}</label>
+                                        <input type="number" step="1" wire:model="configState.max_market_cap" class="da-input">
                                     </div>
                                     <div>
                                         <label class="da-label">{{ __('Max Symbols Per Run') }}</label>

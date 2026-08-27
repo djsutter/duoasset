@@ -67,6 +67,11 @@ return [
     'buy_setup_scanner' => [
         'enabled' => env('BUY_SETUP_SCANNER_ENABLED', true),
         'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP',  50000000)),
+        // Fallback/default only. The Buy Setup Scanner's effective
+        // eligibility range is configured per setup type (see
+        // BuySetupConfigService); these two values are used only when a
+        // setup type has no market-cap range of its own.
+        'max_market_cap' => env('BUY_SETUP_MAX_MARKET_CAP', 1000000000000),
         'exchanges' => array_filter(array_map('trim', explode(',', env('BUY_SETUP_EXCHANGES', 'NYSE,NASDAQ,TSX,TSXV,AMEX,OTC')))),
         'max_symbols_per_run' => env('BUY_SETUP_MAX_SYMBOLS', 8000),
         'history_lookback_days' => env('BUY_SETUP_HISTORY_LOOKBACK_DAYS', 504),

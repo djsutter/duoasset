@@ -267,6 +267,69 @@ test('dynamically created setup types automatically expose operating margin expa
         ]);
 });
 
+test('per-setup type market cap range defaults to $50M-$1T and saves/reloads independently per setup type', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->assertSet('selectedConfigSetupType', 'heartbeat_consolidation_spike')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.min_market_cap', 50000000)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.max_market_cap', 1000000000000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.min_market_cap', 50000000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.max_market_cap', 10000000000)
+        ->call('selectConfigSetupType', 'range_compression_breakout')
+        ->set('configState.setup_types.range_compression_breakout.min_market_cap', 100000000)
+        ->set('configState.setup_types.range_compression_breakout.max_market_cap', 100000000000)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    expect($service->getSetupMarketCapRange('heartbeat_consolidation_spike'))
+        ->toEqual(['min' => 50000000, 'max' => 10000000000])
+        ->and($service->getSetupMarketCapRange('range_compression_breakout'))
+        ->toEqual(['min' => 100000000, 'max' => 100000000000]);
+
+    // Values reload independently for each setup type after reopening.
+    $component->call('closeConfigModal')
+        ->call('openConfigModal')
+        ->call('selectConfigSetupType', 'heartbeat_consolidation_spike')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.max_market_cap', 10000000000)
+        ->call('selectConfigSetupType', 'range_compression_breakout')
+        ->assertSet('configState.setup_types.range_compression_breakout.max_market_cap', 100000000000);
+});
+
+test('modal rejects saving a setup types market cap range when minimum exceeds maximum', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.min_market_cap', 2000000000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.max_market_cap', 1000000000)
+        ->call('saveConfig')
+        ->assertSee('Minimum Market Cap must be >= 0, Maximum Market Cap must be > 0, and Minimum Market Cap must not exceed Maximum Market Cap.');
+
+    // Nothing was persisted — defaults remain intact.
+    $range = app(BuySetupConfigService::class)->getSetupMarketCapRange('heartbeat_consolidation_spike');
+    expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
+});
+
+test('dynamically created setup types automatically expose the $50M-$1T market cap range', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('newSetupTypeKey', 'new_mcap_setup')
+        ->set('newSetupTypeLabel', 'New Mcap Setup')
+        ->call('addSetupType')
+        ->call('saveConfig');
+
+    $range = app(BuySetupConfigService::class)->getSetupMarketCapRange('new_mcap_setup');
+    expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
+});
+
 test('user cannot add more than 10 prior year revenue penalty levels', function () {
     $user = User::factory()->create();
 

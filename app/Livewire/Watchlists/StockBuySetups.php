@@ -223,6 +223,12 @@ class StockBuySetups extends Component
             return;
         }
 
+        if (! $this->marketCapRangesAreValid()) {
+            $this->configFlash = 'Minimum Market Cap must be >= 0, Maximum Market Cap must be > 0, and Minimum Market Cap must not exceed Maximum Market Cap.';
+
+            return;
+        }
+
         $configService = app(BuySetupConfigService::class);
 
         if (isset($this->configState['exchanges_text'])) {
@@ -271,6 +277,48 @@ class StockBuySetups extends Component
                 && $values['threshold_50'] < $values['threshold_75']
                 && $values['threshold_75'] < $values['threshold_100']
             )) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Reject invalid per-setup-type market-cap ranges (non-numeric,
+     * min_market_cap < 0, max_market_cap <= 0, or min > max) before they
+     * are ever persisted, rather than silently falling back server-side.
+     */
+    private function marketCapRangesAreValid(): bool
+    {
+        if (array_key_exists('min_market_cap', $this->configState) && array_key_exists('max_market_cap', $this->configState)) {
+            if (! is_numeric($this->configState['min_market_cap']) || ! is_numeric($this->configState['max_market_cap'])) {
+                return false;
+            }
+
+            $globalMin = (float) $this->configState['min_market_cap'];
+            $globalMax = (float) $this->configState['max_market_cap'];
+
+            if ($globalMin < 0 || $globalMax <= 0 || $globalMin > $globalMax) {
+                return false;
+            }
+        }
+
+        $types = (array) ($this->configState['setup_types'] ?? []);
+
+        foreach ($types as $type) {
+            if (! array_key_exists('min_market_cap', $type) && ! array_key_exists('max_market_cap', $type)) {
+                continue;
+            }
+
+            if (! is_numeric($type['min_market_cap'] ?? null) || ! is_numeric($type['max_market_cap'] ?? null)) {
+                return false;
+            }
+
+            $min = (float) $type['min_market_cap'];
+            $max = (float) $type['max_market_cap'];
+
+            if ($min < 0 || $max <= 0 || $min > $max) {
                 return false;
             }
         }

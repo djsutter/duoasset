@@ -15,6 +15,7 @@ test('it returns default configuration matching specification when no setting ex
         ->and($config['notify_min_setup_score'])->toBe(50)
         ->and($config['min_heartbeat_score'])->toBe(50)
         ->and($config['min_market_cap'])->toBe(100000000)
+        ->and($config['max_market_cap'])->toBe(1000000000000)
         ->and($config['max_symbols'])->toBe(4000)
         ->and($config['exchanges'])->toEqual(['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'])
         ->and($config['history_lookback_days'])->toBe(504)
@@ -131,4 +132,80 @@ test('it caps prior year revenue penalties at 10 sets and sanitizes invalid valu
     $savedPenalties = (new BuySetupConfigService)->getPriorYearRevenuePenalties('heartbeat_consolidation_spike');
     expect($savedPenalties)->toHaveCount(10)
         ->and($savedPenalties[9]['threshold'])->toBe(1000000.0);
+});
+
+test('every default setup type defaults to a $50M-$1T market cap range', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    foreach ($config['setup_types'] as $key => $type) {
+        expect($type['min_market_cap'])->toBe(50000000)
+            ->and($type['max_market_cap'])->toBe(1000000000000);
+
+        $range = $service->getSetupMarketCapRange($key);
+        expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
+    }
+});
+
+test('a newly created dynamic setup type automatically defaults to a $50M-$1T market cap range', function () {
+    $service = new BuySetupConfigService;
+    $newType = $service->createDefaultSetupType('breakout_momentum', 'Breakout Momentum');
+
+    expect($newType['min_market_cap'])->toBe(50000000)
+        ->and($newType['max_market_cap'])->toBe(1000000000000);
+
+    $config = $service->getConfig();
+    $config['setup_types']['breakout_momentum'] = $newType;
+    $service->saveConfig($config);
+
+    $range = (new BuySetupConfigService)->getSetupMarketCapRange('breakout_momentum');
+    expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
+});
+
+test('a legacy setup type missing market cap settings defaults to $50M-$1T', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    // Simulate a legacy saved config predating this feature: the setup
+    // type array has no min_market_cap / max_market_cap keys at all.
+    unset($config['setup_types']['heartbeat_consolidation_spike']['min_market_cap']);
+    unset($config['setup_types']['heartbeat_consolidation_spike']['max_market_cap']);
+    $service->saveConfig($config);
+
+    $freshService = new BuySetupConfigService;
+    $range = $freshService->getSetupMarketCapRange('heartbeat_consolidation_spike');
+
+    expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
+});
+
+test('changing one setup types market cap range does not affect another setup type', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    $config['setup_types']['heartbeat_consolidation_spike']['min_market_cap'] = 50000000;
+    $config['setup_types']['heartbeat_consolidation_spike']['max_market_cap'] = 1000000000; // $1B
+
+    $config['setup_types']['range_compression_breakout']['min_market_cap'] = 100000000;
+    $config['setup_types']['range_compression_breakout']['max_market_cap'] = 100000000000; // $100B
+
+    $service->saveConfig($config);
+
+    $freshService = new BuySetupConfigService;
+    expect($freshService->getSetupMarketCapRange('heartbeat_consolidation_spike'))
+        ->toEqual(['min' => 50000000, 'max' => 1000000000])
+        ->and($freshService->getSetupMarketCapRange('range_compression_breakout'))
+        ->toEqual(['min' => 100000000, 'max' => 100000000000]);
+});
+
+test('it rejects a setup types market cap range when min exceeds max and falls back to defaults', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    $config['setup_types']['heartbeat_consolidation_spike']['min_market_cap'] = 2000000000;
+    $config['setup_types']['heartbeat_consolidation_spike']['max_market_cap'] = 1000000000; // invalid: min > max
+
+    $service->saveConfig($config);
+
+    $range = (new BuySetupConfigService)->getSetupMarketCapRange('heartbeat_consolidation_spike');
+    expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
 });

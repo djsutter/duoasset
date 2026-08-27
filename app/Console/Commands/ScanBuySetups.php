@@ -35,7 +35,14 @@ class ScanBuySetups extends Command
             return self::SUCCESS;
         }
 
-        $minMcap = $configService->getMinMarketCap();
+        // Per-setup min/max market-cap eligibility is evaluated later, per
+        // setup type, inside StockBuySetupScanner::evaluate(). The
+        // screener query below only needs a widened range spanning every
+        // enabled setup type so no candidate is discarded before it gets
+        // a chance to be evaluated against its own setup-specific range.
+        $marketCapRange = $configService->getEnabledSetupTypesMarketCapRange();
+        $minMcap = $marketCapRange['min'];
+        $maxMcap = $marketCapRange['max'];
         $exchanges = $this->resolveExchanges($configService->getExchanges());
         $letter = $this->resolveLetter();
         if ($letter === false) {
@@ -60,10 +67,11 @@ class ScanBuySetups extends Command
                 $slice[] = "symbols starting with {$letter}";
             }
 
-            $this->info("Loading FMP company-screener (marketCap >= {$minMcap}, exchanges: ".implode(',', $exchanges).($slice ? ', '.implode(', ', $slice) : '').')');
+            $this->info("Loading FMP company-screener (marketCap {$minMcap}-{$maxMcap}, exchanges: ".implode(',', $exchanges).($slice ? ', '.implode(', ', $slice) : '').')');
 
             $filters = [
                 'marketCapMoreThan' => $minMcap,
+                'marketCapLowerThan' => $maxMcap,
                 'exchange' => $exchanges,
                 'limit' => $limit > 0 ? $limit : null,
             ];

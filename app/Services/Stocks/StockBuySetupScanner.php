@@ -103,9 +103,19 @@ class StockBuySetupScanner
 
         $symbol = strtoupper((string) ($context['symbol'] ?? ''));
         $marketCap = $context['market_cap'] ?? null;
-        $minimumMarketCap = 25_000_000;
-        if (is_numeric($marketCap) && (int) $marketCap < $minimumMarketCap) {
-            return $this->reject('market cap below $25 million');
+        // Market-cap eligibility is configurable per setup type (min_market_cap /
+        // max_market_cap), inclusive on both ends, so a stock can qualify for
+        // one setup type while being excluded from another.
+        $minMarketCap = (int) ($cfg['min_market_cap'] ?? BuySetupConfigService::DEFAULT_MIN_MARKET_CAP);
+        $maxMarketCap = (int) ($cfg['max_market_cap'] ?? BuySetupConfigService::DEFAULT_MAX_MARKET_CAP);
+        if (is_numeric($marketCap)) {
+            $marketCapInt = (int) $marketCap;
+            if ($marketCapInt < $minMarketCap) {
+                return $this->reject("market cap below setup minimum ({$minMarketCap})");
+            }
+            if ($marketCapInt > $maxMarketCap) {
+                return $this->reject("market cap above setup maximum ({$maxMarketCap})");
+            }
         }
 
         // ---------------- Spike detection ----------------

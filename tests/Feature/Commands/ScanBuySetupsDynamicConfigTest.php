@@ -43,6 +43,44 @@ test('scan buy setups command runs with dynamic config and screener options', fu
         ->assertSuccessful();
 });
 
+test('scan buy setups command widens the screener market-cap range to span every enabled setup type', function () {
+    $service = app(BuySetupConfigService::class);
+    $config = $service->getConfig();
+    $config['exchanges'] = ['NASDAQ'];
+
+    // Only these two setup types are enabled; their min/max should
+    // determine the widened screener query range.
+    $config['setup_types']['heartbeat_consolidation_spike']['enabled'] = true;
+    $config['setup_types']['heartbeat_consolidation_spike']['min_market_cap'] = 50000000;
+    $config['setup_types']['heartbeat_consolidation_spike']['max_market_cap'] = 1000000000;
+
+    $config['setup_types']['range_compression_breakout']['enabled'] = true;
+    $config['setup_types']['range_compression_breakout']['min_market_cap'] = 100000000;
+    $config['setup_types']['range_compression_breakout']['max_market_cap'] = 100000000000;
+
+    $config['setup_types']['floor_reversal_accumulation']['enabled'] = false;
+    $config['setup_types']['early_breakout_followthrough']['enabled'] = false;
+
+    $service->saveConfig($config);
+
+    $mockProvider = Mockery::mock(MarketDataProvider::class);
+    $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('companyScreener')
+        ->once()
+        ->with(Mockery::on(function ($filters) {
+            // Widest min (50M) and widest max (100B) across enabled setup types.
+            return ($filters['marketCapMoreThan'] ?? null) === 50000000
+                && ($filters['marketCapLowerThan'] ?? null) === 100000000000
+                && ($filters['exchange'] ?? null) === ['NASDAQ'];
+        }))
+        ->andReturn([]);
+
+    $this->app->instance(MarketDataProvider::class, $mockProvider);
+
+    $this->artisan('stocks:scan-buy-setups', ['--sync' => true])
+        ->assertSuccessful();
+});
+
 test('scanner only evaluates enabled setup types and respects their custom configurations', function () {
     $service = app(BuySetupConfigService::class);
     $config = $service->getConfig();

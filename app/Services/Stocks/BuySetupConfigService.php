@@ -21,6 +21,15 @@ class BuySetupConfigService
     ];
 
     /**
+     * Default per-setup-type market-cap eligibility range, in whole
+     * dollars. Applied to existing setup types missing this setting and
+     * to newly created setup types.
+     */
+    public const DEFAULT_MIN_MARKET_CAP = 50000000;
+
+    public const DEFAULT_MAX_MARKET_CAP = 1000000000000;
+
+    /**
      * Default configuration matching the initial specification.
      */
     public const DEFAULT_CONFIG = [
@@ -29,6 +38,7 @@ class BuySetupConfigService
         'notify_min_setup_score' => 50,
         'min_heartbeat_score' => 50,
         'min_market_cap' => 100000000,
+        'max_market_cap' => 1000000000000,
         'max_symbols' => 4000,
         'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'],
         'history_lookback_days' => 504,
@@ -66,6 +76,8 @@ class BuySetupConfigService
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
+                'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
             'range_compression_breakout' => [
                 'key' => 'range_compression_breakout',
@@ -98,6 +110,8 @@ class BuySetupConfigService
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
+                'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
             'floor_reversal_accumulation' => [
                 'key' => 'floor_reversal_accumulation',
@@ -130,6 +144,8 @@ class BuySetupConfigService
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
+                'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
             'early_breakout_followthrough' => [
                 'key' => 'early_breakout_followthrough',
@@ -162,6 +178,8 @@ class BuySetupConfigService
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
+                'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
         ],
     ];
@@ -245,6 +263,70 @@ class BuySetupConfigService
     public function getMinMarketCap(): int
     {
         return (int) ($this->getConfig()['min_market_cap'] ?? 100000000);
+    }
+
+    public function getMaxMarketCap(): int
+    {
+        return (int) ($this->getConfig()['max_market_cap'] ?? self::DEFAULT_MAX_MARKET_CAP);
+    }
+
+    /**
+     * Market-cap eligibility range for the given setup type, in whole
+     * dollars. Falls back to the global scanner defaults (config/env)
+     * when a setup type predates this setting.
+     *
+     * @return array{min: int, max: int}
+     */
+    public function getSetupMarketCapRange(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+
+        $min = isset($type['min_market_cap']) && is_numeric($type['min_market_cap'])
+            ? (int) $type['min_market_cap']
+            : $this->getMinMarketCap();
+        $max = isset($type['max_market_cap']) && is_numeric($type['max_market_cap'])
+            ? (int) $type['max_market_cap']
+            : $this->getMaxMarketCap();
+
+        if ($min < 0 || $max <= 0 || $min > $max) {
+            return [
+                'min' => self::DEFAULT_MIN_MARKET_CAP,
+                'max' => self::DEFAULT_MAX_MARKET_CAP,
+            ];
+        }
+
+        return ['min' => $min, 'max' => $max];
+    }
+
+    /**
+     * Widened market-cap range spanning every enabled setup type: the
+     * lowest configured minimum and the highest configured maximum.
+     *
+     * Intended for the scanner's upstream FMP company-screener query so
+     * candidate stocks are never excluded before per-setup eligibility
+     * (min_market_cap / max_market_cap) is evaluated for each setup type.
+     *
+     * @return array{min: int, max: int}
+     */
+    public function getEnabledSetupTypesMarketCapRange(): array
+    {
+        $min = null;
+        $max = null;
+
+        foreach ($this->getSetupTypes() as $key => $type) {
+            if (! (bool) ($type['enabled'] ?? false)) {
+                continue;
+            }
+
+            $range = $this->getSetupMarketCapRange($key);
+            $min = $min === null ? $range['min'] : min($min, $range['min']);
+            $max = $max === null ? $range['max'] : max($max, $range['max']);
+        }
+
+        return [
+            'min' => $min ?? $this->getMinMarketCap(),
+            'max' => $max ?? $this->getMaxMarketCap(),
+        ];
     }
 
     public function getMaxSymbols(): int
@@ -469,6 +551,8 @@ class BuySetupConfigService
             'prior_year_revenue_penalties' => $defaultType['prior_year_revenue_penalties'],
             'score_weights' => $defaultType['score_weights'],
             'operating_margin_expansion_thresholds' => $defaultType['operating_margin_expansion_thresholds'],
+            'min_market_cap' => $defaultType['min_market_cap'],
+            'max_market_cap' => $defaultType['max_market_cap'],
         ];
     }
 
@@ -494,6 +578,7 @@ class BuySetupConfigService
             'notify_min_setup_score' => (int) ($saved['notify_min_setup_score'] ?? $cfg('market_data.buy_setup_scanner.notify_min_setup_score', $defaults['notify_min_setup_score'])),
             'min_heartbeat_score' => (int) ($saved['min_heartbeat_score'] ?? $cfg('market_data.buy_setup_scanner.min_heartbeat_score', $defaults['min_heartbeat_score'])),
             'min_market_cap' => (int) ($saved['min_market_cap'] ?? $cfg('market_data.buy_setup_scanner.min_market_cap', $defaults['min_market_cap'])),
+            'max_market_cap' => (int) ($saved['max_market_cap'] ?? $cfg('market_data.buy_setup_scanner.max_market_cap', $defaults['max_market_cap'])),
             'max_symbols' => (int) ($saved['max_symbols'] ?? $cfg('market_data.buy_setup_scanner.max_symbols_per_run', $defaults['max_symbols'])),
             'exchanges' => ! empty($saved['exchanges']) ? (array) $saved['exchanges'] : (array) $cfg('market_data.buy_setup_scanner.exchanges', $defaults['exchanges']),
             'history_lookback_days' => (int) ($saved['history_lookback_days'] ?? $cfg('market_data.buy_setup_scanner.history_lookback_days', $defaults['history_lookback_days'])),
@@ -607,7 +692,45 @@ class BuySetupConfigService
                 $saved['operating_margin_expansion_thresholds'] ?? null,
                 (array) ($default['operating_margin_expansion_thresholds'] ?? self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS),
             ),
+            ...$this->mergeMarketCapRange($saved, $default),
         ];
+    }
+
+    /**
+     * Merge/validate the per-setup-type market-cap eligibility range.
+     *
+     * Requires min_market_cap >= 0, max_market_cap > 0 and
+     * min_market_cap <= max_market_cap. Missing or invalid input falls
+     * back to the setup type's default range (which itself falls back to
+     * the global scanner min/max_market_cap config/env values).
+     *
+     * @param  array<string, mixed>  $saved
+     * @param  array<string, mixed>  $default
+     * @return array{min_market_cap: int, max_market_cap: int}
+     */
+    private function mergeMarketCapRange(array $saved, array $default): array
+    {
+        $defaultRange = [
+            'min_market_cap' => (int) ($default['min_market_cap'] ?? self::DEFAULT_MIN_MARKET_CAP),
+            'max_market_cap' => (int) ($default['max_market_cap'] ?? self::DEFAULT_MAX_MARKET_CAP),
+        ];
+
+        if (! isset($saved['min_market_cap']) && ! isset($saved['max_market_cap'])) {
+            return $defaultRange;
+        }
+
+        if (! is_numeric($saved['min_market_cap'] ?? null) || ! is_numeric($saved['max_market_cap'] ?? null)) {
+            return $defaultRange;
+        }
+
+        $min = (int) $saved['min_market_cap'];
+        $max = (int) $saved['max_market_cap'];
+
+        if ($min < 0 || $max <= 0 || $min > $max) {
+            return $defaultRange;
+        }
+
+        return ['min_market_cap' => $min, 'max_market_cap' => $max];
     }
 
     /**
@@ -707,6 +830,7 @@ class BuySetupConfigService
             'market_data.buy_setup_scanner.notify_min_setup_score' => (int) $config['notify_min_setup_score'],
             'market_data.buy_setup_scanner.min_heartbeat_score' => (int) $config['min_heartbeat_score'],
             'market_data.buy_setup_scanner.min_market_cap' => (int) $config['min_market_cap'],
+            'market_data.buy_setup_scanner.max_market_cap' => (int) $config['max_market_cap'],
             'market_data.buy_setup_scanner.max_symbols_per_run' => (int) $config['max_symbols'],
             'market_data.buy_setup_scanner.exchanges' => (array) $config['exchanges'],
             'market_data.buy_setup_scanner.history_lookback_days' => (int) $config['history_lookback_days'],
