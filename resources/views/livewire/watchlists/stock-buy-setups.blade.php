@@ -222,6 +222,9 @@
                             'sales_acceleration' => $alert->sales_acceleration !== null ? number_format((float) $alert->sales_acceleration, 1).' pts' : '—',
                             'eps_growth_sequence' => is_array($alert->eps_growth_sequence) ? implode(' → ', array_map(fn ($v) => $v.'%', $alert->eps_growth_sequence)) : '—',
                             'revenue_growth_sequence' => is_array($alert->revenue_growth_sequence) ? implode(' → ', array_map(fn ($v) => $v.'%', $alert->revenue_growth_sequence)) : '—',
+                            'prior_ttm_operating_margin' => $alert->prior_ttm_operating_margin !== null ? number_format((float) $alert->prior_ttm_operating_margin * 100, 1).'%' : '—',
+                            'current_ttm_operating_margin' => $alert->current_ttm_operating_margin !== null ? number_format((float) $alert->current_ttm_operating_margin * 100, 1).'%' : '—',
+                            'operating_margin_expansion_bps' => $alert->operating_margin_expansion_bps !== null ? number_format((float) $alert->operating_margin_expansion_bps, 0).' bps' : '—',
                             'reason_summary' => $alert->reason_summary ?? '—',
                             'status' => ucfirst((string) $alert->status),
                             'detected_at' => $alert->detected_at ? \Carbon\Carbon::parse($alert->detected_at)->toDateTimeString() : '—',
@@ -399,6 +402,9 @@
                                     <dt class="text-zinc-500">{{ __('ROE') }}</dt><dd class="text-right font-medium" x-text="selected?.roe_pct"></dd>
                                     <dt class="text-zinc-500">{{ __('Profit margin') }}</dt><dd class="text-right font-medium" x-text="selected?.profit_margin_pct"></dd>
                                     <dt class="text-zinc-500">{{ __('Spike relative volume') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_relative_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Prior TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_operating_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('Current TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_operating_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('Op. margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.operating_margin_expansion_bps"></dd>
                                 </dl>
                             </div>
                         </div>
@@ -708,6 +714,7 @@
                                                         'relative_strength' => 'Relative strength',
                                                         'earnings_acceleration' => 'Earnings acceleration',
                                                         'sales_acceleration' => 'Sales acceleration',
+                                                        'operating_margin_expansion' => 'Operating margin expansion',
                                                     ];
                                                 @endphp
 
@@ -735,6 +742,63 @@
                                                 @endforeach
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+
+                                {{-- Operating Margin Expansion Thresholds --}}
+                                @php
+                                    $omeThresholds = $configState['setup_types'][$selectedConfigSetupType]['operating_margin_expansion_thresholds'] ?? [];
+                                @endphp
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div>
+                                        <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                            {{ __('Operating Margin Expansion Thresholds') }}
+                                        </h3>
+                                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {{ __('Basis-point thresholds used to interpolate the Operating Margin Expansion (TTM YoY) score. Must increase strictly (25 < 50 < 75 < 100).') }}
+                                        </p>
+                                    </div>
+                                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('25-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-ome-t25-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.operating_margin_expansion_thresholds.threshold_25"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($omeThresholds['threshold_25'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('50-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-ome-t50-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.operating_margin_expansion_thresholds.threshold_50"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($omeThresholds['threshold_50'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('75-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-ome-t75-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.operating_margin_expansion_thresholds.threshold_75"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($omeThresholds['threshold_75'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('100-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-ome-t100-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.operating_margin_expansion_thresholds.threshold_100"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($omeThresholds['threshold_100'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

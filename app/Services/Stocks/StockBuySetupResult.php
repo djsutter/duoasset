@@ -73,6 +73,11 @@ final class StockBuySetupResult
         public readonly ?float $spikeRelativeVolume = null,
         public readonly ?array $epsGrowthSequence = null,
         public readonly ?array $revenueGrowthSequence = null,
+        // Operating Margin Expansion (TTM YoY), in basis points, plus the
+        // underlying TTM margins retained for score explainability.
+        public readonly ?float $operatingMarginExpansionBps = null,
+        public readonly ?float $currentTtmOperatingMargin = null,
+        public readonly ?float $priorTtmOperatingMargin = null,
         // Inputs to the canonical market_cap = price × shares_outstanding
         // computation. Persisted on the alert row so downstream consumers
         // can recompute / verify market cap without re-fetching the quote.

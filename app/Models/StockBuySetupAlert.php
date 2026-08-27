@@ -59,6 +59,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $spike_relative_volume
  * @property array|null $eps_growth_sequence
  * @property array|null $revenue_growth_sequence
+ * @property string|null $operating_margin_expansion_bps
+ * @property string|null $current_ttm_operating_margin
+ * @property string|null $prior_ttm_operating_margin
  * @property int $heartbeat_score
  * @property string|null $reason_summary
  * @property string $status
@@ -119,6 +122,9 @@ class StockBuySetupAlert extends Model
         'spike_relative_volume',
         'eps_growth_sequence',
         'revenue_growth_sequence',
+        'operating_margin_expansion_bps',
+        'current_ttm_operating_margin',
+        'prior_ttm_operating_margin',
         'heartbeat_score',
         'reason_summary',
         'status',
@@ -157,6 +163,9 @@ class StockBuySetupAlert extends Model
         'spike_relative_volume' => 'decimal:4',
         'eps_growth_sequence' => 'array',
         'revenue_growth_sequence' => 'array',
+        'operating_margin_expansion_bps' => 'decimal:4',
+        'current_ttm_operating_margin' => 'decimal:6',
+        'prior_ttm_operating_margin' => 'decimal:6',
         'setup_score' => 'integer',
         'raw_setup_score' => 'integer',
         'market_cap' => 'integer',

@@ -192,6 +192,81 @@ test('user can add, edit, and remove prior year revenue penalties in the modal',
     expect($emptyPenalties)->toBeEmpty();
 });
 
+test('operating margin expansion defaults to disabled and can be enabled with custom thresholds', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.enabled', false)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_25', 250)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.enabled', true)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.weight', 15)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_25', 100)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_50', 200)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_75', 400)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_100', 800)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    $weights = $service->getScoreWeightsMeta('heartbeat_consolidation_spike');
+    $thresholds = $service->getOperatingMarginExpansionThresholds('heartbeat_consolidation_spike');
+
+    expect($weights['operating_margin_expansion']['enabled'])->toBeTrue()
+        ->and($weights['operating_margin_expansion']['weight'])->toBe(15)
+        ->and($thresholds)->toEqual([
+            'threshold_25' => 100,
+            'threshold_50' => 200,
+            'threshold_75' => 400,
+            'threshold_100' => 800,
+        ]);
+});
+
+test('modal rejects saving invalid (non-increasing) operating margin expansion thresholds', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_25', 500)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_50', 500)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_75', 1000)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_100', 1500)
+        ->call('saveConfig')
+        ->assertSee('Operating Margin Expansion thresholds must be positive and strictly increasing');
+
+    // Nothing was persisted — defaults remain intact.
+    $thresholds = app(BuySetupConfigService::class)->getOperatingMarginExpansionThresholds('heartbeat_consolidation_spike');
+    expect($thresholds['threshold_50'])->toBe(500);
+    expect($thresholds['threshold_25'])->toBe(250);
+});
+
+test('dynamically created setup types automatically expose operating margin expansion disabled by default', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('newSetupTypeKey', 'new_growth_setup')
+        ->set('newSetupTypeLabel', 'New Growth Setup')
+        ->call('addSetupType')
+        ->call('saveConfig');
+
+    $service = app(BuySetupConfigService::class);
+    $weights = $service->getScoreWeightsMeta('new_growth_setup');
+    $thresholds = $service->getOperatingMarginExpansionThresholds('new_growth_setup');
+
+    expect($weights['operating_margin_expansion']['enabled'])->toBeFalse()
+        ->and($weights['operating_margin_expansion']['weight'])->toBe(10)
+        ->and($thresholds)->toEqual([
+            'threshold_25' => 250,
+            'threshold_50' => 500,
+            'threshold_75' => 1000,
+            'threshold_100' => 1500,
+        ]);
+});
+
 test('user cannot add more than 10 prior year revenue penalty levels', function () {
     $user = User::factory()->create();
 

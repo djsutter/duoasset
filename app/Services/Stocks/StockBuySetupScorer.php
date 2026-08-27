@@ -105,6 +105,16 @@ class StockBuySetupScorer
                 'max' => $weights['sales_acceleration'],
                 'value' => ($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null) !== null) ? number_format((float) ($r->salesAcceleration ?? $r->sales_acceleration), 1).' pts' : 'n/a',
             ],
+            'operating_margin_expansion' => [
+                'label' => 'Operating margin expansion',
+                'points' => $this->operatingMarginExpansionPoints(
+                    $this->nullableFloat($r->operatingMarginExpansionBps ?? $r->operating_margin_expansion_bps ?? null),
+                    $weights['operating_margin_expansion'] ?? 0,
+                    $type,
+                ),
+                'max' => $weights['operating_margin_expansion'] ?? 0,
+                'value' => $this->operatingMarginExpansionValue($r),
+            ],
         ];
     }
 
@@ -262,6 +272,44 @@ class StockBuySetupScorer
             $rs >= 0 => (int) round($max * 0.50),
             default => 0,
         };
+    }
+
+    /**
+     * Converts Operating Margin Expansion (basis points) into earned points
+     * out of the configured maximum, via the reusable threshold
+     * interpolation scorer. Missing data (bps === null) earns 0 points but
+     * follows the existing missing-metric convention of leaving $max
+     * unchanged (see relativeStrengthPoints / earnings_acceleration above).
+     */
+    private function operatingMarginExpansionPoints(?float $bps, int $max, ?string $setupType): int
+    {
+        if ($max <= 0 || $bps === null) {
+            return 0;
+        }
+
+        $thresholds = app(BuySetupConfigService::class)->getOperatingMarginExpansionThresholds($setupType);
+
+        $normalized = app(ThresholdInterpolationScorer::class)->score(
+            $bps,
+            (float) $thresholds['threshold_25'],
+            (float) $thresholds['threshold_50'],
+            (float) $thresholds['threshold_75'],
+            (float) $thresholds['threshold_100'],
+        );
+
+        return (int) round($max * ($normalized / 100));
+    }
+
+    private function operatingMarginExpansionValue(StockBuySetupResult|StockBuySetupAlert $r): string
+    {
+        $bps = $this->nullableFloat($r->operatingMarginExpansionBps ?? $r->operating_margin_expansion_bps ?? null);
+        if ($bps === null) {
+            return 'n/a';
+        }
+
+        $sign = $bps >= 0 ? '+' : '';
+
+        return $sign.number_format($bps).' bps';
     }
 
     /**

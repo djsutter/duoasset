@@ -728,6 +728,12 @@ class FmpMarketDataProvider implements MarketDataProvider
                     ?? $row['eps']
                     ?? null,
             ),
+            // Used for Operating Margin Expansion (operatingIncome / revenue).
+            // May legitimately be negative; only null represents missing data.
+            'operating_income' => $this->toFloat($row['operatingIncome'] ?? $row['operating_income'] ?? null),
+            'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
+            'period' => $row['period'] ?? null,
+            'reported_currency' => $row['reportedCurrency'] ?? null,
             'raw' => $row,
         ];
     }

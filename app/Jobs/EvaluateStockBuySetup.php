@@ -217,6 +217,9 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'spike_relative_volume' => $result->spikeRelativeVolume,
                     'eps_growth_sequence' => $result->epsGrowthSequence,
                     'revenue_growth_sequence' => $result->revenueGrowthSequence,
+                    'operating_margin_expansion_bps' => $result->operatingMarginExpansionBps,
+                    'current_ttm_operating_margin' => $result->currentTtmOperatingMargin,
+                    'prior_ttm_operating_margin' => $result->priorTtmOperatingMargin,
                     'heartbeat_score' => $result->heartbeatScore,
                     'reason_summary' => $result->reasonSummary,
                 ]);

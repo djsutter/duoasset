@@ -10,6 +10,17 @@ class BuySetupConfigService
     public const SETTING_KEY = 'buy_setup_config';
 
     /**
+     * Default Operating Margin Expansion (TTM YoY) threshold interpolation
+     * points, expressed in basis points. See ThresholdInterpolationScorer.
+     */
+    public const DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS = [
+        'threshold_25' => 250,
+        'threshold_50' => 500,
+        'threshold_75' => 1000,
+        'threshold_100' => 1500,
+    ];
+
+    /**
      * Default configuration matching the initial specification.
      */
     public const DEFAULT_CONFIG = [
@@ -52,7 +63,9 @@ class BuySetupConfigService
                     'relative_strength' => ['weight' => 10, 'enabled' => true],
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
+                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
+                'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
             ],
             'range_compression_breakout' => [
                 'key' => 'range_compression_breakout',
@@ -82,7 +95,9 @@ class BuySetupConfigService
                     'relative_strength' => ['weight' => 10, 'enabled' => true],
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
+                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
+                'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
             ],
             'floor_reversal_accumulation' => [
                 'key' => 'floor_reversal_accumulation',
@@ -112,7 +127,9 @@ class BuySetupConfigService
                     'relative_strength' => ['weight' => 10, 'enabled' => true],
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
+                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
+                'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
             ],
             'early_breakout_followthrough' => [
                 'key' => 'early_breakout_followthrough',
@@ -142,7 +159,9 @@ class BuySetupConfigService
                     'relative_strength' => ['weight' => 10, 'enabled' => true],
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
+                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
+                'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
             ],
         ],
     ];
@@ -401,6 +420,30 @@ class BuySetupConfigService
     }
 
     /**
+     * Operating Margin Expansion (TTM YoY) score interpolation thresholds,
+     * in basis points, for the given setup type.
+     *
+     * @return array{threshold_25: int, threshold_50: int, threshold_75: int, threshold_100: int}
+     */
+    public function getOperatingMarginExpansionThresholds(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $default = self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS;
+        $thresholds = $type['operating_margin_expansion_thresholds'] ?? $default;
+
+        if (! is_array($thresholds)) {
+            return $default;
+        }
+
+        return [
+            'threshold_25' => (int) ($thresholds['threshold_25'] ?? $default['threshold_25']),
+            'threshold_50' => (int) ($thresholds['threshold_50'] ?? $default['threshold_50']),
+            'threshold_75' => (int) ($thresholds['threshold_75'] ?? $default['threshold_75']),
+            'threshold_100' => (int) ($thresholds['threshold_100'] ?? $default['threshold_100']),
+        ];
+    }
+
+    /**
      * Default technical thresholds for a setup type.
      *
      * @return array<string, mixed>
@@ -425,6 +468,7 @@ class BuySetupConfigService
             'sleepy_volume_micro_cap_penalty_pct' => $defaultType['sleepy_volume_micro_cap_penalty_pct'],
             'prior_year_revenue_penalties' => $defaultType['prior_year_revenue_penalties'],
             'score_weights' => $defaultType['score_weights'],
+            'operating_margin_expansion_thresholds' => $defaultType['operating_margin_expansion_thresholds'],
         ];
     }
 
@@ -559,7 +603,49 @@ class BuySetupConfigService
             'sleepy_volume_micro_cap_penalty_pct' => (float) ($saved['sleepy_volume_micro_cap_penalty_pct'] ?? $default['sleepy_volume_micro_cap_penalty_pct']),
             'prior_year_revenue_penalties' => $penalties,
             'score_weights' => $weights,
+            'operating_margin_expansion_thresholds' => $this->mergeOperatingMarginExpansionThresholds(
+                $saved['operating_margin_expansion_thresholds'] ?? null,
+                (array) ($default['operating_margin_expansion_thresholds'] ?? self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS),
+            ),
         ];
+    }
+
+    /**
+     * Merge/validate Operating Margin Expansion thresholds (basis points).
+     *
+     * All four thresholds must be present, numeric, positive, and strictly
+     * increasing (threshold_25 < threshold_50 < threshold_75 <
+     * threshold_100). Invalid input falls back to the setup type's default
+     * thresholds rather than persisting a broken configuration.
+     *
+     * @param  array<string, int>  $default
+     * @return array<string, int>
+     */
+    private function mergeOperatingMarginExpansionThresholds(mixed $saved, array $default): array
+    {
+        if (! is_array($saved)) {
+            return $default;
+        }
+
+        $keys = ['threshold_25', 'threshold_50', 'threshold_75', 'threshold_100'];
+        $values = [];
+        foreach ($keys as $key) {
+            if (! isset($saved[$key]) || ! is_numeric($saved[$key])) {
+                return $default;
+            }
+            $values[$key] = (int) $saved[$key];
+        }
+
+        if (! (
+            $values['threshold_25'] > 0
+            && $values['threshold_25'] < $values['threshold_50']
+            && $values['threshold_50'] < $values['threshold_75']
+            && $values['threshold_75'] < $values['threshold_100']
+        )) {
+            return $default;
+        }
+
+        return $values;
     }
 
     /**

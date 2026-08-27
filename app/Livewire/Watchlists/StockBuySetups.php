@@ -217,6 +217,12 @@ class StockBuySetups extends Component
 
     public function saveConfig(): void
     {
+        if (! $this->operatingMarginExpansionThresholdsAreValid()) {
+            $this->configFlash = 'Operating Margin Expansion thresholds must be positive and strictly increasing (25 < 50 < 75 < 100 point thresholds).';
+
+            return;
+        }
+
         $configService = app(BuySetupConfigService::class);
 
         if (isset($this->configState['exchanges_text'])) {
@@ -233,6 +239,43 @@ class StockBuySetups extends Component
 
         $this->configFlash = 'Buy setup configuration saved successfully.';
         $this->flash = 'Buy setup configuration updated.';
+    }
+
+    /**
+     * Reject invalid Operating Margin Expansion threshold configurations
+     * (non-numeric, non-positive, or not strictly increasing) before they
+     * are ever persisted, rather than silently falling back server-side.
+     */
+    private function operatingMarginExpansionThresholdsAreValid(): bool
+    {
+        $types = (array) ($this->configState['setup_types'] ?? []);
+
+        foreach ($types as $type) {
+            $thresholds = $type['operating_margin_expansion_thresholds'] ?? null;
+            if (! is_array($thresholds)) {
+                continue;
+            }
+
+            $keys = ['threshold_25', 'threshold_50', 'threshold_75', 'threshold_100'];
+            $values = [];
+            foreach ($keys as $key) {
+                if (! isset($thresholds[$key]) || ! is_numeric($thresholds[$key])) {
+                    return false;
+                }
+                $values[$key] = (float) $thresholds[$key];
+            }
+
+            if (! (
+                $values['threshold_25'] > 0
+                && $values['threshold_25'] < $values['threshold_50']
+                && $values['threshold_50'] < $values['threshold_75']
+                && $values['threshold_75'] < $values['threshold_100']
+            )) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function resetConfigToDefaults(): void

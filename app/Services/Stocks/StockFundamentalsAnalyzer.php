@@ -43,7 +43,7 @@ class StockFundamentalsAnalyzer
 
         $ttmNetIncome = $this->sumLast($income, 'net_income', 4);
 
-        return [
+        return array_merge([
             // Acceleration = most recent YoY growth minus previous YoY growth.
             'earnings_acceleration' => $this->acceleration($epsYoy),
             'sales_acceleration' => $this->acceleration($revenueYoy),
@@ -60,7 +60,120 @@ class StockFundamentalsAnalyzer
                 : null,
             'eps_growth_sequence' => array_values(array_slice($epsYoy, -4)),
             'revenue_growth_sequence' => array_values(array_slice($revenueYoy, -4)),
+        ], $this->operatingMarginExpansion($incomeRows));
+    }
+
+    /**
+     * Operating Margin Expansion (TTM YoY).
+     *
+     * Compares the operating margin of the latest four reported quarters
+     * (current TTM) against the immediately preceding four quarters (prior
+     * TTM), expressed in basis points:
+     *
+     *   margin_expansion_bps = (current_ttm_margin - prior_ttm_margin) * 10000
+     *
+     * Requires at least eight valid, distinct, consistently-currencied
+     * quarterly income statements with numeric revenue and operating
+     * income. Operating income may legitimately be negative — only a null
+     * value is treated as missing. Returns all-null when the calculation
+     * cannot be performed so the caller can exclude the metric.
+     *
+     * @param  array<int, array<string, mixed>>  $incomeRows
+     * @return array<string, float|null>
+     */
+    public function operatingMarginExpansion(array $incomeRows): array
+    {
+        $empty = [
+            'current_ttm_revenue' => null,
+            'current_ttm_operating_income' => null,
+            'current_ttm_operating_margin' => null,
+            'prior_ttm_revenue' => null,
+            'prior_ttm_operating_income' => null,
+            'prior_ttm_operating_margin' => null,
+            'operating_margin_expansion_bps' => null,
         ];
+
+        $quarters = $this->dedupeQuartersDescending($incomeRows);
+
+        $valid = array_values(array_filter(
+            $quarters,
+            fn (array $row) => is_numeric($row['revenue'] ?? null) && is_numeric($row['operating_income'] ?? null),
+        ));
+
+        if (count($valid) < 8) {
+            return $empty;
+        }
+
+        // Q0 (newest) .. Q7 (oldest required quarter).
+        $latestEight = array_slice($valid, 0, 8);
+
+        $currencies = array_values(array_unique(array_filter(
+            array_map(fn (array $row) => $row['reported_currency'] ?? null, $latestEight),
+        )));
+        if (count($currencies) > 1) {
+            return $empty;
+        }
+
+        $current = array_slice($latestEight, 0, 4); // Q0 + Q1 + Q2 + Q3
+        $prior = array_slice($latestEight, 4, 4); // Q4 + Q5 + Q6 + Q7
+
+        $currentRevenue = $this->sum($current, 'revenue');
+        $currentOperatingIncome = $this->sum($current, 'operating_income');
+        $priorRevenue = $this->sum($prior, 'revenue');
+        $priorOperatingIncome = $this->sum($prior, 'operating_income');
+
+        if ($currentRevenue === null || $priorRevenue === null || $currentRevenue <= 0 || $priorRevenue <= 0) {
+            return $empty;
+        }
+        if ($currentOperatingIncome === null || $priorOperatingIncome === null) {
+            return $empty;
+        }
+
+        $currentMargin = $currentOperatingIncome / $currentRevenue;
+        $priorMargin = $priorOperatingIncome / $priorRevenue;
+
+        return [
+            'current_ttm_revenue' => $currentRevenue,
+            'current_ttm_operating_income' => $currentOperatingIncome,
+            'current_ttm_operating_margin' => round($currentMargin, 6),
+            'prior_ttm_revenue' => $priorRevenue,
+            'prior_ttm_operating_income' => $priorOperatingIncome,
+            'prior_ttm_operating_margin' => round($priorMargin, 6),
+            'operating_margin_expansion_bps' => round(($currentMargin - $priorMargin) * 10000, 4),
+        ];
+    }
+
+    /**
+     * Deduplicate quarterly rows by fiscal quarter (fiscal_year + period
+     * when available, falling back to date), keeping the row with the
+     * newest date for each quarter, then sort newest-first.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupeQuartersDescending(array $rows): array
+    {
+        $byQuarter = [];
+        foreach ($rows as $row) {
+            if (! is_array($row) || empty($row['date'])) {
+                continue;
+            }
+
+            $fiscalYear = $row['fiscal_year'] ?? null;
+            $period = $row['period'] ?? null;
+            $key = ($fiscalYear !== null && $period !== null)
+                ? $fiscalYear.'-'.$period
+                : (string) $row['date'];
+
+            if (! isset($byQuarter[$key]) || strcmp((string) $row['date'], (string) $byQuarter[$key]['date']) > 0) {
+                $byQuarter[$key] = $row;
+            }
+        }
+
+        $list = array_values($byQuarter);
+        usort($list, fn (array $a, array $b) => strcmp((string) $b['date'], (string) $a['date']));
+
+        return $list;
     }
 
     /** @param array<int, array<string, mixed>> $rows */
