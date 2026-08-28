@@ -40,3 +40,11 @@ test('registry has() correctly distinguishes known from unknown keys', function 
     expect(BuySetupAlgorithmRegistry::has('floor_reversal_accumulation'))->toBeTrue()
         ->and(BuySetupAlgorithmRegistry::has('made_up_algorithm'))->toBeFalse();
 });
+
+test('only floor_reversal_accumulation is flagged as a reversal-style algorithm', function () {
+    expect(BuySetupAlgorithmRegistry::isReversalStyle('floor_reversal_accumulation'))->toBeTrue()
+        ->and(BuySetupAlgorithmRegistry::isReversalStyle('heartbeat_consolidation_spike'))->toBeFalse()
+        ->and(BuySetupAlgorithmRegistry::isReversalStyle('range_compression_breakout'))->toBeFalse()
+        ->and(BuySetupAlgorithmRegistry::isReversalStyle('early_breakout_followthrough'))->toBeFalse()
+        ->and(BuySetupAlgorithmRegistry::isReversalStyle('made_up_algorithm'))->toBeFalse();
+});

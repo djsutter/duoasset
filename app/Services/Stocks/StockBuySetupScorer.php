@@ -3,6 +3,7 @@
 namespace App\Services\Stocks;
 
 use App\Models\StockBuySetupAlert;
+use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 
 /**
  * Produces a configurable normalized 0-100 setup score.
@@ -79,7 +80,11 @@ class StockBuySetupScorer
             ],
             'ma_alignment' => [
                 'label' => 'MA alignment',
-                'points' => $this->maAlignmentPoints((string) ($r->maAlignment ?? $r->ma_alignment ?? ''), $weights['ma_alignment']),
+                'points' => $this->maAlignmentPoints(
+                    (string) ($r->maAlignment ?? $r->ma_alignment ?? ''),
+                    $weights['ma_alignment'],
+                    BuySetupAlgorithmRegistry::isReversalStyle(app(BuySetupConfigService::class)->getSetupAlgorithm($type)),
+                ),
                 'max' => $weights['ma_alignment'],
                 'value' => (string) ($r->maAlignment ?? $r->ma_alignment ?? ''),
             ],
@@ -257,9 +262,42 @@ class StockBuySetupScorer
         };
     }
 
-    private function maAlignmentPoints(string $alignment, int $max): int
+    /**
+     * Scores the moving-average alignment string produced by every
+     * detection algorithm (`StockBuySetupScanner`/`SharedDetectionHelpers::
+     * maAlignmentString()`).
+     *
+     * For trend-following algorithms (Heartbeat, Range Compression
+     * Breakout, Early Breakout Follow-Through) a bullish stack —
+     * `50>150>200` with price above its 50-day average — is the ideal
+     * signal, since these setups occur near/above prior highs.
+     *
+     * For reversal-style algorithms (Floor Reversal / Accumulation, see
+     * BuySetupAlgorithmRegistry::isReversalStyle()) that same bullish stack
+     * is, by design, backwards: the setup itself is a decline followed by
+     * a base, so price legitimately sits *below* its 150/200-day averages.
+     * This was previously "intentionally deferred" (see README_setup.md)
+     * and is now scored on its own terms: the earliest, most direct
+     * reversal signal — price reclaiming its 50-day average — earns full
+     * points regardless of the longer-term stack, a `50>200` cross earns
+     * half credit as an "improving but unconfirmed" signal, and a still-
+     * declining alignment with price below its 50-day average earns none.
+     */
+    private function maAlignmentPoints(string $alignment, int $max, bool $reversalStyle = false): int
     {
         if ($max <= 0) {
+            return 0;
+        }
+
+        if ($reversalStyle) {
+            if (str_contains($alignment, 'price>50')) {
+                return $max;
+            }
+
+            if (str_contains($alignment, '50>200')) {
+                return (int) round($max * 0.50);
+            }
+
             return 0;
         }
 

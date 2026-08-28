@@ -28,6 +28,20 @@ class BuySetupAlgorithmRegistry
     public const DEFAULT_KEY = 'heartbeat_consolidation_spike';
 
     /**
+     * Algorithms whose setups are, by design, bottoming/reversal patterns
+     * rather than continuations near highs. StockBuySetupScorer uses this
+     * to reinterpret the `ma_alignment` component (previously "intentionally
+     * deferred" — see README_setup.md), since rewarding a full bullish
+     * 50>150>200 stack would penalize the very decline-then-floor shape
+     * these algorithms look for.
+     *
+     * @var array<int, string>
+     */
+    private const REVERSAL_STYLE_ALGORITHMS = [
+        'floor_reversal_accumulation',
+    ];
+
+    /**
      * @return array<int, string>
      */
     public static function keys(): array
@@ -38,6 +52,16 @@ class BuySetupAlgorithmRegistry
     public static function has(string $key): bool
     {
         return isset(self::ALGORITHMS[$key]);
+    }
+
+    /**
+     * Whether the given algorithm key detects a bottoming/reversal pattern
+     * (price below its long-term moving averages by design) rather than a
+     * continuation near highs. See REVERSAL_STYLE_ALGORITHMS.
+     */
+    public static function isReversalStyle(string $key): bool
+    {
+        return in_array($key, self::REVERSAL_STYLE_ALGORITHMS, true);
     }
 
     /**

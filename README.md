@@ -5,6 +5,7 @@
 
 - [Market Data Updates](#market-data-updates)
 - [Stock Buy Setup Scanner](#stock-buy-setup-scanner)
+  - See also: [README_setup.md](README_setup.md) — algorithm selection & scoring-weight tuning guide
 - [EPS Surprise Tracker (bidirectional)](#eps-surprise-tracker-bidirectional)
 - [EPS Revision Tracker](#eps-revision-tracker)
 - [Sector Money Flows](#sector-money-flows)
@@ -170,6 +171,16 @@ acceleration, Operating/FCF margin expansion) into a weighted 0–100 `setup_sco
 turnover vs float) names by up to the configured per-market-cap-bucket penalty, before
 an optional Growth Synergy Bonus is added back on top (capped at 100 overall).
 
+> **Algorithm-aware scoring.** Scoring is shared across all four algorithms per setup
+> type, but the `ma_alignment` component reinterprets its signal based on which
+> algorithm the setup type is running (`BuySetupAlgorithmRegistry::isReversalStyle()`):
+> trend-following algorithms still require the full bullish `50>150>200` stack, while
+> `floor_reversal_accumulation` — a bottoming pattern that starts out *below* its
+> long-term averages by design — instead earns full points for price simply reclaiming
+> its 50-day average. See **[README_setup.md](README_setup.md)** for the full algorithm
+> and scoring-weight tuning guide, including which other components (e.g.
+> `relative_strength`) are worth de-weighting for reversal-style custom setup types.
+
 Market-cap buckets used throughout: `micro` (< $300M), `small` (< $2B), `mid` (< $10B),
 `large` (< $200B), `mega` (≥ $200B) — each setup type can define its own eligible
 `min_market_cap`/`max_market_cap` range.
@@ -185,8 +196,11 @@ and the "Detection Algorithm" dropdown in the config modal (Web UI, below):
 | --- | --- | --- |
 | `heartbeat_consolidation_spike` (default) | Tight base + a rare 52w/104w high-volume spike day. | — |
 | `range_compression_breakout` | A pure volatility squeeze (self-relative to the stock's own trailing-year range), breaking out on moderately elevated (not record) volume. | No historic-volume-record requirement; compression is percentile-ranked against the stock's own history, not a fixed cutoff. |
-| `floor_reversal_accumulation` | A bottom after a decline: a tested "floor" with quiet up-volume > down-volume accumulation, optionally with bullish RSI/price divergence. | No spike at all — looks for a decline + floor + accumulation instead of a plateau near highs. |
+| `floor_reversal_accumulation` | A bottom after a decline: a tested "floor" with quiet up-volume > down-volume accumulation, optionally with bullish RSI/price divergence. | No spike at all — looks for a decline + floor + accumulation instead of a plateau near highs. Its `ma_alignment` score is also reinterpreted (see the callout above) since price legitimately sits below its long-term averages here. |
 | `early_breakout_followthrough` | An O'Neil-style undercut day followed within a few sessions by a follow-through day (a solid % gain on above-average volume). | Catches a move in its first 1-3 days off a shorter base, instead of waiting for a mature multi-week base. |
+
+See **[README_setup.md](README_setup.md)** for a deeper walkthrough of each algorithm's
+detection logic and concrete advice on tuning `score_weights` per setup type.
 
 ### 5. Scheduler
 
@@ -226,10 +240,11 @@ Features:
 
 Covers: enabled/disabled scanner gating, per-setup-type market-cap ranges (inclusive
 boundaries and the $50M–$1T fallback range), reason-summary text, score-component math
-and dynamic per-type weights, the Growth Synergy Bonus, the cash-flow-fetch
+and dynamic per-type weights (including the algorithm-aware `ma_alignment` scoring in
+`StockBuySetupScorerMaAlignmentTest`), the Growth Synergy Bonus, the cash-flow-fetch
 optimization (only fetched when a configured weight needs it), the watchlist/config-modal
 UI, and (under `tests/Unit/Stocks/Algorithms`) each of the four detection algorithms plus
-`BuySetupAlgorithmRegistry`'s key resolution/fallback behavior.
+`BuySetupAlgorithmRegistry`'s key resolution/fallback/reversal-style behavior.
 
 ## EPS Surprise Tracker (bidirectional)
 
