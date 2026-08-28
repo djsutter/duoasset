@@ -19,6 +19,17 @@ class StockFundamentalsAnalyzer
     private const MIN_EPS_DENOMINATOR = 0.01;
 
     /**
+     * roe_pct / profit_margin_pct are stored as decimal(10,4) columns
+     * (stock_buy_setup_alerts), which can hold at most this magnitude.
+     * A positive-but-near-zero revenue/equity denominator (common for
+     * distressed or pre-revenue companies) can otherwise produce a
+     * multi-million-percent ratio that both overflows the column
+     * (SQLSTATE 22003) and is not an economically meaningful percentage
+     * anyway, so it is treated the same as missing data: null.
+     */
+    private const MAX_PCT_MAGNITUDE = 999999.9999;
+
+    /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
      * @return array<string, mixed>
@@ -53,10 +64,10 @@ class StockFundamentalsAnalyzer
             'quarterly_revenue_growth_pct' => $this->lastValue($revenueYoy),
             'annual_eps_growth_pct' => $this->annualGrowth($income, 'eps'),
             'profit_margin_pct' => ($latestRevenue !== null && $latestRevenue > 0 && $latestNetIncome !== null)
-                ? round(($latestNetIncome / $latestRevenue) * 100, 4)
+                ? $this->boundedPercent(($latestNetIncome / $latestRevenue) * 100)
                 : null,
             'roe_pct' => ($latestEquity !== null && $latestEquity > 0 && $ttmNetIncome !== null)
-                ? round(($ttmNetIncome / $latestEquity) * 100, 4)
+                ? $this->boundedPercent(($ttmNetIncome / $latestEquity) * 100)
                 : null,
             'eps_growth_sequence' => array_values(array_slice($epsYoy, -4)),
             'revenue_growth_sequence' => array_values(array_slice($revenueYoy, -4)),
@@ -241,6 +252,22 @@ class StockFundamentalsAnalyzer
         }
 
         return $out;
+    }
+
+    /**
+     * Guard a percentage ratio (roe_pct / profit_margin_pct) against both a
+     * non-finite result and a magnitude that would overflow its decimal(10,4)
+     * database column. See MAX_PCT_MAGNITUDE for details.
+     */
+    private function boundedPercent(float $value): ?float
+    {
+        if (! is_finite($value)) {
+            return null;
+        }
+
+        $rounded = round($value, 4);
+
+        return abs($rounded) > self::MAX_PCT_MAGNITUDE ? null : $rounded;
     }
 
     /** @param array<int, float|null> $series */
