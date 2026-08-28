@@ -192,13 +192,13 @@ test('user can add, edit, and remove prior year revenue penalties in the modal',
     expect($emptyPenalties)->toBeEmpty();
 });
 
-test('operating margin expansion defaults to disabled and can be enabled with custom thresholds', function () {
+test('operating margin expansion defaults to enabled for the enabled setup type and can be re-tuned with custom thresholds', function () {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
         ->test(StockBuySetups::class)
         ->call('openConfigModal')
-        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.enabled', false)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.enabled', true)
         ->assertSet('configState.setup_types.heartbeat_consolidation_spike.operating_margin_expansion_thresholds.threshold_25', 250)
         ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.enabled', true)
         ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.operating_margin_expansion.weight', 15)
@@ -242,7 +242,7 @@ test('modal rejects saving invalid (non-increasing) operating margin expansion t
     expect($thresholds['threshold_25'])->toBe(250);
 });
 
-test('dynamically created setup types automatically expose operating margin expansion disabled by default', function () {
+test('dynamically created setup types inherit operating margin expansion enabled from the heartbeat template', function () {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
@@ -257,7 +257,7 @@ test('dynamically created setup types automatically expose operating margin expa
     $weights = $service->getScoreWeightsMeta('new_growth_setup');
     $thresholds = $service->getOperatingMarginExpansionThresholds('new_growth_setup');
 
-    expect($weights['operating_margin_expansion']['enabled'])->toBeFalse()
+    expect($weights['operating_margin_expansion']['enabled'])->toBeTrue()
         ->and($weights['operating_margin_expansion']['weight'])->toBe(10)
         ->and($thresholds)->toEqual([
             'threshold_25' => 250,

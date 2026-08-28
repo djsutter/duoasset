@@ -2,8 +2,8 @@
 
 namespace App\Services\Stocks;
 
+use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
 
 /**
  * Pure detection logic for the Stock Buy Setup scanner.
@@ -15,6 +15,16 @@ use Illuminate\Support\Str;
  *
  * No DB / no HTTP — everything is in-memory so the scanner is fully
  * deterministic and easy to unit-test with synthetic series.
+ *
+ * evaluate() below is the "Heartbeat Consolidation + Spike" algorithm. It
+ * stays in this class (rather than moving into
+ * Algorithms\HeartbeatConsolidationSpikeAlgorithm) to preserve its
+ * extensive existing test coverage and its direct callers. The other three
+ * built-in algorithms (Range Compression Breakout, Floor Reversal /
+ * Accumulation, Early Breakout Follow-Through) live under
+ * App\Services\Stocks\Algorithms and are dispatched via
+ * BuySetupAlgorithmRegistry from evaluateAll() below, based on each setup
+ * type's configured `algorithm` key.
  */
 class StockBuySetupScanner
 {
@@ -40,6 +50,13 @@ class StockBuySetupScanner
      * Run all enabled buy setup detectors for a symbol and return one result
      * per matched setup type.
      *
+     * Each setup type selects which algorithm actually runs via its own
+     * `algorithm` config key (see BuySetupAlgorithmRegistry), independent
+     * of the setup type's own key/label — a setup type with no (or an
+     * unknown) `algorithm` configured falls back to the original Heartbeat
+     * Consolidation + Spike detector below, so existing configs behave
+     * exactly as before until an admin explicitly picks a different one.
+     *
      * @param  array<int, array{date:string, open:?float, high:?float, low:?float, close:?float, volume:?int}>  $bars
      * @param  array<int, array<string, mixed>>  $benchmarkBars
      * @param  array<string, mixed>  $context
@@ -57,12 +74,8 @@ class StockBuySetupScanner
                 continue;
             }
 
-            $method = 'evaluate'.Str::studly($key);
-            if (method_exists($this, $method)) {
-                $result = $this->$method($bars, $benchmarkBars, $context, $typeConfig);
-            } else {
-                $result = $this->evaluate($bars, $benchmarkBars, $context, $typeConfig, $key);
-            }
+            $algorithm = BuySetupAlgorithmRegistry::resolve($typeConfig['algorithm'] ?? $key);
+            $result = $algorithm->detect($bars, $benchmarkBars, $context, $typeConfig, $key);
 
             if ($result !== null) {
                 $results[] = $result;

@@ -93,6 +93,42 @@ class Indicators
     }
 
     /**
+     * Wilder's Relative Strength Index over the last $period+1 closes.
+     * Returns null when there is not enough data (needs $period+1 closes
+     * to derive $period price changes).
+     */
+    public static function rsi(array $closes, int $period = 14): ?float
+    {
+        $n = count($closes);
+        if ($period <= 0 || $n < $period + 1) {
+            return null;
+        }
+
+        $slice = array_slice($closes, $n - $period - 1, $period + 1);
+        $gains = 0.0;
+        $losses = 0.0;
+        for ($i = 1; $i < count($slice); $i++) {
+            $change = (float) $slice[$i] - (float) $slice[$i - 1];
+            if ($change >= 0) {
+                $gains += $change;
+            } else {
+                $losses += abs($change);
+            }
+        }
+
+        $avgGain = $gains / $period;
+        $avgLoss = $losses / $period;
+
+        if ($avgLoss == 0.0) {
+            return $avgGain == 0.0 ? 50.0 : 100.0;
+        }
+
+        $rs = $avgGain / $avgLoss;
+
+        return 100.0 - (100.0 / (1.0 + $rs));
+    }
+
+    /**
      * Maximum volume in the last $days bars (excluding the final bar by
      * default — useful for "prior" comparison).
      *

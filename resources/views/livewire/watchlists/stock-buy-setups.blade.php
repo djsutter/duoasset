@@ -540,6 +540,20 @@
                                            placeholder="Setup Type Name">
                                 </div>
 
+                                <div>
+                                    <label class="da-label">{{ __('Detection Algorithm') }}</label>
+                                    <select wire:key="type-algorithm-{{ $selectedConfigSetupType }}"
+                                            wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.algorithm"
+                                            class="da-input">
+                                        @foreach ($algorithmOptions as $algoKey => $algoLabel)
+                                            <option value="{{ $algoKey }}">{{ $algoLabel }}</option>
+                                        @endforeach
+                                    </select>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                                        {{ __('Which detection logic this setup type runs, independent of its name/label above. Defaults to the setup type\'s own algorithm.') }}
+                                    </p>
+                                </div>
+
                                 {{-- Add New Setup Type Section --}}
                                 <div class="border-t border-zinc-200 dark:border-zinc-800 pt-3">
                                     <label class="da-label text-xs font-semibold text-zinc-500 uppercase tracking-wider">{{ __('Add New Setup Type') }}</label>

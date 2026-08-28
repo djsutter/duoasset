@@ -6,6 +6,7 @@ use App\Enums\MoatLevel;
 use App\Models\StockBuySetupAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
+use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\StockBuySetupScorer;
 use App\Services\Stocks\StockProvisioner;
@@ -69,6 +70,9 @@ class StockBuySetups extends Component
 
     public string $newSetupTypeLabel = '';
 
+    /** @var array<string, string> */
+    public array $algorithmOptions = [];
+
     public ?string $configFlash = null;
 
     public function mount(): void
@@ -104,6 +108,7 @@ class StockBuySetups extends Component
         $this->configState = $configService->getConfig();
         $this->configState['exchanges_text'] = implode(', ', (array) ($this->configState['exchanges'] ?? []));
         $this->configState['benchmark_symbols_text'] = implode(', ', (array) ($this->configState['benchmark_symbols'] ?? []));
+        $this->algorithmOptions = BuySetupAlgorithmRegistry::options();
 
         $types = array_keys($this->configState['setup_types'] ?? []);
         if (! in_array($this->selectedConfigSetupType, $types, true)) {

@@ -52,12 +52,19 @@ test('reason summary includes enabled fundamental metrics reused from the score 
     $scanner = app(StockBuySetupScanner::class);
     $service = app(BuySetupConfigService::class);
 
+    // operating_margin_expansion is disabled here (even though it's enabled by
+    // default for heartbeat_consolidation_spike) to isolate the earnings/sales
+    // acceleration reason-text assertions below from margin-expansion text.
+    $config = $service->getConfig();
+    $config['setup_types']['heartbeat_consolidation_spike']['score_weights']['operating_margin_expansion']['enabled'] = false;
+    $service->saveConfig($config);
+
     $context = [
         'symbol' => 'PGEN',
         'earnings_acceleration' => 69.7,
         'sales_acceleration' => 4688.7,
         'prior_year_revenue' => 10_000_000,
-        // Disabled by default for this setup type, so it must NOT appear.
+        // Disabled above for this setup type, so it must NOT appear.
         'operating_margin_expansion_bps' => 235341.0,
     ];
 
@@ -86,20 +93,13 @@ test('reason summary includes enabled fundamental metrics reused from the score 
         ->and($result->reasonSummary)->toContain('Fundamentals:')
         ->and($result->reasonSummary)->toContain($expectedEarnings)
         ->and($result->reasonSummary)->toContain($expectedSales)
-        // Disabled-by-default metric must not leak into the reason text.
+        // Disabled metric must not leak into the reason text.
         ->and($result->reasonSummary)->not->toContain('operating margin expansion')
         ->and($result->reasonSummary)->not->toContain('Operating margin expansion');
 });
 
-test('reason summary includes operating margin expansion once enabled for the setup type', function () {
+test('reason summary includes operating margin expansion since it is enabled by default for the setup type', function () {
     $service = app(BuySetupConfigService::class);
-    $config = $service->getConfig();
-    $config['setup_types']['heartbeat_consolidation_spike']['score_weights']['operating_margin_expansion'] = [
-        'weight' => 10,
-        'enabled' => true,
-    ];
-    $service->saveConfig($config);
-
     $bars = buildReasonSummaryTestBars();
     $scanner = app(StockBuySetupScanner::class);
 

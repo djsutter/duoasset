@@ -10,10 +10,11 @@ uses(Tests\TestCase::class, RefreshDatabase::class);
 
 /**
  * Quarterly cash flow statements are an extra FMP API call per symbol and
- * are only consumed by FCF Margin Expansion / the Growth Synergy Bonus,
- * both disabled by default. EvaluateStockBuySetup::loadFundamentalMetrics()
- * should skip that fetch entirely unless at least one configured setup
- * type actually needs it.
+ * are only consumed by FCF Margin Expansion / the Growth Synergy Bonus.
+ * FCF Margin Expansion is enabled by default for heartbeat_consolidation_spike
+ * (the only setup type enabled by default), so the fetch happens by default;
+ * EvaluateStockBuySetup::loadFundamentalMetrics() should still skip it
+ * entirely once every configured setup type has both opted out.
  */
 function invokeLoadFundamentalMetrics(
     MarketDataProvider $provider,
@@ -37,9 +38,16 @@ function fakeIncomeRows(): array
 
 test('does not fetch quarterly cash flow statements when no setup type needs FCF data', function () {
     $configService = new BuySetupConfigService;
-    // Default config: every setup type has fcf_margin_expansion and
-    // growth_synergy_bonus disabled.
     $configService->resetToDefaults();
+
+    // FCF Margin Expansion is enabled by default for heartbeat_consolidation_spike;
+    // explicitly opt every setup type out to exercise the "nothing needs FCF data" path.
+    $config = $configService->getConfig();
+    foreach ($config['setup_types'] as $key => $setupType) {
+        $config['setup_types'][$key]['score_weights']['fcf_margin_expansion']['enabled'] = false;
+        $config['setup_types'][$key]['growth_synergy_bonus']['enabled'] = false;
+    }
+    $configService->saveConfig($config);
 
     $provider = Mockery::mock(MarketDataProvider::class);
     $provider->shouldReceive('quarterlyIncomeStatements')->once()->andReturn(fakeIncomeRows());
@@ -83,15 +91,19 @@ test('fetches quarterly cash flow statements when FCF margin expansion scoring i
     expect($metrics)->toBeArray()->not->toBeEmpty();
 });
 
-test('isCashFlowDataNeeded returns false by default and true once any setup type opts in', function () {
+test('isCashFlowDataNeeded returns true by default (FCF Margin Expansion enabled) and false once every setup type opts out', function () {
     $configService = new BuySetupConfigService;
     $configService->resetToDefaults();
 
-    expect($configService->isCashFlowDataNeeded())->toBeFalse();
+    // heartbeat_consolidation_spike ships with fcf_margin_expansion enabled by default.
+    expect($configService->isCashFlowDataNeeded())->toBeTrue();
 
     $config = $configService->getConfig();
-    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['enabled'] = true;
+    foreach ($config['setup_types'] as $key => $setupType) {
+        $config['setup_types'][$key]['score_weights']['fcf_margin_expansion']['enabled'] = false;
+        $config['setup_types'][$key]['growth_synergy_bonus']['enabled'] = false;
+    }
     $configService->saveConfig($config);
 
-    expect($configService->isCashFlowDataNeeded())->toBeTrue();
+    expect($configService->isCashFlowDataNeeded())->toBeFalse();
 });

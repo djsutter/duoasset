@@ -294,3 +294,46 @@ test('every default setup type defaults to fcf margin expansion thresholds match
         expect($thresholds)->toEqual(BuySetupConfigService::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS);
     }
 });
+
+test('every default setup type defaults its algorithm to its own key', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    foreach (['heartbeat_consolidation_spike', 'range_compression_breakout', 'floor_reversal_accumulation', 'early_breakout_followthrough'] as $key) {
+        expect($config['setup_types'][$key]['algorithm'])->toBe($key)
+            ->and($service->getSetupAlgorithm($key))->toBe($key);
+    }
+});
+
+test('a newly created dynamic setup type inherits the heartbeat template algorithm', function () {
+    $service = new BuySetupConfigService;
+    $newType = $service->createDefaultSetupType('breakout_momentum', 'Breakout Momentum');
+
+    expect($newType['algorithm'])->toBe('heartbeat_consolidation_spike');
+
+    $config = $service->getConfig();
+    $config['setup_types']['breakout_momentum'] = $newType;
+    $service->saveConfig($config);
+
+    expect((new BuySetupConfigService)->getSetupAlgorithm('breakout_momentum'))->toBe('heartbeat_consolidation_spike');
+});
+
+test('it persists a valid custom algorithm choice for a setup type', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    $config['setup_types']['heartbeat_consolidation_spike']['algorithm'] = 'range_compression_breakout';
+    $service->saveConfig($config);
+
+    expect((new BuySetupConfigService)->getSetupAlgorithm('heartbeat_consolidation_spike'))->toBe('range_compression_breakout');
+});
+
+test('an unknown algorithm key falls back to the setup types own key rather than persisting a broken config', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    $config['setup_types']['range_compression_breakout']['algorithm'] = 'not_a_real_algorithm';
+    $service->saveConfig($config);
+
+    expect((new BuySetupConfigService)->getSetupAlgorithm('range_compression_breakout'))->toBe('range_compression_breakout');
+});

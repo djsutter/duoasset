@@ -125,6 +125,7 @@ return [
             'earnings_acceleration' => env('BUY_SETUP_SCORE_EARNINGS_ACCELERATION_WEIGHT', 3),
             'sales_acceleration' => env('BUY_SETUP_SCORE_SALES_ACCELERATION_WEIGHT', 7),
             'operating_margin_expansion' => env('BUY_SETUP_SCORE_OPERATING_MARGIN_EXPANSION_WEIGHT', 10),
+            'fcf_margin_expansion' => env('BUY_SETUP_SCORE_FCF_MARGIN_EXPANSION_WEIGHT', 10),
         ],
         'notification_email' => env('BUY_SETUP_NOTIFICATION_EMAIL', 'eldon@eldonswoodbin.com'),
     ],

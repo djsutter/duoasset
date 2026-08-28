@@ -23,9 +23,13 @@ test('it normalizes setup score to 100 even when components are disabled or weig
         'relative_strength_score' => 25.0, // full points on relative strength
         'earnings_acceleration' => 75.0,
         'sales_acceleration' => 3000.0,
+        'operating_margin_expansion_bps' => 1500.0, // full points (>= threshold_100)
+        'fcf_margin_expansion_bps' => 1500.0, // full points (>= threshold_100)
     ]);
 
-    // With all default weights enabled (total = 100), max score is 100
+    // With all default weights enabled (total = 130, incl. operating/FCF margin
+    // expansion which are enabled by default for heartbeat_consolidation_spike),
+    // max score is 100 once every component scores full points.
     $defaultScore = $scorer->scoreFromAlert($alert);
     expect($defaultScore)->toBe(100);
 
@@ -38,7 +42,7 @@ test('it normalizes setup score to 100 even when components are disabled or weig
     expect($breakdown['base_duration']['points'])->toBe(0)
         ->and($breakdown['base_duration']['max'])->toBe(0);
 
-    // Remaining enabled weights sum to 90. Since all other components scored full points, 90/90 normalizes to 100!
+    // Remaining enabled weights sum to 120. Since all other components scored full points, 120/120 normalizes to 100!
     $adjustedScore = $scorer->scoreFromAlert($alert);
     expect($adjustedScore)->toBe(100);
 });
@@ -55,7 +59,7 @@ test('it properly scales spike rarity points up to 25 points based on configured
         ->and($breakdown['spike_rarity']['points'])->toBe(25);
 });
 
-test('operating margin expansion is disabled by default and does not affect the setup score', function () {
+test('operating margin expansion is enabled by default for heartbeat_consolidation_spike and contributes to the setup score', function () {
     $scorer = new StockBuySetupScorer;
     $alert = new StockBuySetupAlert([
         'setup_type' => 'heartbeat_consolidation_spike',
@@ -64,8 +68,10 @@ test('operating margin expansion is disabled by default and does not affect the 
 
     $breakdown = $scorer->breakdown($alert);
 
-    expect($breakdown['operating_margin_expansion']['max'])->toBe(0)
-        ->and($breakdown['operating_margin_expansion']['points'])->toBe(0);
+    // +1300 bps with default thresholds (25=250,50=500,75=1000,100=1500)
+    // interpolates to 90 points out of 100 -> default weight 10 * 0.90 = 9 points.
+    expect($breakdown['operating_margin_expansion']['max'])->toBe(10)
+        ->and($breakdown['operating_margin_expansion']['points'])->toBe(9);
 });
 
 test('enabling operating margin expansion interpolates points from configured thresholds', function () {

@@ -3,6 +3,7 @@
 namespace App\Services\Stocks;
 
 use App\Models\Setting;
+use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 use Illuminate\Support\Str;
 
 class BuySetupConfigService
@@ -74,6 +75,7 @@ class BuySetupConfigService
             'heartbeat_consolidation_spike' => [
                 'key' => 'heartbeat_consolidation_spike',
                 'label' => 'Heartbeat consolidation + spike',
+                'algorithm' => 'heartbeat_consolidation_spike',
                 'enabled' => true,
                 'recent_spike_window_days' => 60,
                 'max_spike_age_days' => 84,
@@ -99,8 +101,8 @@ class BuySetupConfigService
                     'relative_strength' => ['weight' => 10, 'enabled' => true],
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
-                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
-                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'operating_margin_expansion' => ['weight' => 10, 'enabled' => true],
+                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => true],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
@@ -111,6 +113,7 @@ class BuySetupConfigService
             'range_compression_breakout' => [
                 'key' => 'range_compression_breakout',
                 'label' => 'Range compression breakout',
+                'algorithm' => 'range_compression_breakout',
                 'enabled' => false,
                 'recent_spike_window_days' => 60,
                 'max_spike_age_days' => 84,
@@ -148,6 +151,7 @@ class BuySetupConfigService
             'floor_reversal_accumulation' => [
                 'key' => 'floor_reversal_accumulation',
                 'label' => 'Floor reversal / accumulation',
+                'algorithm' => 'floor_reversal_accumulation',
                 'enabled' => false,
                 'recent_spike_window_days' => 60,
                 'max_spike_age_days' => 84,
@@ -185,6 +189,7 @@ class BuySetupConfigService
             'early_breakout_followthrough' => [
                 'key' => 'early_breakout_followthrough',
                 'label' => 'Early breakout follow-through',
+                'algorithm' => 'early_breakout_followthrough',
                 'enabled' => false,
                 'recent_spike_window_days' => 60,
                 'max_spike_age_days' => 84,
@@ -433,6 +438,21 @@ class BuySetupConfigService
     }
 
     /**
+     * Effective detection algorithm key for the given setup type (see
+     * BuySetupAlgorithmRegistry). Falls back to the setup type's own key
+     * when no `algorithm` is configured, and to the registry's default
+     * (Heartbeat Consolidation + Spike) when that key isn't a known
+     * algorithm — so older saved configs behave exactly as before.
+     */
+    public function getSetupAlgorithm(?string $setupType = null): string
+    {
+        $type = $this->getSetupType($setupType);
+        $key = (string) ($type['algorithm'] ?? $type['key'] ?? BuySetupAlgorithmRegistry::DEFAULT_KEY);
+
+        return BuySetupAlgorithmRegistry::has($key) ? $key : BuySetupAlgorithmRegistry::DEFAULT_KEY;
+    }
+
+    /**
      * Returns effective component weights (0 for disabled components).
      *
      * @return array<string, int>
@@ -654,6 +674,7 @@ class BuySetupConfigService
         return [
             'key' => Str::slug($key, '_'),
             'label' => $label,
+            'algorithm' => $defaultType['algorithm'] ?? BuySetupAlgorithmRegistry::DEFAULT_KEY,
             'enabled' => true,
             'recent_spike_window_days' => $defaultType['recent_spike_window_days'],
             'max_spike_age_days' => $defaultType['max_spike_age_days'],
@@ -794,6 +815,7 @@ class BuySetupConfigService
         return [
             'key' => $key,
             'label' => (string) ($saved['label'] ?? $default['label'] ?? $key),
+            'algorithm' => $this->resolveAlgorithmKey($saved['algorithm'] ?? null, $default['algorithm'] ?? $key),
             'enabled' => (bool) ($saved['enabled'] ?? $default['enabled'] ?? false),
             'recent_spike_window_days' => (int) ($saved['recent_spike_window_days'] ?? $default['recent_spike_window_days']),
             'max_spike_age_days' => (int) ($saved['max_spike_age_days'] ?? $default['max_spike_age_days']),
@@ -821,6 +843,23 @@ class BuySetupConfigService
             ),
             ...$this->mergeMarketCapRange($saved, $default),
         ];
+    }
+
+    /**
+     * Validate a saved `algorithm` key against BuySetupAlgorithmRegistry,
+     * falling back to the setup type's default algorithm (or the
+     * registry's default) when missing/unknown, rather than persisting a
+     * broken configuration.
+     */
+    private function resolveAlgorithmKey(mixed $saved, mixed $default): string
+    {
+        if (is_string($saved) && BuySetupAlgorithmRegistry::has($saved)) {
+            return $saved;
+        }
+
+        $default = is_string($default) ? $default : BuySetupAlgorithmRegistry::DEFAULT_KEY;
+
+        return BuySetupAlgorithmRegistry::has($default) ? $default : BuySetupAlgorithmRegistry::DEFAULT_KEY;
     }
 
     /**

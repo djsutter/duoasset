@@ -174,6 +174,20 @@ Market-cap buckets used throughout: `micro` (< $300M), `small` (< $2B), `mid` (<
 `large` (< $200B), `mega` (≥ $200B) — each setup type can define its own eligible
 `min_market_cap`/`max_market_cap` range.
 
+**Detection algorithm per setup type.** Each setup type selects *which* detection
+algorithm actually runs via its own `algorithm` config value — independent of the
+type's own key/label, so a custom setup type can run any of the four built-in
+algorithms (or a saved config with no `algorithm` set falls back to Heartbeat, keeping
+older configs behaving exactly as before). See `App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry`
+and the "Detection Algorithm" dropdown in the config modal (Web UI, below):
+
+| Algorithm | Idea | Distinct from Heartbeat by |
+| --- | --- | --- |
+| `heartbeat_consolidation_spike` (default) | Tight base + a rare 52w/104w high-volume spike day. | — |
+| `range_compression_breakout` | A pure volatility squeeze (self-relative to the stock's own trailing-year range), breaking out on moderately elevated (not record) volume. | No historic-volume-record requirement; compression is percentile-ranked against the stock's own history, not a fixed cutoff. |
+| `floor_reversal_accumulation` | A bottom after a decline: a tested "floor" with quiet up-volume > down-volume accumulation, optionally with bullish RSI/price divergence. | No spike at all — looks for a decline + floor + accumulation instead of a plateau near highs. |
+| `early_breakout_followthrough` | An O'Neil-style undercut day followed within a few sessions by a follow-through day (a solid % gain on above-average volume). | Catches a move in its first 1-3 days off a shorter base, instead of waiting for a mature multi-week base. |
+
 ### 5. Scheduler
 
 `stocks:scan-buy-setups` is **not** registered in `routes/console.php`'s in-app
@@ -213,8 +227,9 @@ Features:
 Covers: enabled/disabled scanner gating, per-setup-type market-cap ranges (inclusive
 boundaries and the $50M–$1T fallback range), reason-summary text, score-component math
 and dynamic per-type weights, the Growth Synergy Bonus, the cash-flow-fetch
-optimization (only fetched when a configured weight needs it), and the
-watchlist/config-modal UI.
+optimization (only fetched when a configured weight needs it), the watchlist/config-modal
+UI, and (under `tests/Unit/Stocks/Algorithms`) each of the four detection algorithms plus
+`BuySetupAlgorithmRegistry`'s key resolution/fallback behavior.
 
 ## EPS Surprise Tracker (bidirectional)
 
