@@ -613,6 +613,36 @@ class BuySetupConfigService
     }
 
     /**
+     * Whether quarterly cash flow statements are needed by *any* configured
+     * setup type, i.e. whether FCF Margin Expansion or the Growth Synergy
+     * Bonus (which reuses the FCF Margin Expansion score) is enabled
+     * anywhere.
+     *
+     * Fetching cash flow statements is an extra FMP call per symbol, and
+     * the setup type that will ultimately match a given symbol is not
+     * known until after fundamentals are loaded (setup detection runs
+     * afterwards), so this checks across all setup types rather than a
+     * single one. Callers can use this to skip the fetch entirely when
+     * neither consumer is enabled for any setup type, avoiding wasted API
+     * calls. See EvaluateStockBuySetup::loadFundamentalMetrics().
+     */
+    public function isCashFlowDataNeeded(): bool
+    {
+        foreach (array_keys($this->getSetupTypes()) as $key) {
+            $weights = $this->getScoreWeightsMeta($key);
+            if ((bool) ($weights['fcf_margin_expansion']['enabled'] ?? false)) {
+                return true;
+            }
+
+            if ($this->getGrowthSynergyBonusConfig($key)['enabled']) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Default technical thresholds for a setup type.
      *
      * @return array<string, mixed>

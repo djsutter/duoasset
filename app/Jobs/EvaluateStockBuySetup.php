@@ -113,7 +113,7 @@ class EvaluateStockBuySetup implements ShouldQueue
             $benchmarks = $configService->getBenchmarkSymbols();
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
             $debug['benchmark_bars'] = count($benchmarkBars);
-            $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol);
+            $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol, $configService);
             $debug['fundamentals_loaded'] = ! empty($fundamentalMetrics);
 
             $results = $scanner->evaluateAll($bars, $benchmarkBars, array_merge([
@@ -375,6 +375,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         MarketDataProvider $provider,
         StockFundamentalsAnalyzer $fundamentals,
         string $symbol,
+        BuySetupConfigService $configService,
     ): array {
         try {
             $income = $provider->quarterlyIncomeStatements($symbol, 8);
@@ -383,7 +384,14 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
 
             $balance = $provider->quarterlyBalanceSheets($symbol, 8);
-            $cashFlow = $provider->quarterlyCashFlowStatements($symbol, 8);
+
+            // Quarterly cash flow statements are an extra FMP call per
+            // symbol and are only needed for FCF Margin Expansion / the
+            // Growth Synergy Bonus, both disabled by default. Skip the
+            // fetch entirely when no configured setup type needs it.
+            $cashFlow = $configService->isCashFlowDataNeeded()
+                ? $provider->quarterlyCashFlowStatements($symbol, 8)
+                : [];
             $metrics = $fundamentals->analyze($income, $balance, $cashFlow);
 
             // FMP supplies absolute revenue on each quarterly income statement,
