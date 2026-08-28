@@ -352,7 +352,7 @@ class StockBuySetupScanner
             freeFloat: $this->nullableFloat($context['free_float'] ?? null),
         );
 
-        $result->reasonSummary = $this->reasonSummary($result);
+        $result->reasonSummary = $this->reasonSummary($result, $this->nullableFloat($context['prior_year_revenue'] ?? null));
 
         return $result;
     }
@@ -467,7 +467,7 @@ class StockBuySetupScanner
         return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
 
-    private function reasonSummary(StockBuySetupResult $r): string
+    private function reasonSummary(StockBuySetupResult $r, ?float $priorYearRevenue = null): string
     {
         $bits = [];
         $bits[] = $r->spikeRarityDescription;
@@ -478,6 +478,57 @@ class StockBuySetupScanner
         }
         $bits[] = 'dist to bo '.number_format($r->distanceToBreakoutPct, 1).'%';
 
-        return implode('; ', $bits);
+        return implode('; ', array_merge($bits, $this->reasonFundamentalBits($r, $priorYearRevenue)));
+    }
+
+    /**
+     * Appends the newer fundamental scoring metrics (earnings acceleration,
+     * sales acceleration, operating margin expansion) to the Reason text.
+     *
+     * Reuses the points/max/value already computed by
+     * StockBuySetupScorer::breakdown() — the same source of truth backing
+     * the Score breakdown and Fundamentals panels — so nothing is
+     * recalculated here. A metric is skipped when it is disabled for the
+     * setup type (configured weight of 0) or when its value is unavailable.
+     *
+     * @return array<int, string>
+     */
+    private function reasonFundamentalBits(StockBuySetupResult $r, ?float $priorYearRevenue): array
+    {
+        $breakdown = app(StockBuySetupScorer::class)->breakdown($r, $r->setupType, $priorYearRevenue);
+
+        $labels = [
+            'earnings_acceleration' => 'earnings accel',
+            'sales_acceleration' => 'sales accel',
+            'operating_margin_expansion' => 'operating margin expansion',
+        ];
+
+        $rawValues = [
+            'earnings_acceleration' => $r->earningsAcceleration,
+            'sales_acceleration' => $r->salesAcceleration,
+            'operating_margin_expansion' => $r->operatingMarginExpansionBps,
+        ];
+
+        $bits = [];
+        foreach ($labels as $key => $label) {
+            $component = $breakdown[$key] ?? null;
+            if (! $component || (int) ($component['max'] ?? 0) <= 0) {
+                continue;
+            }
+
+            $value = (string) ($component['value'] ?? '');
+            if ($value === '' || $value === 'n/a') {
+                continue;
+            }
+
+            $raw = $rawValues[$key] ?? null;
+            if ($raw !== null && $raw >= 0 && ! str_starts_with($value, '+') && ! str_starts_with($value, '-')) {
+                $value = '+'.$value;
+            }
+
+            $bits[] = "{$label} {$value} ({$component['points']}/{$component['max']})";
+        }
+
+        return $bits;
     }
 }

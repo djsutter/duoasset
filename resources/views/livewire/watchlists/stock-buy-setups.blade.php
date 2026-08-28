@@ -282,7 +282,7 @@
 
             <div x-show="modalOpen"
                  x-transition
-                 class="relative w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
+                 class="relative w-[95vw] max-w-[1400px] overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
                 <div class="flex items-start justify-between gap-4 border-b border-zinc-200 bg-zinc-50 px-6 py-5 dark:border-zinc-800 dark:bg-zinc-900/80">
                     <div>
                         <div class="flex flex-wrap items-center gap-3">
@@ -301,71 +301,95 @@
                 </div>
 
                 <div class="max-h-[78vh] overflow-y-auto px-6 py-5">
-                    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                            <h3 class="mb-3 font-semibold">{{ __('Core setup') }}</h3>
-                            <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                <dt class="text-zinc-500">{{ __('Symbol') }}</dt><dd class="text-right font-medium" x-text="selected?.symbol"></dd>
-                                <dt class="text-zinc-500">{{ __('Setup type') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_type"></dd>
-                                <dt class="text-zinc-500">{{ __('Setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_score"></dd>
-                                <dt class="text-zinc-500">{{ __('Raw setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.raw_setup_score"></dd>
-                                <dt class="text-zinc-500">{{ __('Heartbeat') }}</dt><dd class="text-right font-medium" x-text="selected?.heartbeat_score"></dd>
-                                <dt class="text-zinc-500">{{ __('Status') }}</dt><dd class="text-right font-medium" x-text="selected?.status"></dd>
-                                <dt class="text-zinc-500">{{ __('Detected') }}</dt><dd class="text-right font-medium" x-text="selected?.detected_at"></dd>
-                                <dt class="text-zinc-500">{{ __('Sent') }}</dt><dd class="text-right font-medium" x-text="selected?.sent_at"></dd>
-                            </dl>
-                        </div>
-
-                        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                            <h3 class="mb-3 font-semibold">{{ __('Market data') }}</h3>
-                            <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                <dt class="text-zinc-500">{{ __('Company') }}</dt><dd class="text-right font-medium" x-text="selected?.company"></dd>
-                                <dt class="text-zinc-500">{{ __('Exchange') }}</dt><dd class="text-right font-medium" x-text="selected?.exchange"></dd>
-                                <dt class="text-zinc-500">{{ __('Price') }}</dt><dd class="text-right font-medium" x-text="selected?.price"></dd>
-                                <dt class="text-zinc-500">{{ __('Market cap') }}</dt><dd class="text-right font-medium" x-text="selected?.market_cap"></dd>
-                                <dt class="text-zinc-500">{{ __('Mcap cat.') }}</dt><dd class="text-right font-medium" x-text="selected?.market_cap_category"></dd>
-                                <dt class="text-zinc-500">{{ __('Shares out') }}</dt><dd class="text-right font-medium" x-text="selected?.shares_outstanding"></dd>
-                                <dt class="text-zinc-500">{{ __('Float shares') }}</dt><dd class="text-right font-medium" x-text="selected?.float_shares"></dd>
-                                <dt class="text-zinc-500">{{ __('Free float') }}</dt><dd class="text-right font-medium" x-text="selected?.free_float"></dd>
-                                <dt class="text-zinc-500">{{ __('Avg daily volume') }}</dt><dd class="text-right font-medium" x-text="selected?.avg_daily_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('Liquidity turnover') }}</dt><dd class="text-right font-medium" x-text="selected?.liquidity_turnover_pct"></dd>
-                                <dt class="text-zinc-500">{{ __('Liquidity penalty') }}</dt><dd class="text-right font-medium"><span x-text="selected?.liquidity_penalty_pct"></span> <span class="text-zinc-400">(<span x-text="selected?.liquidity_penalty_points"></span> pts)</span></dd>
-                            </dl>
-                        </div>
-
-                        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                            <h3 class="mb-3 font-semibold">{{ __('Reason') }}</h3>
-                            <p class="whitespace-pre-line text-sm leading-6 text-zinc-700 dark:text-zinc-300" x-text="selected?.reason_summary ?? '—'"></p>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                            <h3 class="mb-3 font-semibold">{{ __('Technical details') }}</h3>
-                            <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                <dt class="text-zinc-500">{{ __('Spike date') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_date"></dd>
-                                <dt class="text-zinc-500">{{ __('Spike volume') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('Prior 52w max vol') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_52w_max_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('Max 104w volume') }}</dt><dd class="text-right font-medium" x-text="selected?.max_104w_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('52w high-volume spike') }}</dt><dd class="text-right font-medium" x-text="selected?.is_52w_high_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('104w high-volume spike') }}</dt><dd class="text-right font-medium" x-text="selected?.is_104w_high_volume"></dd>
-                                <dt class="text-zinc-500">{{ __('Days since comparable spike') }}</dt><dd class="text-right font-medium" x-text="selected?.days_since_previous_comparable_spike"></dd>
-                                <dt class="text-zinc-500">{{ __('Base start') }}</dt><dd class="text-right font-medium" x-text="selected?.base_start_date"></dd>
-                                <dt class="text-zinc-500">{{ __('Base end') }}</dt><dd class="text-right font-medium" x-text="selected?.base_end_date"></dd>
-                                <dt class="text-zinc-500">{{ __('Base days') }}</dt><dd class="text-right font-medium" x-text="selected?.base_duration_days"></dd>
-                                <dt class="text-zinc-500">{{ __('Base high') }}</dt><dd class="text-right font-medium" x-text="selected?.base_high"></dd>
-                                <dt class="text-zinc-500">{{ __('Base low') }}</dt><dd class="text-right font-medium" x-text="selected?.base_low"></dd>
-                                <dt class="text-zinc-500">{{ __('Range compression') }}</dt><dd class="text-right font-medium" x-text="selected?.range_compression_pct"></dd>
-                                <dt class="text-zinc-500">{{ __('ATR ratio') }}</dt><dd class="text-right font-medium" x-text="selected?.atr_contraction_ratio"></dd>
-                                <dt class="text-zinc-500">{{ __('Volume dry-up') }}</dt><dd class="text-right font-medium" x-text="selected?.volume_dry_up_score"></dd>
-                                <dt class="text-zinc-500">{{ __('Slope') }}</dt><dd class="text-right font-medium" x-text="selected?.slope"></dd>
-                                <dt class="text-zinc-500">{{ __('Distance to BO') }}</dt><dd class="text-right font-medium" x-text="selected?.distance_to_breakout_pct"></dd>
-                                <dt class="text-zinc-500">{{ __('MA alignment') }}</dt><dd class="text-right font-medium" x-text="selected?.ma_alignment"></dd>
-                                <dt class="text-zinc-500">{{ __('Relative strength') }}</dt><dd class="text-right font-medium" x-text="selected?.relative_strength_score"></dd>
-                            </dl>
-                        </div>
-
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {{-- Column 1: Core setup + Technical details --}}
                         <div class="space-y-4">
+                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                                <h3 class="mb-3 font-semibold">{{ __('Core setup') }}</h3>
+                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                    <dt class="text-zinc-500">{{ __('Symbol') }}</dt><dd class="text-right font-medium" x-text="selected?.symbol"></dd>
+                                    <dt class="text-zinc-500">{{ __('Setup type') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_type"></dd>
+                                    <dt class="text-zinc-500">{{ __('Setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.setup_score"></dd>
+                                    <dt class="text-zinc-500">{{ __('Raw setup score') }}</dt><dd class="text-right font-medium" x-text="selected?.raw_setup_score"></dd>
+                                    <dt class="text-zinc-500">{{ __('Heartbeat') }}</dt><dd class="text-right font-medium" x-text="selected?.heartbeat_score"></dd>
+                                    <dt class="text-zinc-500">{{ __('Status') }}</dt><dd class="text-right font-medium" x-text="selected?.status"></dd>
+                                    <dt class="text-zinc-500">{{ __('Detected') }}</dt><dd class="text-right font-medium" x-text="selected?.detected_at"></dd>
+                                    <dt class="text-zinc-500">{{ __('Sent') }}</dt><dd class="text-right font-medium" x-text="selected?.sent_at"></dd>
+                                </dl>
+                            </div>
+
+                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                                <h3 class="mb-3 font-semibold">{{ __('Technical details') }}</h3>
+                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                    <dt class="text-zinc-500">{{ __('Spike date') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_date"></dd>
+                                    <dt class="text-zinc-500">{{ __('Spike volume') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Prior 52w max vol') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_52w_max_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Max 104w volume') }}</dt><dd class="text-right font-medium" x-text="selected?.max_104w_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('52w high-volume spike') }}</dt><dd class="text-right font-medium" x-text="selected?.is_52w_high_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('104w high-volume spike') }}</dt><dd class="text-right font-medium" x-text="selected?.is_104w_high_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Days since comparable spike') }}</dt><dd class="text-right font-medium" x-text="selected?.days_since_previous_comparable_spike"></dd>
+                                    <dt class="text-zinc-500">{{ __('Base start') }}</dt><dd class="text-right font-medium" x-text="selected?.base_start_date"></dd>
+                                    <dt class="text-zinc-500">{{ __('Base end') }}</dt><dd class="text-right font-medium" x-text="selected?.base_end_date"></dd>
+                                    <dt class="text-zinc-500">{{ __('Base days') }}</dt><dd class="text-right font-medium" x-text="selected?.base_duration_days"></dd>
+                                    <dt class="text-zinc-500">{{ __('Base high') }}</dt><dd class="text-right font-medium" x-text="selected?.base_high"></dd>
+                                    <dt class="text-zinc-500">{{ __('Base low') }}</dt><dd class="text-right font-medium" x-text="selected?.base_low"></dd>
+                                    <dt class="text-zinc-500">{{ __('Range compression') }}</dt><dd class="text-right font-medium" x-text="selected?.range_compression_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('ATR ratio') }}</dt><dd class="text-right font-medium" x-text="selected?.atr_contraction_ratio"></dd>
+                                    <dt class="text-zinc-500">{{ __('Volume dry-up') }}</dt><dd class="text-right font-medium" x-text="selected?.volume_dry_up_score"></dd>
+                                    <dt class="text-zinc-500">{{ __('Slope') }}</dt><dd class="text-right font-medium" x-text="selected?.slope"></dd>
+                                    <dt class="text-zinc-500">{{ __('Distance to BO') }}</dt><dd class="text-right font-medium" x-text="selected?.distance_to_breakout_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('MA alignment') }}</dt><dd class="text-right font-medium" x-text="selected?.ma_alignment"></dd>
+                                    <dt class="text-zinc-500">{{ __('Relative strength') }}</dt><dd class="text-right font-medium" x-text="selected?.relative_strength_score"></dd>
+                                </dl>
+                            </div>
+                        </div>
+
+                        {{-- Column 2: Market data + Fundamentals --}}
+                        <div class="space-y-4">
+                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                                <h3 class="mb-3 font-semibold">{{ __('Market data') }}</h3>
+                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                    <dt class="text-zinc-500">{{ __('Company') }}</dt><dd class="text-right font-medium" x-text="selected?.company"></dd>
+                                    <dt class="text-zinc-500">{{ __('Exchange') }}</dt><dd class="text-right font-medium" x-text="selected?.exchange"></dd>
+                                    <dt class="text-zinc-500">{{ __('Price') }}</dt><dd class="text-right font-medium" x-text="selected?.price"></dd>
+                                    <dt class="text-zinc-500">{{ __('Market cap') }}</dt><dd class="text-right font-medium" x-text="selected?.market_cap"></dd>
+                                    <dt class="text-zinc-500">{{ __('Mcap cat.') }}</dt><dd class="text-right font-medium" x-text="selected?.market_cap_category"></dd>
+                                    <dt class="text-zinc-500">{{ __('Shares out') }}</dt><dd class="text-right font-medium" x-text="selected?.shares_outstanding"></dd>
+                                    <dt class="text-zinc-500">{{ __('Float shares') }}</dt><dd class="text-right font-medium" x-text="selected?.float_shares"></dd>
+                                    <dt class="text-zinc-500">{{ __('Free float') }}</dt><dd class="text-right font-medium" x-text="selected?.free_float"></dd>
+                                    <dt class="text-zinc-500">{{ __('Avg daily volume') }}</dt><dd class="text-right font-medium" x-text="selected?.avg_daily_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Liquidity turnover') }}</dt><dd class="text-right font-medium" x-text="selected?.liquidity_turnover_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('Liquidity penalty') }}</dt><dd class="text-right font-medium"><span x-text="selected?.liquidity_penalty_pct"></span> <span class="text-zinc-400">(<span x-text="selected?.liquidity_penalty_points"></span> pts)</span></dd>
+                                </dl>
+                            </div>
+
+                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                                <h3 class="mb-3 font-semibold">{{ __('Fundamentals') }}</h3>
+                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                    <dt class="text-zinc-500">{{ __('EPS YoY') }}</dt><dd class="text-right font-medium" x-text="selected?.quarterly_eps_growth_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('EPS acceleration') }}</dt><dd class="text-right font-medium" x-text="selected?.earnings_acceleration"></dd>
+                                    <dt class="text-zinc-500">{{ __('EPS sequence') }}</dt><dd class="text-right font-medium" x-text="selected?.eps_growth_sequence"></dd>
+                                    <dt class="text-zinc-500">{{ __('Sales YoY') }}</dt><dd class="text-right font-medium" x-text="selected?.quarterly_revenue_growth_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('Sales acceleration') }}</dt><dd class="text-right font-medium" x-text="selected?.sales_acceleration"></dd>
+                                    <dt class="text-zinc-500">{{ __('Sales sequence') }}</dt><dd class="text-right font-medium" x-text="selected?.revenue_growth_sequence"></dd>
+                                    <dt class="text-zinc-500">{{ __('Annual EPS growth') }}</dt><dd class="text-right font-medium" x-text="selected?.annual_eps_growth_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('ROE') }}</dt><dd class="text-right font-medium" x-text="selected?.roe_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('Profit margin') }}</dt><dd class="text-right font-medium" x-text="selected?.profit_margin_pct"></dd>
+                                    <dt class="text-zinc-500">{{ __('Spike relative volume') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_relative_volume"></dd>
+                                    <dt class="text-zinc-500">{{ __('Prior TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_operating_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('Current TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_operating_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('Op. margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.operating_margin_expansion_bps"></dd>
+                                </dl>
+                            </div>
+                        </div>
+
+                        {{-- Column 3: Reason + Score breakdown --}}
+                        <div class="space-y-4">
+                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                                <h3 class="mb-3 font-semibold">{{ __('Reason') }}</h3>
+                                <p class="whitespace-pre-line text-sm leading-6 text-zinc-700 dark:text-zinc-300" x-text="selected?.reason_summary ?? '—'"></p>
+                            </div>
+
                             <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                                 <h3 class="mb-3 font-semibold">{{ __('Score breakdown') }}</h3>
                                 <template x-if="selected?.score_breakdown?.length">
@@ -387,25 +411,6 @@
                                 <template x-if="! selected?.score_breakdown?.length">
                                     <p class="text-sm text-zinc-500">{{ __('No score breakdown available.') }}</p>
                                 </template>
-                            </div>
-
-                            <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                                <h3 class="mb-3 font-semibold">{{ __('Fundamentals') }}</h3>
-                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                    <dt class="text-zinc-500">{{ __('EPS YoY') }}</dt><dd class="text-right font-medium" x-text="selected?.quarterly_eps_growth_pct"></dd>
-                                    <dt class="text-zinc-500">{{ __('EPS acceleration') }}</dt><dd class="text-right font-medium" x-text="selected?.earnings_acceleration"></dd>
-                                    <dt class="text-zinc-500">{{ __('EPS sequence') }}</dt><dd class="text-right font-medium" x-text="selected?.eps_growth_sequence"></dd>
-                                    <dt class="text-zinc-500">{{ __('Sales YoY') }}</dt><dd class="text-right font-medium" x-text="selected?.quarterly_revenue_growth_pct"></dd>
-                                    <dt class="text-zinc-500">{{ __('Sales acceleration') }}</dt><dd class="text-right font-medium" x-text="selected?.sales_acceleration"></dd>
-                                    <dt class="text-zinc-500">{{ __('Sales sequence') }}</dt><dd class="text-right font-medium" x-text="selected?.revenue_growth_sequence"></dd>
-                                    <dt class="text-zinc-500">{{ __('Annual EPS growth') }}</dt><dd class="text-right font-medium" x-text="selected?.annual_eps_growth_pct"></dd>
-                                    <dt class="text-zinc-500">{{ __('ROE') }}</dt><dd class="text-right font-medium" x-text="selected?.roe_pct"></dd>
-                                    <dt class="text-zinc-500">{{ __('Profit margin') }}</dt><dd class="text-right font-medium" x-text="selected?.profit_margin_pct"></dd>
-                                    <dt class="text-zinc-500">{{ __('Spike relative volume') }}</dt><dd class="text-right font-medium" x-text="selected?.spike_relative_volume"></dd>
-                                    <dt class="text-zinc-500">{{ __('Prior TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_operating_margin"></dd>
-                                    <dt class="text-zinc-500">{{ __('Current TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_operating_margin"></dd>
-                                    <dt class="text-zinc-500">{{ __('Op. margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.operating_margin_expansion_bps"></dd>
-                                </dl>
                             </div>
                         </div>
                     </div>
