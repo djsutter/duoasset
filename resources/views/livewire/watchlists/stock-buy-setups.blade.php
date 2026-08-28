@@ -3,28 +3,28 @@
      x-on:keydown.escape.window="modalOpen = false; $wire.closeConfigModal()">
     <style>[x-cloak] { display: none !important; }</style>
 
-    <div class="flex items-end justify-between gap-4">
-        <div>
-            <div class="flex items-center gap-2">
-                <h1 class="text-2xl font-semibold">{{ __('Stock Buy Setups') }}</h1>
-                <button type="button"
-                        wire:click="openConfigModal"
-                        class="inline-flex items-center justify-center p-1 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-                        title="{{ __('Buy Setup Configuration') }}"
-                        aria-label="{{ __('Buy Setup Configuration') }}">
-                    <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.6 6.6 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                </button>
-            </div>
+    <div class="space-y-3">
+        <div class="flex items-center justify-between gap-3">
+            <h1 class="text-xl font-semibold sm:text-2xl">{{ __('Stock Buy Setups') }}</h1>
+            <button type="button"
+                    wire:click="openConfigModal"
+                    class="inline-flex shrink-0 items-center justify-center p-1 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                    title="{{ __('Buy Setup Configuration') }}"
+                    aria-label="{{ __('Buy Setup Configuration') }}">
+                <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.6 6.6 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+            </button>
+        </div>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p class="text-sm text-zinc-500 dark:text-zinc-400">
                 {{ __('Filterable buy setup detections. Click any row for full score breakdown, fundamentals, and reason details.') }}
             </p>
+            <button type="button" wire:click="clearFilters" class="da-btn-secondary self-start sm:shrink-0">
+                {{ __('Reset filters') }}
+            </button>
         </div>
-        <button type="button" wire:click="clearFilters" class="da-btn-secondary">
-            {{ __('Reset filters') }}
-        </button>
     </div>
 
     @if ($flash)
@@ -34,8 +34,8 @@
         </div>
     @endif
 
-    <div class="da-card">
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-9">
+    <div class="da-card w-full p-3 sm:p-4">
+        <div class="grid grid-cols-1 gap-2 sm:gap-3 md:grid-cols-9">
             <div>
                 <label class="da-label">{{ __('Symbol') }}</label>
                 <input type="text" wire:model.live.debounce.400ms="symbol" class="da-input uppercase" placeholder="AAPL">
@@ -89,7 +89,7 @@
                 <input type="date" wire:model.live="dateTo" class="da-input">
             </div>
         </div>
-        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div class="mt-3 grid grid-cols-1 gap-2 sm:gap-3 md:grid-cols-4">
             <div>
                 <label class="da-label">{{ __('Sort by') }}</label>
                 <select wire:model.live="sortBy" class="da-input">
