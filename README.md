@@ -1,6 +1,15 @@
 
 # DuoAsset
 
+## Contents
+
+- [Market Data Updates](#market-data-updates)
+- [Stock Buy Setup Scanner](#stock-buy-setup-scanner)
+- [EPS Surprise Tracker (bidirectional)](#eps-surprise-tracker-bidirectional)
+- [EPS Revision Tracker](#eps-revision-tracker)
+- [Sector Money Flows](#sector-money-flows)
+- [Scripts](#scripts)
+
 ## Market Data Updates
 
 In order to trigger alpha vantage stock updates, run this:
@@ -8,6 +17,204 @@ In order to trigger alpha vantage stock updates, run this:
 ```bash
 php artisan market-watch:update-quotes
 ```
+
+## Stock Buy Setup Scanner
+
+DuoAsset also scans for a **Stock Buy Setup**: a tight, multi-week consolidation base
+followed by a rare high-volume breakout spike (a 52-week or 104-week high-volume day).
+It follows the same overall shape as the EPS scanners below (FMP screener → per-symbol
+job → alert row → opt-in notification → watchlist) and reuses the same
+`App\Services\MarketData\MarketDataProvider` (FMP) — no duplicate HTTP client.
+
+> Detection is a **scored heuristic**, not a hard pass/fail gate. Every candidate that
+> clears the minimal history/market-cap checks gets a `setup_score` (0–100); how that
+> score is used (display, notification, watchlist propagation) is controlled by
+> separate thresholds below.
+
+### 1. Configuration
+
+Unlike the EPS scanners, Buy Setup configuration is **stored in the database**
+(`settings` table, key `buy_setup_config`) via `App\Services\Stocks\BuySetupConfigService`,
+and editable live from the Web UI's config modal (see "Web UI" below). The `.env`
+values and `config/market_data.php` are only the **fallback defaults** used before any
+configuration has been saved from the UI — once saved, the database value always wins
+over `.env`.
+
+Seed the following into `.env` (see `.env.example` for the complete, current list):
+
+```dotenv
+BUY_SETUP_SCANNER_ENABLED=true
+BUY_SETUP_MIN_MARKET_CAP=100000000
+BUY_SETUP_MAX_MARKET_CAP=1000000000000
+BUY_SETUP_MAX_SYMBOLS=4000
+BUY_SETUP_EXCHANGES=NYSE,NASDAQ,TSX,TSXV,AMEX,OTC
+BUY_SETUP_HISTORY_LOOKBACK_DAYS=504
+BUY_SETUP_BENCHMARK_SYMBOLS=SPY,IWM
+
+# Setup score gates: MIN_SETUP_SCORE is a UI filter only (every match is still saved).
+# NOTIFY_MIN_SETUP_SCORE gates email delivery + "Setup" watchlist propagation.
+BUY_SETUP_MIN_SETUP_SCORE=0
+BUY_SETUP_NOTIFY_MIN_SETUP_SCORE=50
+
+# Which of the 4 built-in setup types are active (only heartbeat ships enabled):
+BUY_SETUP_TYPE_HEARTBEAT_CONSOLIDATION_SPIKE_ENABLED=true
+BUY_SETUP_TYPE_RANGE_COMPRESSION_BREAKOUT_ENABLED=false
+BUY_SETUP_TYPE_FLOOR_REVERSAL_ACCUMULATION_ENABLED=false
+BUY_SETUP_TYPE_EARLY_BREAKOUT_FOLLOWTHROUGH_ENABLED=false
+
+# Consolidation-base / spike thresholds:
+BUY_SETUP_RECENT_SPIKE_WINDOW_DAYS=42
+BUY_SETUP_SPIKE_LOOKBACK_DAYS=84
+BUY_SETUP_MIN_BASE_DAYS=60
+BUY_SETUP_MAX_BASE_DAYS=120
+BUY_SETUP_MAX_RANGE_COMPRESSION_PCT=25
+BUY_SETUP_MAX_ATR_RATIO=0.85
+
+# "Sleepy volume" liquidity penalty per market-cap bucket, and an extra notification
+# recipient in addition to per-user opt-ins — see .env.example for score-weight tuning:
+BUY_SETUP_SLEEPY_VOLUME_LARGE_CAP_PENALTY_PCT=40
+BUY_SETUP_SLEEPY_VOLUME_MEDIUM_CAP_PENALTY_PCT=30
+BUY_SETUP_SLEEPY_VOLUME_SMALL_CAP_PENALTY_PCT=20
+BUY_SETUP_SLEEPY_VOLUME_MICRO_CAP_PENALTY_PCT=15
+BUY_SETUP_NOTIFICATION_EMAIL=
+```
+
+Every default above is also exposed in the **Buy Setup Configuration** modal in the Web
+UI — per-setup-type thresholds, score weights (with a running "Active Weight Sum"),
+sleepy-volume penalties, prior-year-revenue penalty tiers, Operating/FCF Margin
+Expansion thresholds, the Growth Synergy Bonus, exchanges, benchmarks and the
+notification email — with changes saved immediately and a "Reset to Defaults" action.
+
+### 2. Database
+
+Run the migrations to create the `stock_daily_bars` (per-symbol OHLCV history) and
+`stock_buy_setup_alerts` tables:
+
+```bash
+php artisan migrate
+```
+
+Users opt in to Buy Setup emails and automatic watchlist propagation with the
+`users.notify_stock_buy_setup` flag (toggle on the profile/settings page — mirrors
+`notify_eps_earnings` / `notify_eps_revisions`).
+
+### 3. Running the Scanner
+
+```bash
+# full screener sweep (all configured exchanges, up to the max-symbols cap)
+php artisan stocks:scan-buy-setups
+
+# restrict to one or more symbols (skips the screener entirely)
+php artisan stocks:scan-buy-setups --symbol=AAPL --symbol=MSFT
+
+# restrict the screener to specific exchange(s)
+php artisan stocks:scan-buy-setups --exchange=NYSE
+php artisan stocks:scan-buy-setups --exchange=NYSE,NASDAQ
+
+# restrict the screener to symbols starting with a letter — used to slice a large
+# universe into small, fast batches (see scripts/duoasset-setup-scan.sh below)
+php artisan stocks:scan-buy-setups --exchange=NASDAQ --letter=A
+
+# override the per-run symbol cap
+php artisan stocks:scan-buy-setups --limit=500
+
+# debug: process synchronously with a verbose per-symbol breakdown (spike rarity,
+# base/range/ATR metrics, liquidity penalty, full score breakdown)
+php artisan stocks:scan-buy-setups --symbol=AAPL --sync -vv
+```
+
+The command:
+
+1. Loads the FMP company-screener, pre-filtered by market cap (widened to span every
+   *enabled* setup type) and the configured exchanges — unless `--symbol` is given.
+2. Dispatches one `EvaluateStockBuySetup` job per symbol (or runs it inline with
+   `--sync`).
+3. Each job incrementally fetches only the missing days of daily OHLCV bars (persisted
+   in `stock_daily_bars`, keyed on `(symbol, bar_date)`, so re-runs stay cheap), loads a
+   benchmark series (`SPY`/`IWM`) for relative strength, and — only when a configured
+   score component actually needs it — 8 quarters of income/balance-sheet/cash-flow
+   statements.
+4. Runs `StockBuySetupScanner` over the bars for every enabled setup type and scores
+   each match with `StockBuySetupScorer` plus a liquidity ("sleepy volume") penalty.
+5. Idempotently upserts a `StockBuySetupAlert`, keyed on
+   `(source, symbol, setup_type, spike_date)` — rescans refresh the score without
+   duplicating rows.
+6. When `setup_score >= notify_min_setup_score` (default 50), provisions the `Stock`
+   row and appends it to the **"Setup"** watchlist (auto-created on first match) of
+   every user with `notify_stock_buy_setup = true`, and — only the first time that
+   alert is created — dispatches `SendStockBuySetupAlert` to deliver a
+   `StockBuySetupDetected` notification.
+
+Because the heavy work is queued by default, make sure a worker is running (or pass
+`--sync` for a foreground/debug pass):
+
+```bash
+php artisan queue:work
+```
+
+### 4. Detection & Scoring
+
+`StockBuySetupScanner` requires at least 252 daily bars (~52 weeks) and looks for a
+trading day — within `recent_spike_window_days`/`spike_lookback_days` of today — whose
+volume is a **52-week or 104-week high**, following a tight base of
+`min_base_days`–`max_base_days` prior sessions. The spike is a *scored bonus, not a hard
+gate*: if no qualifying 52w/104w high is found, the highest-volume day in the recent
+window is still used as an anchor with 0 rarity points, so near-misses still surface
+for review.
+
+`StockBuySetupScorer` blends the technicals (spike rarity, base duration, price-range
+compression, ATR contraction, volume dry-up, distance to breakout, moving-average
+alignment, relative strength vs the benchmark) and fundamentals (EPS/sales
+acceleration, Operating/FCF margin expansion) into a weighted 0–100 `setup_score`.
+`StockBuySetupLiquidityPenalty` then discounts illiquid ("sleepy volume", i.e. low
+turnover vs float) names by up to the configured per-market-cap-bucket penalty, before
+an optional Growth Synergy Bonus is added back on top (capped at 100 overall).
+
+Market-cap buckets used throughout: `micro` (< $300M), `small` (< $2B), `mid` (< $10B),
+`large` (< $200B), `mega` (≥ $200B) — each setup type can define its own eligible
+`min_market_cap`/`max_market_cap` range.
+
+### 5. Scheduler
+
+`stocks:scan-buy-setups` is **not** registered in `routes/console.php`'s in-app
+scheduler. It runs from the standalone `scripts/duoasset-setup-scan.sh` cron script,
+which walks every configured exchange × letter A–Z
+(`--exchange=X --letter=Y --sync -vv`) so each invocation only screens a small, fast
+slice of the universe. See [Scripts](#scripts) below for the recommended crontab entry.
+
+### 6. Web UI
+
+Authenticated users can browse detected setups at:
+
+```
+/watchlist/stock-buy-setups
+```
+
+Features:
+
+- Auto-refreshes every 30 seconds (`wire:poll.30s`).
+- Filters: setup type, min score, min market cap, market-cap category, exchange,
+  detected-date range, symbol/company search, "unwatched only".
+- Columns: symbol, setup type, score, company, exchange, price, market cap, spike date,
+  spike volume, base days, range %, detected time. Click a row for the full technical,
+  fundamentals and score-breakdown detail.
+- **Add to Watchlist** action — creates/reuses the "Setup" watchlist and appends the
+  stock with a note summarizing the setup type, score and reason.
+- A gear icon opens the **Buy Setup Configuration** modal described above.
+
+### 7. Tests
+
+```bash
+./vendor/bin/pest tests/Feature/Commands/ScanBuySetupsDynamicConfigTest.php
+./vendor/bin/pest tests/Unit/Stocks
+./vendor/bin/pest tests/Feature/Watchlists/StockBuySetupConfigModalTest.php tests/Feature/Watchlists/StockBuySetupsSymbolTest.php
+```
+
+Covers: enabled/disabled scanner gating, per-setup-type market-cap ranges (inclusive
+boundaries and the $50M–$1T fallback range), reason-summary text, score-component math
+and dynamic per-type weights, the Growth Synergy Bonus, the cash-flow-fetch
+optimization (only fetched when a configured weight needs it), and the
+watchlist/config-modal UI.
 
 ## EPS Surprise Tracker (bidirectional)
 
@@ -81,29 +288,17 @@ Because the heavy work is queued, make sure a worker is running:
 php artisan queue:work
 ```
 
-### 3.1 Running the Money Flow scanner
-
-```bash
-php artisan moneyflow:update --interval=hourly
-```
-
 ### 4. Scheduler
 
-The scanner is wired into `routes/console.php` and runs automatically once the Laravel scheduler is active:
+The scanner is wired into `routes/console.php` and runs automatically once Laravel's
+scheduler is active (`php artisan schedule:run` on cron):
 
 - Every **5 minutes** on weekdays between **06:00 – 18:00 America/Toronto**.
 - A final sweep at **20:30 America/Toronto** to catch after-hours releases.
 
-Enable it via cron:
-
-```cron
-41 7 * * * /path/to/duoasset/scripts/duoasset-setup-scan.sh >> /path/to/duoasset/storage/logs/duoasset-buy-setups.log 2>&1
-30 8 * * * /path/to/duoasset/scripts/duoasset-earnings-scan.sh >> /path/to/duoasset/storage/logs/duoasset-earnings-scan.log 2>&1
-30 9 * * * /path/to/duoasset/scripts/duoasset-quote.sh >> /path/to/duoasset/storage/logs/duoasset-quotes.log 2>&1
-30 13-20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow-hourly.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow-hourly.log 2>&1
-30 20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow-hourly.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow.log 2>&1
-#* * * * * cd /path/to/duoasset && php artisan schedule:run >> /dev/null 2>&1
-```
+In production this currently runs instead via the standalone
+`scripts/duoasset-earnings-scan.sh` cron script — see [Scripts](#scripts) for the full
+crontab and why only one of the two mechanisms should be enabled at a time.
 
 ### 5. Health Check
 
@@ -168,9 +363,6 @@ Driven by the FMP **company-screener** endpoint, pre-filtered by `EPS_REVISION_M
 # poll the full universe (or whatever EPS_REVISION_MAX_SYMBOLS caps at)
 php artisan earnings:scan-revisions
 
-# setup scan
-php artisan stocks:scan-buy-setups
-
 # restrict to specific symbols (skips the screener)
 php artisan earnings:scan-revisions --symbol=AAPL --symbol=MSFT
 
@@ -194,7 +386,9 @@ The revision scanner is scheduled twice per day in `routes/console.php`:
 - **07:00 America/Toronto** (pre-market)
 - **17:00 America/Toronto** (post-close)
 
-on weekdays.
+on weekdays. Unlike the other scanners, there is **no standalone `scripts/*.sh` wrapper**
+for `earnings:scan-revisions` (see [Scripts](#scripts)), so these alerts only fire if
+`php artisan schedule:run` is actually enabled in cron.
 
 ### Web UI
 
@@ -220,3 +414,75 @@ The EPS Surprise page (`/watchlist/earnings-surprises`) also gained a **Directio
 ```
 
 Covers: first-sight no-op, positive-direction alert, negative-direction alert, between-threshold no-op, duplicate-alert prevention, and zero previous-estimate handling. All FMP calls are stubbed with `Http::fake`.
+
+## Sector Money Flows
+
+DuoAsset also tracks where institutional money is rotating across sectors, using the
+major North American sector ETFs as a top-down, price/volume-based proxy — a companion
+to the bottom-up scanners above. Full details (terminology, the ETF universe, the
+scoring pipeline, and known limitations) live in
+[`docs/sector-money-flows.md`](docs/sector-money-flows.md); this section only covers
+the day-to-day commands.
+
+```bash
+# End-of-day authoritative capture (all sectors)
+php artisan moneyflow:update
+
+# Intraday hourly capture (for intraday traders)
+php artisan moneyflow:update --interval=hourly
+
+# One or more sectors, with a per-sector result table
+php artisan moneyflow:update --sector=technology --sector=energy --verbose-table
+
+# Run even if disabled in config
+php artisan moneyflow:update --force
+```
+
+Scheduled in `routes/console.php` (`America/New_York`): hourly intraday captures on
+weekdays between 10:00–16:00 ET, plus an authoritative end-of-day capture at 17:15 ET.
+In production this currently runs instead via the standalone
+`scripts/duoasset-moneyflow-hourly.sh` / `scripts/duoasset-moneyflow.sh` cron scripts —
+see [Scripts](#scripts).
+
+- **Dashboard** — `App\Livewire\MoneyFlows\Index` at `/money-flows`, sortable by
+  sector/strength/timeframe/velocity/acceleration/breadth/direction/rank.
+- **Widget** — `App\Livewire\MoneyFlows\Widget`, embed with
+  `<livewire:money-flows.widget />`.
+
+## Scripts
+
+The `scripts/` folder holds the standalone shell wrappers that drive the daily
+production automation via cron, as an alternative to Laravel's `Schedule::` facade in
+`routes/console.php`. Each one `cd`s into the app directory and calls `php artisan ...`
+directly, so none of them depend on `php artisan schedule:run` being enabled.
+
+| Script | Command it runs | Purpose |
+| --- | --- | --- |
+| `duoasset-setup-scan.sh` | `stocks:scan-buy-setups --exchange=X --letter=Y --sync -vv` looped over NYSE/NASDAQ/TSX/TSXV × A–Z | Full Stock Buy Setup sweep, one exchange/letter slice at a time so each screener call stays small and fast. |
+| `duoasset-earnings-scan.sh` | `earnings:scan-surprises -vvv --from=<today-70d> --to=<today>` | EPS Earnings Surprise scan over a rolling 70-day window. |
+| `duoasset-quote.sh` | `market-watch:update-quotes -vvv` | Refreshes Alpha Vantage quote data. |
+| `duoasset-moneyflow-hourly.sh` | `moneyflow:update --interval=hourly -vv` | Intraday Sector Money Flow capture. |
+| `duoasset-moneyflow.sh` | `moneyflow:update -vv` (defaults to `--interval=eod`) | End-of-day authoritative Sector Money Flow capture. |
+
+Suggested crontab (adjust `/path/to/duoasset` and log paths; the hours below assume a
+UTC server clock — shift them if your server uses a different timezone):
+
+```cron
+41 7 * * * /path/to/duoasset/scripts/duoasset-setup-scan.sh >> /path/to/duoasset/storage/logs/duoasset-buy-setups.log 2>&1
+30 8 * * * /path/to/duoasset/scripts/duoasset-earnings-scan.sh >> /path/to/duoasset/storage/logs/duoasset-earnings-scan.log 2>&1
+30 9 * * * /path/to/duoasset/scripts/duoasset-quote.sh >> /path/to/duoasset/storage/logs/duoasset-quotes.log 2>&1
+30 13-20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow-hourly.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow-hourly.log 2>&1
+30 20 * * 1-5 /path/to/duoasset/scripts/duoasset-moneyflow.sh >> /path/to/duoasset/storage/logs/duoasset-moneyflow.log 2>&1
+#* * * * * cd /path/to/duoasset && php artisan schedule:run >> /dev/null 2>&1
+```
+
+> **Don't enable both mechanisms for the same command.** `routes/console.php` also
+> registers `earnings:scan-surprises` and `moneyflow:update` on Laravel's own scheduler
+> (see each feature's "Scheduler" section above), which only fires if
+> `php artisan schedule:run` is enabled in cron (commented out above). Since the
+> scripts in the table call the same artisan commands directly, pick **either** the
+> per-script cron line **or** `schedule:run` for those two commands, not both, to avoid
+> double-scanning and duplicate alerts. `stocks:scan-buy-setups` and
+> `market-watch:update-quotes` have **no** `Schedule::` entry at all — they only run via
+> their script line above. `earnings:scan-revisions` is the opposite: it has **no**
+> script — it only runs if `schedule:run` is enabled.
