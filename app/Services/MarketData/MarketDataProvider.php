@@ -82,6 +82,16 @@ interface MarketDataProvider
     public function quarterlyBalanceSheets(string $symbol, int $limit = 8): array;
 
     /**
+     * Return normalized quarterly cash flow statement rows for a symbol.
+     *
+     * Each row keys where available:
+     *   date, free_cash_flow, fiscal_year, period, reported_currency, raw.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function quarterlyCashFlowStatements(string $symbol, int $limit = 8): array;
+
+    /**
      * Return normalized rows from a company / equity screener filtered
      * by the given criteria (currently: marketCapMoreThan, exchange list).
      *

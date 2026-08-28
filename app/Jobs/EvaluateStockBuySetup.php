@@ -152,6 +152,15 @@ class EvaluateStockBuySetup implements ShouldQueue
                     $result->setupType,
                 );
                 $score = (int) $liquidity['adjusted_score'];
+
+                // Growth Synergy Bonus: a small, configurable bonus added on
+                // top of the normal setup score (disabled by default per
+                // setup type). Reuses the already-calculated normalized
+                // scores above; never recalculated here. See
+                // StockBuySetupScorer::growthSynergyBonus().
+                $growthSynergyBonus = $scorer->growthSynergyBonus($result, $result->setupType);
+                $score = min(100, $score + $growthSynergyBonus['points']);
+
                 $result->rawSetupScore = $rawScore;
                 $result->heartbeatScore = $rawScore;
                 $result->setupScore = $score;
@@ -220,6 +229,9 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'operating_margin_expansion_bps' => $result->operatingMarginExpansionBps,
                     'current_ttm_operating_margin' => $result->currentTtmOperatingMargin,
                     'prior_ttm_operating_margin' => $result->priorTtmOperatingMargin,
+                    'fcf_margin_expansion_bps' => $result->fcfMarginExpansionBps,
+                    'current_ttm_fcf_margin' => $result->currentTtmFcfMargin,
+                    'prior_ttm_fcf_margin' => $result->priorTtmFcfMargin,
                     'heartbeat_score' => $result->heartbeatScore,
                     'reason_summary' => $result->reasonSummary,
                 ]);
@@ -289,6 +301,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'liquidity_turnover_pct' => $result->liquidityTurnoverPct,
                     'liquidity_penalty_pct' => $result->liquidityPenaltyPct,
                     'liquidity_penalty_points' => $result->liquidityPenaltyPoints,
+                    'growth_synergy_bonus' => $growthSynergyBonus,
                     'score_breakdown' => $breakdown,
                     'spike_date' => $spikeDate,
                     'spike_age_bars' => $result->spikeAgeBars,
@@ -370,7 +383,8 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
 
             $balance = $provider->quarterlyBalanceSheets($symbol, 8);
-            $metrics = $fundamentals->analyze($income, $balance);
+            $cashFlow = $provider->quarterlyCashFlowStatements($symbol, 8);
+            $metrics = $fundamentals->analyze($income, $balance, $cashFlow);
 
             // FMP supplies absolute revenue on each quarterly income statement,
             // not a dedicated prior_year_revenue field. Derive the comparable

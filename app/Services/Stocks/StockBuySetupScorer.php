@@ -115,6 +115,16 @@ class StockBuySetupScorer
                 'max' => $weights['operating_margin_expansion'] ?? 0,
                 'value' => $this->operatingMarginExpansionValue($r),
             ],
+            'fcf_margin_expansion' => [
+                'label' => 'FCF margin expansion',
+                'points' => $this->fcfMarginExpansionPoints(
+                    $this->nullableFloat($r->fcfMarginExpansionBps ?? $r->fcf_margin_expansion_bps ?? null),
+                    $weights['fcf_margin_expansion'] ?? 0,
+                    $type,
+                ),
+                'max' => $weights['fcf_margin_expansion'] ?? 0,
+                'value' => $this->fcfMarginExpansionValue($r),
+            ],
         ];
     }
 
@@ -283,21 +293,14 @@ class StockBuySetupScorer
      */
     private function operatingMarginExpansionPoints(?float $bps, int $max, ?string $setupType): int
     {
-        if ($max <= 0 || $bps === null) {
+        if ($max <= 0) {
             return 0;
         }
 
         $thresholds = app(BuySetupConfigService::class)->getOperatingMarginExpansionThresholds($setupType);
+        $normalized = $this->marginExpansionNormalizedScore($bps, $thresholds);
 
-        $normalized = app(ThresholdInterpolationScorer::class)->score(
-            $bps,
-            (float) $thresholds['threshold_25'],
-            (float) $thresholds['threshold_50'],
-            (float) $thresholds['threshold_75'],
-            (float) $thresholds['threshold_100'],
-        );
-
-        return (int) round($max * ($normalized / 100));
+        return $normalized === null ? 0 : (int) round($max * ($normalized / 100));
     }
 
     private function operatingMarginExpansionValue(StockBuySetupResult|StockBuySetupAlert $r): string
@@ -310,6 +313,57 @@ class StockBuySetupScorer
         $sign = $bps >= 0 ? '+' : '';
 
         return $sign.number_format($bps).' bps';
+    }
+
+    /**
+     * Converts FCF Margin Expansion (basis points) into earned points out
+     * of the configured maximum. Mirrors operatingMarginExpansionPoints().
+     */
+    private function fcfMarginExpansionPoints(?float $bps, int $max, ?string $setupType): int
+    {
+        if ($max <= 0) {
+            return 0;
+        }
+
+        $thresholds = app(BuySetupConfigService::class)->getFcfMarginExpansionThresholds($setupType);
+        $normalized = $this->marginExpansionNormalizedScore($bps, $thresholds);
+
+        return $normalized === null ? 0 : (int) round($max * ($normalized / 100));
+    }
+
+    private function fcfMarginExpansionValue(StockBuySetupResult|StockBuySetupAlert $r): string
+    {
+        $bps = $this->nullableFloat($r->fcfMarginExpansionBps ?? $r->fcf_margin_expansion_bps ?? null);
+        if ($bps === null) {
+            return 'n/a';
+        }
+
+        $sign = $bps >= 0 ? '+' : '';
+
+        return $sign.number_format($bps).' bps';
+    }
+
+    /**
+     * Converts a margin-expansion basis-point value into a 0-100 normalized
+     * score via the reusable threshold interpolation scorer. Missing data
+     * (bps === null) returns null rather than a valid 0 score, so callers
+     * can distinguish "no expansion" from "unavailable".
+     *
+     * @param  array{threshold_25: int, threshold_50: int, threshold_75: int, threshold_100: int}  $thresholds
+     */
+    private function marginExpansionNormalizedScore(?float $bps, array $thresholds): ?float
+    {
+        if ($bps === null) {
+            return null;
+        }
+
+        return app(ThresholdInterpolationScorer::class)->score(
+            $bps,
+            (float) $thresholds['threshold_25'],
+            (float) $thresholds['threshold_50'],
+            (float) $thresholds['threshold_75'],
+            (float) $thresholds['threshold_100'],
+        );
     }
 
     /**
@@ -338,13 +392,33 @@ class StockBuySetupScorer
      */
     private function logarithmicBonusPoints(?float $value, int $max, float $scale): int
     {
-        if ($max <= 0 || $value === null || $value <= 0) {
+        if ($max <= 0) {
             return 0;
+        }
+
+        $normalized = $this->logarithmicNormalizedScore($value, $scale);
+
+        return $normalized === null ? 0 : (int) round($max * ($normalized / 100));
+    }
+
+    /**
+     * Converts a raw acceleration value into a 0-100 normalized score using
+     * the same true-logarithmic curve as logarithmicBonusPoints(), but
+     * independent of any setup type's configured weight. Missing data
+     * (value === null) returns null rather than a valid 0 score.
+     */
+    private function logarithmicNormalizedScore(?float $value, float $scale): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        if ($value <= 0) {
+            return 0.0;
         }
 
         $normalized = log1p($value) / log1p(max(0.0001, $scale));
 
-        return (int) round($max * min(1.0, max(0.0, $normalized)));
+        return round(100 * min(1.0, max(0.0, $normalized)), 4);
     }
 
     /**
@@ -388,6 +462,124 @@ class StockBuySetupScorer
         }
 
         return $points;
+    }
+
+    /**
+     * Growth Synergy Bonus (v1): a small additional bonus, on top of the
+     * normal setup score, rewarding companies where Sales Acceleration,
+     * Operating Margin Expansion, and FCF Margin Expansion all confirm
+     * strong growth quality at the same time.
+     *
+     * Reuses the already-calculated normalized (0-100) scores for those
+     * three metrics — nothing is recalculated. Only eligible when Sales
+     * YoY meets the configured minimum, which prevents shrinking-revenue
+     * companies from earning a growth bonus via cost-cutting margin gains.
+     * Disabled by default per setup type; the caller is responsible for
+     * adding the returned points on top of the base setup score and
+     * respecting the application's overall score cap.
+     *
+     * @return array{enabled: bool, eligible: bool, points: int, max: int, sales_yoy_pct: float|null, sales_acceleration_score: float|null, operating_margin_expansion_score: float|null, fcf_margin_expansion_score: float|null}
+     */
+    public function growthSynergyBonus(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType = null,
+    ): array {
+        $configService = app(BuySetupConfigService::class);
+        $config = $configService->getGrowthSynergyBonusConfig($setupType);
+        $maxPoints = $config['max_points'];
+
+        $salesYoy = $this->nullableFloat($r->quarterlyRevenueGrowthPct ?? $r->quarterly_revenue_growth_pct ?? null);
+        $scales = $this->accelerationScales();
+        $salesAccelerationScore = $this->logarithmicNormalizedScore(
+            $this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null),
+            $scales['sales_acceleration'],
+        );
+        $operatingMarginExpansionScore = $this->marginExpansionNormalizedScore(
+            $this->nullableFloat($r->operatingMarginExpansionBps ?? $r->operating_margin_expansion_bps ?? null),
+            $configService->getOperatingMarginExpansionThresholds($setupType),
+        );
+        $fcfMarginExpansionScore = $this->marginExpansionNormalizedScore(
+            $this->nullableFloat($r->fcfMarginExpansionBps ?? $r->fcf_margin_expansion_bps ?? null),
+            $configService->getFcfMarginExpansionThresholds($setupType),
+        );
+
+        $result = [
+            'enabled' => $config['enabled'],
+            'eligible' => false,
+            'points' => 0,
+            'max' => $maxPoints,
+            'sales_yoy_pct' => $salesYoy,
+            'sales_acceleration_score' => $salesAccelerationScore,
+            'operating_margin_expansion_score' => $operatingMarginExpansionScore,
+            'fcf_margin_expansion_score' => $fcfMarginExpansionScore,
+        ];
+
+        if (! $config['enabled'] || $maxPoints <= 0) {
+            return $result;
+        }
+
+        // Eligibility gate: shrinking/insufficient revenue growth never earns
+        // a growth synergy bonus, regardless of how strong the margins are.
+        if ($salesYoy === null || $salesYoy < $config['min_sales_yoy']) {
+            return $result;
+        }
+
+        $result['eligible'] = true;
+
+        $meetsAll = function (float $threshold) use ($salesAccelerationScore, $operatingMarginExpansionScore, $fcfMarginExpansionScore): bool {
+            return $salesAccelerationScore !== null && $salesAccelerationScore >= $threshold
+                && $operatingMarginExpansionScore !== null && $operatingMarginExpansionScore >= $threshold
+                && $fcfMarginExpansionScore !== null && $fcfMarginExpansionScore >= $threshold;
+        };
+
+        $twoMetricConfirmation = $salesAccelerationScore !== null && $salesAccelerationScore >= $config['medium_threshold']
+            && $operatingMarginExpansionScore !== null && $operatingMarginExpansionScore >= $config['medium_threshold'];
+
+        $points = match (true) {
+            $meetsAll($config['exceptional_threshold']) => 10,
+            $meetsAll($config['strong_threshold']) => 8,
+            $meetsAll($config['medium_threshold']) => 5,
+            $twoMetricConfirmation => 2,
+            default => 0,
+        };
+
+        $result['points'] = max(0, min($maxPoints, $points));
+
+        return $result;
+    }
+
+    /**
+     * Builds a display-only score breakdown entry for the Growth Synergy
+     * Bonus, in the same {label, points, max, value} shape as breakdown().
+     * Deliberately NOT part of breakdown()'s weighted-component pool —
+     * scoreFromBreakdown()/scoreMetaFromBreakdown() sum every entry's
+     * points/max to normalize to 0-100, whereas the synergy bonus must be
+     * added flat, after that normalization (see growthSynergyBonus()).
+     *
+     * @return array{label: string, points: int, max: int, value: string}
+     */
+    public function growthSynergyBonusBreakdownEntry(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType = null,
+    ): array {
+        $bonus = $this->growthSynergyBonus($r, $setupType);
+
+        $format = fn (?float $v) => $v === null ? 'n/a' : number_format($v, 0);
+
+        $value = sprintf(
+            'Sales YoY: %s%% | Sales Accel: %s | Operating Margin Expansion: %s | FCF Margin Expansion: %s',
+            $bonus['sales_yoy_pct'] === null ? 'n/a' : number_format($bonus['sales_yoy_pct'], 0),
+            $format($bonus['sales_acceleration_score']),
+            $format($bonus['operating_margin_expansion_score']),
+            $format($bonus['fcf_margin_expansion_score']),
+        );
+
+        return [
+            'label' => 'Growth synergy bonus',
+            'points' => $bonus['points'],
+            'max' => $bonus['max'],
+            'value' => $value,
+        ];
     }
 
     private function nullableFloat(mixed $value): ?float

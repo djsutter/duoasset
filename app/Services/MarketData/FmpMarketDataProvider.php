@@ -260,6 +260,30 @@ class FmpMarketDataProvider implements MarketDataProvider
         });
     }
 
+    public function quarterlyCashFlowStatements(string $symbol, int $limit = 8): array
+    {
+        $symbol = $this->normalizeSymbol($symbol);
+        if ($symbol === '') {
+            return [];
+        }
+
+        $limit = max(4, min(40, $limit));
+        $cacheKey = "fmp.cash_flow_quarter.$symbol.$limit";
+
+        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
+            $rows = $this->get('cash-flow-statement', [
+                'symbol' => $symbol,
+                'period' => 'quarter',
+                'limit' => $limit,
+            ]) ?? [];
+
+            return array_values(array_filter(array_map(
+                fn ($row) => $this->normalizeCashFlowStatementRow($row),
+                is_array($rows) ? $rows : [],
+            )));
+        });
+    }
+
     public function companyScreener(array $filters = []): array
     {
         $query = [];
@@ -758,6 +782,43 @@ class FmpMarketDataProvider implements MarketDataProvider
                     ?? $row['totalEquity']
                     ?? null,
             ),
+            'raw' => $row,
+        ];
+    }
+
+    protected function normalizeCashFlowStatementRow(mixed $row): ?array
+    {
+        if (! is_array($row)) {
+            return null;
+        }
+
+        $date = $row['date'] ?? $row['calendarDate'] ?? $row['fillingDate'] ?? null;
+        if (! $date) {
+            return null;
+        }
+
+        // Prefer FMP's own freeCashFlow figure when present; otherwise derive
+        // it as operatingCashFlow + capitalExpenditure (FMP reports capex as
+        // a negative outflow already).
+        $freeCashFlow = $this->toFloat($row['freeCashFlow'] ?? null);
+        if ($freeCashFlow === null) {
+            $operatingCashFlow = $this->toFloat(
+                $row['operatingCashFlow'] ?? $row['netCashProvidedByOperatingActivities'] ?? null,
+            );
+            $capitalExpenditure = $this->toFloat($row['capitalExpenditure'] ?? null);
+            if ($operatingCashFlow !== null && $capitalExpenditure !== null) {
+                $freeCashFlow = $operatingCashFlow + $capitalExpenditure;
+            }
+        }
+
+        return [
+            'date' => substr((string) $date, 0, 10),
+            // Used for FCF Margin Expansion (free_cash_flow / revenue). May
+            // legitimately be negative; only null represents missing data.
+            'free_cash_flow' => $freeCashFlow,
+            'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
+            'period' => $row['period'] ?? null,
+            'reported_currency' => $row['reportedCurrency'] ?? null,
             'raw' => $row,
         ];
     }

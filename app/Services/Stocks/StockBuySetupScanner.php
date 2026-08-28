@@ -346,6 +346,9 @@ class StockBuySetupScanner
             operatingMarginExpansionBps: $this->nullableFloat($context['operating_margin_expansion_bps'] ?? null),
             currentTtmOperatingMargin: $this->nullableFloat($context['current_ttm_operating_margin'] ?? null),
             priorTtmOperatingMargin: $this->nullableFloat($context['prior_ttm_operating_margin'] ?? null),
+            fcfMarginExpansionBps: $this->nullableFloat($context['fcf_margin_expansion_bps'] ?? null),
+            currentTtmFcfMargin: $this->nullableFloat($context['current_ttm_fcf_margin'] ?? null),
+            priorTtmFcfMargin: $this->nullableFloat($context['prior_ttm_fcf_margin'] ?? null),
             price: $this->nullableFloat($context['price'] ?? null),
             sharesOutstanding: $this->nullableInt($context['shares_outstanding'] ?? null),
             floatShares: $this->nullableInt($context['float_shares'] ?? null),
@@ -467,23 +470,37 @@ class StockBuySetupScanner
         return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
 
+    /**
+     * Builds the Reason text as two short, labelled paragraphs so it reads
+     * better in the modal card: the existing technical setup description
+     * under "Technical:", followed by the newer fundamental scoring
+     * metrics (when enabled/available) under "Fundamentals:".
+     */
     private function reasonSummary(StockBuySetupResult $r, ?float $priorYearRevenue = null): string
     {
-        $bits = [];
-        $bits[] = $r->spikeRarityDescription;
-        $bits[] = "base {$r->baseDurationDays}d (range ".number_format($r->rangeCompressionPct, 1).'%)';
-        $bits[] = 'ATR ratio '.number_format($r->atrContractionRatio, 2);
+        $technicalBits = [];
+        $technicalBits[] = $r->spikeRarityDescription;
+        $technicalBits[] = "base {$r->baseDurationDays}d (range ".number_format($r->rangeCompressionPct, 1).'%)';
+        $technicalBits[] = 'ATR ratio '.number_format($r->atrContractionRatio, 2);
         if ($r->relativeStrengthScore !== null) {
-            $bits[] = 'RS '.($r->relativeStrengthScore >= 0 ? '+' : '').number_format($r->relativeStrengthScore, 1);
+            $technicalBits[] = 'RS '.($r->relativeStrengthScore >= 0 ? '+' : '').number_format($r->relativeStrengthScore, 1);
         }
-        $bits[] = 'dist to bo '.number_format($r->distanceToBreakoutPct, 1).'%';
+        $technicalBits[] = 'dist to bo '.number_format($r->distanceToBreakoutPct, 1).'%';
 
-        return implode('; ', array_merge($bits, $this->reasonFundamentalBits($r, $priorYearRevenue)));
+        $paragraphs = ["Technical:\n".implode('; ', $technicalBits).'.'];
+
+        $fundamentalBits = $this->reasonFundamentalBits($r, $priorYearRevenue);
+        if ($fundamentalBits !== []) {
+            $paragraphs[] = "Fundamentals:\n".implode('; ', array_map('ucfirst', $fundamentalBits)).'.';
+        }
+
+        return implode("\n\n", $paragraphs);
     }
 
     /**
-     * Appends the newer fundamental scoring metrics (earnings acceleration,
-     * sales acceleration, operating margin expansion) to the Reason text.
+     * Builds the newer fundamental scoring metric bits (earnings
+     * acceleration, sales acceleration, operating margin expansion) used
+     * for the "Fundamentals:" paragraph of the Reason text.
      *
      * Reuses the points/max/value already computed by
      * StockBuySetupScorer::breakdown() — the same source of truth backing
@@ -501,12 +518,14 @@ class StockBuySetupScanner
             'earnings_acceleration' => 'earnings accel',
             'sales_acceleration' => 'sales accel',
             'operating_margin_expansion' => 'operating margin expansion',
+            'fcf_margin_expansion' => 'FCF margin expansion',
         ];
 
         $rawValues = [
             'earnings_acceleration' => $r->earningsAcceleration,
             'sales_acceleration' => $r->salesAcceleration,
             'operating_margin_expansion' => $r->operatingMarginExpansionBps,
+            'fcf_margin_expansion' => $r->fcfMarginExpansionBps,
         ];
 
         $bits = [];

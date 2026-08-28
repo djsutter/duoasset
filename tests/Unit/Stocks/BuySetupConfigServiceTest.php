@@ -209,3 +209,88 @@ test('it rejects a setup types market cap range when min exceeds max and falls b
     $range = (new BuySetupConfigService)->getSetupMarketCapRange('heartbeat_consolidation_spike');
     expect($range)->toEqual(['min' => 50000000, 'max' => 1000000000000]);
 });
+
+test('every default setup type has the growth synergy bonus disabled by default', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    foreach ($config['setup_types'] as $key => $type) {
+        $bonus = $service->getGrowthSynergyBonusConfig($key);
+
+        expect($bonus['enabled'])->toBeFalse()
+            ->and($bonus['max_points'])->toBe(10)
+            ->and($bonus['min_sales_yoy'])->toBe(20.0)
+            ->and($bonus['medium_threshold'])->toBe(50.0)
+            ->and($bonus['strong_threshold'])->toBe(75.0)
+            ->and($bonus['exceptional_threshold'])->toBe(90.0);
+    }
+});
+
+test('a newly created dynamic setup type automatically receives the growth synergy bonus defaults', function () {
+    $service = new BuySetupConfigService;
+    $newType = $service->createDefaultSetupType('breakout_momentum', 'Breakout Momentum');
+
+    expect($newType['growth_synergy_bonus']['enabled'])->toBeFalse()
+        ->and($newType['growth_synergy_bonus']['max_points'])->toBe(10);
+
+    $config = $service->getConfig();
+    $config['setup_types']['breakout_momentum'] = $newType;
+    $service->saveConfig($config);
+
+    $bonus = (new BuySetupConfigService)->getGrowthSynergyBonusConfig('breakout_momentum');
+    expect($bonus['enabled'])->toBeFalse()
+        ->and($bonus['max_points'])->toBe(10);
+});
+
+test('it persists a valid growth synergy bonus configuration', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus'] = [
+        'enabled' => true,
+        'max_points' => 6,
+        'min_sales_yoy' => 15,
+        'medium_threshold' => 40,
+        'strong_threshold' => 70,
+        'exceptional_threshold' => 85,
+    ];
+    $service->saveConfig($config);
+
+    $bonus = (new BuySetupConfigService)->getGrowthSynergyBonusConfig('heartbeat_consolidation_spike');
+    expect($bonus['enabled'])->toBeTrue()
+        ->and($bonus['max_points'])->toBe(6)
+        ->and($bonus['min_sales_yoy'])->toBe(15.0)
+        ->and($bonus['medium_threshold'])->toBe(40.0)
+        ->and($bonus['strong_threshold'])->toBe(70.0)
+        ->and($bonus['exceptional_threshold'])->toBe(85.0);
+});
+
+test('it rejects an invalid growth synergy bonus configuration and falls back to defaults', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    // Invalid: medium >= strong
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus'] = [
+        'enabled' => true,
+        'max_points' => 6,
+        'min_sales_yoy' => 15,
+        'medium_threshold' => 80,
+        'strong_threshold' => 70,
+        'exceptional_threshold' => 90,
+    ];
+    $service->saveConfig($config);
+
+    $bonus = (new BuySetupConfigService)->getGrowthSynergyBonusConfig('heartbeat_consolidation_spike');
+    expect($bonus)->toEqual(BuySetupConfigService::DEFAULT_GROWTH_SYNERGY_BONUS);
+});
+
+test('every default setup type defaults to fcf margin expansion thresholds matching operating margin expansion', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    foreach ($config['setup_types'] as $key => $type) {
+        $thresholds = $service->getFcfMarginExpansionThresholds($key);
+
+        expect($thresholds)->toEqual(BuySetupConfigService::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS);
+    }
+});

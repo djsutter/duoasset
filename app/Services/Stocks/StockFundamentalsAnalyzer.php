@@ -32,9 +32,10 @@ class StockFundamentalsAnalyzer
     /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
+     * @param  array<int, array<string, mixed>>  $cashFlowRows
      * @return array<string, mixed>
      */
-    public function analyze(array $incomeRows, array $balanceRows = []): array
+    public function analyze(array $incomeRows, array $balanceRows = [], array $cashFlowRows = []): array
     {
         $income = $this->sortAscending($incomeRows);
         $balance = $this->sortAscending($balanceRows);
@@ -71,7 +72,7 @@ class StockFundamentalsAnalyzer
                 : null,
             'eps_growth_sequence' => array_values(array_slice($epsYoy, -4)),
             'revenue_growth_sequence' => array_values(array_slice($revenueYoy, -4)),
-        ], $this->operatingMarginExpansion($incomeRows));
+        ], $this->operatingMarginExpansion($incomeRows), $this->fcfMarginExpansion($incomeRows, $cashFlowRows));
     }
 
     /**
@@ -151,6 +152,102 @@ class StockFundamentalsAnalyzer
             'prior_ttm_operating_income' => $priorOperatingIncome,
             'prior_ttm_operating_margin' => round($priorMargin, 6),
             'operating_margin_expansion_bps' => round(($currentMargin - $priorMargin) * 10000, 4),
+        ];
+    }
+
+    /**
+     * Free Cash Flow Margin Expansion (TTM YoY).
+     *
+     * Compares the FCF margin (free cash flow / revenue) of the latest four
+     * reported quarters (current TTM) against the immediately preceding
+     * four quarters (prior TTM), expressed in basis points:
+     *
+     *   fcf_margin_expansion_bps = (current_ttm_fcf_margin - prior_ttm_fcf_margin) * 10000
+     *
+     * Revenue comes from the quarterly income statements; free cash flow
+     * comes from the quarterly cash flow statements. The two series are
+     * matched by reporting date. Requires at least eight valid, distinct,
+     * consistently-currencied cash flow quarters with a matching income
+     * statement revenue figure. Free cash flow may legitimately be
+     * negative — only a null value is treated as missing. Returns
+     * all-null when the calculation cannot be performed so the caller can
+     * exclude the metric.
+     *
+     * @param  array<int, array<string, mixed>>  $incomeRows
+     * @param  array<int, array<string, mixed>>  $cashFlowRows
+     * @return array<string, float|null>
+     */
+    public function fcfMarginExpansion(array $incomeRows, array $cashFlowRows): array
+    {
+        $empty = [
+            'current_ttm_fcf' => null,
+            'current_ttm_revenue_fcf' => null,
+            'current_ttm_fcf_margin' => null,
+            'prior_ttm_fcf' => null,
+            'prior_ttm_revenue_fcf' => null,
+            'prior_ttm_fcf_margin' => null,
+            'fcf_margin_expansion_bps' => null,
+        ];
+
+        $revenueByDate = [];
+        foreach ($incomeRows as $row) {
+            if (! is_array($row) || empty($row['date']) || ! is_numeric($row['revenue'] ?? null)) {
+                continue;
+            }
+            $revenueByDate[(string) $row['date']] = (float) $row['revenue'];
+        }
+
+        if (empty($revenueByDate)) {
+            return $empty;
+        }
+
+        $quarters = $this->dedupeQuartersDescending($cashFlowRows);
+
+        $valid = array_values(array_filter(
+            $quarters,
+            fn (array $row) => isset($revenueByDate[(string) ($row['date'] ?? '')]) && is_numeric($row['free_cash_flow'] ?? null),
+        ));
+
+        if (count($valid) < 8) {
+            return $empty;
+        }
+
+        // Q0 (newest) .. Q7 (oldest required quarter).
+        $latestEight = array_slice($valid, 0, 8);
+
+        $currencies = array_values(array_unique(array_filter(
+            array_map(fn (array $row) => $row['reported_currency'] ?? null, $latestEight),
+        )));
+        if (count($currencies) > 1) {
+            return $empty;
+        }
+
+        $current = array_slice($latestEight, 0, 4); // Q0 + Q1 + Q2 + Q3
+        $prior = array_slice($latestEight, 4, 4); // Q4 + Q5 + Q6 + Q7
+
+        $currentFcf = $this->sum($current, 'free_cash_flow');
+        $priorFcf = $this->sum($prior, 'free_cash_flow');
+        $currentRevenue = array_sum(array_map(fn (array $row) => $revenueByDate[(string) $row['date']], $current));
+        $priorRevenue = array_sum(array_map(fn (array $row) => $revenueByDate[(string) $row['date']], $prior));
+
+        if ($currentRevenue <= 0 || $priorRevenue <= 0) {
+            return $empty;
+        }
+        if ($currentFcf === null || $priorFcf === null) {
+            return $empty;
+        }
+
+        $currentMargin = $currentFcf / $currentRevenue;
+        $priorMargin = $priorFcf / $priorRevenue;
+
+        return [
+            'current_ttm_fcf' => $currentFcf,
+            'current_ttm_revenue_fcf' => $currentRevenue,
+            'current_ttm_fcf_margin' => round($currentMargin, 6),
+            'prior_ttm_fcf' => $priorFcf,
+            'prior_ttm_revenue_fcf' => $priorRevenue,
+            'prior_ttm_fcf_margin' => round($priorMargin, 6),
+            'fcf_margin_expansion_bps' => round(($currentMargin - $priorMargin) * 10000, 4),
         ];
     }
 

@@ -62,6 +62,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $operating_margin_expansion_bps
  * @property string|null $current_ttm_operating_margin
  * @property string|null $prior_ttm_operating_margin
+ * @property string|null $fcf_margin_expansion_bps
+ * @property string|null $current_ttm_fcf_margin
+ * @property string|null $prior_ttm_fcf_margin
  * @property int $heartbeat_score
  * @property string|null $reason_summary
  * @property string $status
@@ -125,6 +128,9 @@ class StockBuySetupAlert extends Model
         'operating_margin_expansion_bps',
         'current_ttm_operating_margin',
         'prior_ttm_operating_margin',
+        'fcf_margin_expansion_bps',
+        'current_ttm_fcf_margin',
+        'prior_ttm_fcf_margin',
         'heartbeat_score',
         'reason_summary',
         'status',
@@ -166,6 +172,9 @@ class StockBuySetupAlert extends Model
         'operating_margin_expansion_bps' => 'decimal:4',
         'current_ttm_operating_margin' => 'decimal:6',
         'prior_ttm_operating_margin' => 'decimal:6',
+        'fcf_margin_expansion_bps' => 'decimal:4',
+        'current_ttm_fcf_margin' => 'decimal:6',
+        'prior_ttm_fcf_margin' => 'decimal:6',
         'setup_score' => 'integer',
         'raw_setup_score' => 'integer',
         'market_cap' => 'integer',

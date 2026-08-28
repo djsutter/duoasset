@@ -223,6 +223,18 @@ class StockBuySetups extends Component
             return;
         }
 
+        if (! $this->marginExpansionThresholdsAreValid('fcf_margin_expansion_thresholds')) {
+            $this->configFlash = 'FCF Margin Expansion thresholds must be positive and strictly increasing (25 < 50 < 75 < 100 point thresholds).';
+
+            return;
+        }
+
+        if (! $this->growthSynergyBonusIsValid()) {
+            $this->configFlash = 'Growth Synergy Bonus: max points and minimum Sales YoY must be >= 0, each threshold must be between 0 and 100, and medium < strong < exceptional.';
+
+            return;
+        }
+
         if (! $this->marketCapRangesAreValid()) {
             $this->configFlash = 'Minimum Market Cap must be >= 0, Maximum Market Cap must be > 0, and Minimum Market Cap must not exceed Maximum Market Cap.';
 
@@ -254,10 +266,21 @@ class StockBuySetups extends Component
      */
     private function operatingMarginExpansionThresholdsAreValid(): bool
     {
+        return $this->marginExpansionThresholdsAreValid('operating_margin_expansion_thresholds');
+    }
+
+    /**
+     * Reject invalid margin-expansion threshold configurations (non-numeric,
+     * non-positive, or not strictly increasing) before they are ever
+     * persisted, rather than silently falling back server-side. Shared by
+     * Operating Margin Expansion and FCF Margin Expansion thresholds.
+     */
+    private function marginExpansionThresholdsAreValid(string $configKey): bool
+    {
         $types = (array) ($this->configState['setup_types'] ?? []);
 
         foreach ($types as $type) {
-            $thresholds = $type['operating_margin_expansion_thresholds'] ?? null;
+            $thresholds = $type[$configKey] ?? null;
             if (! is_array($thresholds)) {
                 continue;
             }
@@ -277,6 +300,47 @@ class StockBuySetups extends Component
                 && $values['threshold_50'] < $values['threshold_75']
                 && $values['threshold_75'] < $values['threshold_100']
             )) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Reject invalid Growth Synergy Bonus configurations before they are
+     * ever persisted, rather than silently falling back server-side.
+     */
+    private function growthSynergyBonusIsValid(): bool
+    {
+        $types = (array) ($this->configState['setup_types'] ?? []);
+
+        foreach ($types as $type) {
+            $bonus = $type['growth_synergy_bonus'] ?? null;
+            if (! is_array($bonus)) {
+                continue;
+            }
+
+            $keys = ['max_points', 'min_sales_yoy', 'medium_threshold', 'strong_threshold', 'exceptional_threshold'];
+            $values = [];
+            foreach ($keys as $key) {
+                if (! isset($bonus[$key]) || ! is_numeric($bonus[$key])) {
+                    return false;
+                }
+                $values[$key] = (float) $bonus[$key];
+            }
+
+            if ($values['max_points'] < 0 || $values['min_sales_yoy'] < 0) {
+                return false;
+            }
+
+            foreach (['medium_threshold', 'strong_threshold', 'exceptional_threshold'] as $key) {
+                if ($values[$key] < 0 || $values[$key] > 100) {
+                    return false;
+                }
+            }
+
+            if (! ($values['medium_threshold'] < $values['strong_threshold'] && $values['strong_threshold'] < $values['exceptional_threshold'])) {
                 return false;
             }
         }
@@ -440,7 +504,15 @@ class StockBuySetups extends Component
 
         $scorer = app(StockBuySetupScorer::class);
         $scoreBreakdowns = $alerts->getCollection()
-            ->mapWithKeys(fn (StockBuySetupAlert $alert) => [$alert->id => $scorer->breakdown($alert, $alert->setup_type)]);
+            ->mapWithKeys(function (StockBuySetupAlert $alert) use ($scorer) {
+                $breakdown = $scorer->breakdown($alert, $alert->setup_type);
+                $growthSynergyBonus = $scorer->growthSynergyBonusBreakdownEntry($alert, $alert->setup_type);
+                if ($growthSynergyBonus['max'] > 0) {
+                    $breakdown['growth_synergy_bonus'] = $growthSynergyBonus;
+                }
+
+                return [$alert->id => $breakdown];
+            });
 
         $configService = app(BuySetupConfigService::class);
 

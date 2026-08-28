@@ -225,6 +225,9 @@
                             'prior_ttm_operating_margin' => $alert->prior_ttm_operating_margin !== null ? number_format((float) $alert->prior_ttm_operating_margin * 100, 1).'%' : '—',
                             'current_ttm_operating_margin' => $alert->current_ttm_operating_margin !== null ? number_format((float) $alert->current_ttm_operating_margin * 100, 1).'%' : '—',
                             'operating_margin_expansion_bps' => $alert->operating_margin_expansion_bps !== null ? number_format((float) $alert->operating_margin_expansion_bps, 0).' bps' : '—',
+                            'prior_ttm_fcf_margin' => $alert->prior_ttm_fcf_margin !== null ? number_format((float) $alert->prior_ttm_fcf_margin * 100, 1).'%' : '—',
+                            'current_ttm_fcf_margin' => $alert->current_ttm_fcf_margin !== null ? number_format((float) $alert->current_ttm_fcf_margin * 100, 1).'%' : '—',
+                            'fcf_margin_expansion_bps' => $alert->fcf_margin_expansion_bps !== null ? number_format((float) $alert->fcf_margin_expansion_bps, 0).' bps' : '—',
                             'reason_summary' => $alert->reason_summary ?? '—',
                             'status' => ucfirst((string) $alert->status),
                             'detected_at' => $alert->detected_at ? \Carbon\Carbon::parse($alert->detected_at)->toDateTimeString() : '—',
@@ -379,6 +382,9 @@
                                     <dt class="text-zinc-500">{{ __('Prior TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_operating_margin"></dd>
                                     <dt class="text-zinc-500">{{ __('Current TTM op. margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_operating_margin"></dd>
                                     <dt class="text-zinc-500">{{ __('Op. margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.operating_margin_expansion_bps"></dd>
+                                    <dt class="text-zinc-500">{{ __('Prior TTM FCF margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_fcf_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('Current TTM FCF margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_fcf_margin"></dd>
+                                    <dt class="text-zinc-500">{{ __('FCF margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.fcf_margin_expansion_bps"></dd>
                                 </dl>
                             </div>
                         </div>
@@ -387,7 +393,26 @@
                         <div class="space-y-4">
                             <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                                 <h3 class="mb-3 font-semibold">{{ __('Reason') }}</h3>
-                                <p class="whitespace-pre-line text-sm leading-6 text-zinc-700 dark:text-zinc-300" x-text="selected?.reason_summary ?? '—'"></p>
+                                <template x-if="selected?.reason_summary">
+                                    <div class="space-y-3">
+                                        <template x-for="(paragraph, idx) in selected.reason_summary.split('\n\n')" :key="idx">
+                                            <p class="whitespace-pre-line text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+                                                <template x-if="paragraph.includes('\n')">
+                                                    <span>
+                                                        <span class="font-semibold text-zinc-500 dark:text-zinc-400" x-text="paragraph.split('\n')[0]"></span><br>
+                                                        <span x-text="paragraph.split('\n').slice(1).join('\n')"></span>
+                                                    </span>
+                                                </template>
+                                                <template x-if="! paragraph.includes('\n')">
+                                                    <span x-text="paragraph"></span>
+                                                </template>
+                                            </p>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="! selected?.reason_summary">
+                                    <p class="text-sm text-zinc-500 dark:text-zinc-400">—</p>
+                                </template>
                             </div>
 
                             <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
@@ -720,6 +745,7 @@
                                                         'earnings_acceleration' => 'Earnings acceleration',
                                                         'sales_acceleration' => 'Sales acceleration',
                                                         'operating_margin_expansion' => 'Operating margin expansion',
+                                                        'fcf_margin_expansion' => 'FCF margin expansion',
                                                     ];
                                                 @endphp
 
@@ -803,6 +829,122 @@
                                             <p class="text-[11px] text-zinc-500 mt-1">
                                                 {{ number_format((float) ($omeThresholds['threshold_100'] ?? 0) / 100, 1) }} {{ __('pts') }}
                                             </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {{-- FCF Margin Expansion Thresholds --}}
+                                @php
+                                    $fcfThresholds = $configState['setup_types'][$selectedConfigSetupType]['fcf_margin_expansion_thresholds'] ?? [];
+                                @endphp
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div>
+                                        <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                            {{ __('FCF Margin Expansion Thresholds') }}
+                                        </h3>
+                                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {{ __('Basis-point thresholds used to interpolate the Free Cash Flow Margin Expansion (TTM YoY) score. Must increase strictly (25 < 50 < 75 < 100).') }}
+                                        </p>
+                                    </div>
+                                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('25-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-fcf-t25-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.fcf_margin_expansion_thresholds.threshold_25"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($fcfThresholds['threshold_25'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('50-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-fcf-t50-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.fcf_margin_expansion_thresholds.threshold_50"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($fcfThresholds['threshold_50'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('75-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-fcf-t75-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.fcf_margin_expansion_thresholds.threshold_75"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($fcfThresholds['threshold_75'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('100-point threshold (bps)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-fcf-t100-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.fcf_margin_expansion_thresholds.threshold_100"
+                                                   class="da-input">
+                                            <p class="text-[11px] text-zinc-500 mt-1">
+                                                {{ number_format((float) ($fcfThresholds['threshold_100'] ?? 0) / 100, 1) }} {{ __('pts') }}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {{-- Growth Synergy Bonus --}}
+                                @php
+                                    $growthSynergyBonus = $configState['setup_types'][$selectedConfigSetupType]['growth_synergy_bonus'] ?? [];
+                                @endphp
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div>
+                                        <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                            {{ __('Growth Synergy Bonus') }}
+                                        </h3>
+                                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {{ __('Small bonus, added on top of the normal setup score, rewarding Sales Acceleration + Operating Margin Expansion + FCF Margin Expansion confirming each other. Disabled by default.') }}
+                                        </p>
+                                    </div>
+                                    <label class="inline-flex items-center gap-2 text-sm font-medium">
+                                        <input type="checkbox"
+                                               wire:key="type-gsb-enabled-{{ $selectedConfigSetupType }}"
+                                               wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.enabled"
+                                               class="rounded border-zinc-300 text-sky-600 focus:ring-sky-500 size-4">
+                                        {{ __('Enable Growth Synergy Bonus') }}
+                                    </label>
+                                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('Maximum bonus points') }}</label>
+                                            <input type="number" step="1" min="0"
+                                                   wire:key="type-gsb-max-points-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.max_points"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Minimum Sales YoY (%)') }}</label>
+                                            <input type="number" step="1" min="0"
+                                                   wire:key="type-gsb-min-sales-yoy-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.min_sales_yoy"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Medium metric threshold') }}</label>
+                                            <input type="number" step="1" min="0" max="100"
+                                                   wire:key="type-gsb-medium-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.medium_threshold"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Strong metric threshold') }}</label>
+                                            <input type="number" step="1" min="0" max="100"
+                                                   wire:key="type-gsb-strong-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.strong_threshold"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Exceptional threshold') }}</label>
+                                            <input type="number" step="1" min="0" max="100"
+                                                   wire:key="type-gsb-exceptional-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.exceptional_threshold"
+                                                   class="da-input">
                                         </div>
                                     </div>
                                 </div>

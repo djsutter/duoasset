@@ -73,18 +73,22 @@ test('reason summary includes enabled fundamental metrics reused from the score 
 
     $breakdown = app(StockBuySetupScorer::class)->breakdown($result, 'heartbeat_consolidation_spike', 10_000_000);
 
-    $expectedEarnings = 'earnings accel +'.$breakdown['earnings_acceleration']['value']
+    $expectedEarnings = 'Earnings accel +'.$breakdown['earnings_acceleration']['value']
         .' ('.$breakdown['earnings_acceleration']['points'].'/'.$breakdown['earnings_acceleration']['max'].')';
-    $expectedSales = 'sales accel +'.$breakdown['sales_acceleration']['value']
+    $expectedSales = 'Sales accel +'.$breakdown['sales_acceleration']['value']
         .' ('.$breakdown['sales_acceleration']['points'].'/'.$breakdown['sales_acceleration']['max'].')';
 
-    // Existing technical reason is retained.
-    expect($result->reasonSummary)->toContain('base '.$result->baseDurationDays.'d')
+    // Existing technical reason is retained under its own labelled paragraph.
+    expect($result->reasonSummary)->toContain('Technical:')
+        ->and($result->reasonSummary)->toContain('base '.$result->baseDurationDays.'d')
         ->and($result->reasonSummary)->toContain('ATR ratio')
+        // Fundamental metrics appear under their own labelled paragraph.
+        ->and($result->reasonSummary)->toContain('Fundamentals:')
         ->and($result->reasonSummary)->toContain($expectedEarnings)
         ->and($result->reasonSummary)->toContain($expectedSales)
         // Disabled-by-default metric must not leak into the reason text.
-        ->and($result->reasonSummary)->not->toContain('operating margin expansion');
+        ->and($result->reasonSummary)->not->toContain('operating margin expansion')
+        ->and($result->reasonSummary)->not->toContain('Operating margin expansion');
 });
 
 test('reason summary includes operating margin expansion once enabled for the setup type', function () {
@@ -111,7 +115,8 @@ test('reason summary includes operating margin expansion once enabled for the se
     );
 
     expect($result)->not->toBeNull()
-        ->and($result->reasonSummary)->toContain('operating margin expansion +235,341 bps');
+        ->and($result->reasonSummary)->toContain('Fundamentals:')
+        ->and($result->reasonSummary)->toContain('Operating margin expansion +235,341 bps');
 });
 
 test('reason summary omits fundamental metrics when their data is unavailable', function () {
@@ -128,6 +133,9 @@ test('reason summary omits fundamental metrics when their data is unavailable', 
     );
 
     expect($result)->not->toBeNull()
+        ->and($result->reasonSummary)->toContain('Technical:')
+        // No fundamental data available, so the Fundamentals paragraph is omitted entirely.
+        ->and($result->reasonSummary)->not->toContain('Fundamentals:')
         ->and($result->reasonSummary)->not->toContain('earnings accel')
         ->and($result->reasonSummary)->not->toContain('sales accel')
         ->and($result->reasonSummary)->not->toContain('operating margin expansion');

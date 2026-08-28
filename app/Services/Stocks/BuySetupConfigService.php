@@ -21,6 +21,32 @@ class BuySetupConfigService
     ];
 
     /**
+     * Default Free Cash Flow Margin Expansion (TTM YoY) threshold
+     * interpolation points, expressed in basis points. Mirrors Operating
+     * Margin Expansion. See ThresholdInterpolationScorer.
+     */
+    public const DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS = [
+        'threshold_25' => 250,
+        'threshold_50' => 500,
+        'threshold_75' => 1000,
+        'threshold_100' => 1500,
+    ];
+
+    /**
+     * Default Growth Synergy Bonus configuration. Disabled by default so
+     * existing setup scores never change unless a user explicitly opts in.
+     * See StockBuySetupScorer::growthSynergyBonus().
+     */
+    public const DEFAULT_GROWTH_SYNERGY_BONUS = [
+        'enabled' => false,
+        'max_points' => 10,
+        'min_sales_yoy' => 20,
+        'medium_threshold' => 50,
+        'strong_threshold' => 75,
+        'exceptional_threshold' => 90,
+    ];
+
+    /**
      * Default per-setup-type market-cap eligibility range, in whole
      * dollars. Applied to existing setup types missing this setting and
      * to newly created setup types.
@@ -74,8 +100,11 @@ class BuySetupConfigService
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
+                'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -108,8 +137,11 @@ class BuySetupConfigService
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
+                'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -142,8 +174,11 @@ class BuySetupConfigService
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
+                'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -176,8 +211,11 @@ class BuySetupConfigService
                     'earnings_acceleration' => ['weight' => 5, 'enabled' => true],
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
                 ],
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
+                'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
+                'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -526,6 +564,55 @@ class BuySetupConfigService
     }
 
     /**
+     * Free Cash Flow Margin Expansion (TTM YoY) score interpolation
+     * thresholds, in basis points, for the given setup type.
+     *
+     * @return array{threshold_25: int, threshold_50: int, threshold_75: int, threshold_100: int}
+     */
+    public function getFcfMarginExpansionThresholds(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $default = self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS;
+        $thresholds = $type['fcf_margin_expansion_thresholds'] ?? $default;
+
+        if (! is_array($thresholds)) {
+            return $default;
+        }
+
+        return [
+            'threshold_25' => (int) ($thresholds['threshold_25'] ?? $default['threshold_25']),
+            'threshold_50' => (int) ($thresholds['threshold_50'] ?? $default['threshold_50']),
+            'threshold_75' => (int) ($thresholds['threshold_75'] ?? $default['threshold_75']),
+            'threshold_100' => (int) ($thresholds['threshold_100'] ?? $default['threshold_100']),
+        ];
+    }
+
+    /**
+     * Growth Synergy Bonus configuration for the given setup type.
+     *
+     * @return array{enabled: bool, max_points: int, min_sales_yoy: float, medium_threshold: float, strong_threshold: float, exceptional_threshold: float}
+     */
+    public function getGrowthSynergyBonusConfig(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $default = self::DEFAULT_GROWTH_SYNERGY_BONUS;
+        $bonus = $type['growth_synergy_bonus'] ?? $default;
+
+        if (! is_array($bonus)) {
+            return $default;
+        }
+
+        return [
+            'enabled' => (bool) ($bonus['enabled'] ?? $default['enabled']),
+            'max_points' => (int) ($bonus['max_points'] ?? $default['max_points']),
+            'min_sales_yoy' => (float) ($bonus['min_sales_yoy'] ?? $default['min_sales_yoy']),
+            'medium_threshold' => (float) ($bonus['medium_threshold'] ?? $default['medium_threshold']),
+            'strong_threshold' => (float) ($bonus['strong_threshold'] ?? $default['strong_threshold']),
+            'exceptional_threshold' => (float) ($bonus['exceptional_threshold'] ?? $default['exceptional_threshold']),
+        ];
+    }
+
+    /**
      * Default technical thresholds for a setup type.
      *
      * @return array<string, mixed>
@@ -551,6 +638,8 @@ class BuySetupConfigService
             'prior_year_revenue_penalties' => $defaultType['prior_year_revenue_penalties'],
             'score_weights' => $defaultType['score_weights'],
             'operating_margin_expansion_thresholds' => $defaultType['operating_margin_expansion_thresholds'],
+            'fcf_margin_expansion_thresholds' => $defaultType['fcf_margin_expansion_thresholds'],
+            'growth_synergy_bonus' => $defaultType['growth_synergy_bonus'],
             'min_market_cap' => $defaultType['min_market_cap'],
             'max_market_cap' => $defaultType['max_market_cap'],
         ];
@@ -692,6 +781,14 @@ class BuySetupConfigService
                 $saved['operating_margin_expansion_thresholds'] ?? null,
                 (array) ($default['operating_margin_expansion_thresholds'] ?? self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS),
             ),
+            'fcf_margin_expansion_thresholds' => $this->mergeOperatingMarginExpansionThresholds(
+                $saved['fcf_margin_expansion_thresholds'] ?? null,
+                (array) ($default['fcf_margin_expansion_thresholds'] ?? self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS),
+            ),
+            'growth_synergy_bonus' => $this->mergeGrowthSynergyBonus(
+                $saved['growth_synergy_bonus'] ?? null,
+                (array) ($default['growth_synergy_bonus'] ?? self::DEFAULT_GROWTH_SYNERGY_BONUS),
+            ),
             ...$this->mergeMarketCapRange($saved, $default),
         ];
     }
@@ -769,6 +866,62 @@ class BuySetupConfigService
         }
 
         return $values;
+    }
+
+    /**
+     * Merge/validate the Growth Synergy Bonus configuration.
+     *
+     * Requires max_points >= 0, min_sales_yoy >= 0, each threshold within
+     * 0..100, and medium_threshold < strong_threshold <
+     * exceptional_threshold. Invalid input falls back to the setup type's
+     * default rather than persisting a broken configuration.
+     *
+     * @param  array<string, mixed>  $default
+     * @return array<string, mixed>
+     */
+    private function mergeGrowthSynergyBonus(mixed $saved, array $default): array
+    {
+        $default = array_merge(self::DEFAULT_GROWTH_SYNERGY_BONUS, $default);
+
+        if (! is_array($saved)) {
+            return $default;
+        }
+
+        $numericKeys = ['max_points', 'min_sales_yoy', 'medium_threshold', 'strong_threshold', 'exceptional_threshold'];
+        foreach ($numericKeys as $key) {
+            if (! isset($saved[$key]) || ! is_numeric($saved[$key])) {
+                return $default;
+            }
+        }
+
+        $maxPoints = (int) $saved['max_points'];
+        $minSalesYoy = (float) $saved['min_sales_yoy'];
+        $medium = (float) $saved['medium_threshold'];
+        $strong = (float) $saved['strong_threshold'];
+        $exceptional = (float) $saved['exceptional_threshold'];
+
+        if ($maxPoints < 0 || $minSalesYoy < 0) {
+            return $default;
+        }
+
+        foreach ([$medium, $strong, $exceptional] as $threshold) {
+            if ($threshold < 0 || $threshold > 100) {
+                return $default;
+            }
+        }
+
+        if (! ($medium < $strong && $strong < $exceptional)) {
+            return $default;
+        }
+
+        return [
+            'enabled' => (bool) ($saved['enabled'] ?? $default['enabled'] ?? false),
+            'max_points' => $maxPoints,
+            'min_sales_yoy' => $minSalesYoy,
+            'medium_threshold' => $medium,
+            'strong_threshold' => $strong,
+            'exceptional_threshold' => $exceptional,
+        ];
     }
 
     /**
