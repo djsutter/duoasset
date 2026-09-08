@@ -113,6 +113,11 @@
                     <input type="checkbox" wire:model.live="unwatchedOnly"> {{ __('Hide already-watched') }}
                 </label>
             </div>
+            <div class="flex items-end">
+                <label class="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" wire:model.live="ignitionOnly"> {{ __('Ignition bonus only') }}
+                </label>
+            </div>
         </div>
     </div>
 
@@ -172,6 +177,25 @@
                             $pct = $max > 0 ? (int) round(($points / $max) * 100) : 0;
                             return array_merge($item, ['pct' => $pct]);
                         }, array_values($breakdown));
+
+                        $ignBonus = $scorer->ignitionBonus($alert, $alert->setup_type);
+                        $hasIgnitionBonus = ($ignBonus['points'] > 0);
+
+                        $growthBonus = $scorer->growthSynergyBonus($alert, $alert->setup_type);
+                        $hasGrowthBonus = ($growthBonus['points'] > 0);
+
+                        $rowStyles = [];
+                        if ($hasIgnitionBonus) {
+                            $ignConfig = $configService->getIgnitionBonusConfig($alert->setup_type);
+                            $ignColor = !empty($ignConfig['color']) ? $ignConfig['color'] : 'yellow';
+                            $rowStyles[] = "background-color: {$ignColor};";
+                        }
+                        if ($hasGrowthBonus) {
+                            $growthConfig = $configService->getGrowthSynergyBonusConfig($alert->setup_type);
+                            $growthColor = !empty($growthConfig['color']) ? $growthConfig['color'] : 'lightgreen';
+                            $rowStyles[] = "outline: 2px solid {$growthColor}; outline-offset: -2px;";
+                        }
+                        $rowStyleAttr = !empty($rowStyles) ? 'style="'.implode(' ', $rowStyles).'"' : '';
 
                         $modalData = [
                             'symbol' => $alert->symbol,
@@ -236,7 +260,8 @@
                             'score_breakdown' => $breakdownWithPct,
                         ];
                     @endphp
-                    <tr class="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                    <tr class="cursor-pointer {{ $hasIgnitionBonus ? 'text-zinc-950 dark:text-zinc-950 hover:opacity-90' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50' }}"
+                        {!! $rowStyleAttr !!}
                         x-on:click="selected = @js($modalData); modalOpen = true">
                         <td class="font-semibold">{{ $alert->symbol }}</td>
                         <td class="whitespace-nowrap text-xs">{{ $setupTypes[$alert->setup_type] ?? $alert->setup_type }}</td>
@@ -925,7 +950,15 @@
                                                class="rounded border-zinc-300 text-sky-600 focus:ring-sky-500 size-4">
                                         {{ __('Enable Growth Synergy Bonus') }}
                                     </label>
-                                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('Row border color') }}</label>
+                                            <input type="text"
+                                                   wire:key="type-gsb-color-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.color"
+                                                   placeholder="lightgreen"
+                                                   class="da-input">
+                                        </div>
                                         <div>
                                             <label class="da-label">{{ __('Maximum bonus points') }}</label>
                                             <input type="number" step="1" min="0"
@@ -977,7 +1010,15 @@
                                             {{ __('Adds a flat bonus when a quiet, long-base setup suddenly expands strongly in price and/or relative volume. Qualifies with either: >=2.2x relative volume and >=12% price gain, or >=3.0x relative volume and >=8% price gain. Set Bonus Points to 0 to disable.') }}
                                         </p>
                                     </div>
-                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('Row background color') }}</label>
+                                            <input type="text"
+                                                   wire:key="type-ign-color-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.color"
+                                                   placeholder="yellow"
+                                                   class="da-input">
+                                        </div>
                                         <div>
                                             <label class="da-label">{{ __('Bonus points') }}</label>
                                             <input type="number" step="1" min="0"

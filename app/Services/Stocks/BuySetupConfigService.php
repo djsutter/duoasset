@@ -40,6 +40,7 @@ class BuySetupConfigService
      */
     public const DEFAULT_GROWTH_SYNERGY_BONUS = [
         'enabled' => false,
+        'color' => 'lightgreen',
         'max_points' => 10,
         'min_sales_yoy' => 20,
         'medium_threshold' => 50,
@@ -55,6 +56,7 @@ class BuySetupConfigService
      */
     public const DEFAULT_IGNITION_BONUS = [
         'bonus_points' => 0,
+        'color' => 'yellow',
 
         'min_base_days' => 90,
         'min_volume_dry_up_pct' => 30,
@@ -633,7 +635,7 @@ class BuySetupConfigService
     /**
      * Growth Synergy Bonus configuration for the given setup type.
      *
-     * @return array{enabled: bool, max_points: int, min_sales_yoy: float, medium_threshold: float, strong_threshold: float, exceptional_threshold: float}
+     * @return array{enabled: bool, color: string, max_points: int, min_sales_yoy: float, medium_threshold: float, strong_threshold: float, exceptional_threshold: float}
      */
     public function getGrowthSynergyBonusConfig(?string $setupType = null): array
     {
@@ -645,8 +647,13 @@ class BuySetupConfigService
             return $default;
         }
 
+        $color = isset($bonus['color']) && is_string($bonus['color']) && trim($bonus['color']) !== ''
+            ? trim($bonus['color'])
+            : ($default['color'] ?? 'lightgreen');
+
         return [
             'enabled' => (bool) ($bonus['enabled'] ?? $default['enabled']),
+            'color' => $color,
             'max_points' => (int) ($bonus['max_points'] ?? $default['max_points']),
             'min_sales_yoy' => (float) ($bonus['min_sales_yoy'] ?? $default['min_sales_yoy']),
             'medium_threshold' => (float) ($bonus['medium_threshold'] ?? $default['medium_threshold']),
@@ -658,7 +665,7 @@ class BuySetupConfigService
     /**
      * Ignition / Early Accumulation Bonus configuration for the given setup type.
      *
-     * @return array{bonus_points: int, min_base_days: int, min_volume_dry_up_pct: float, price_led_min_relative_volume: float, price_led_min_price_change_pct: float, volume_led_min_relative_volume: float, volume_led_min_price_change_pct: float}
+     * @return array{bonus_points: int, color: string, min_base_days: int, min_volume_dry_up_pct: float, price_led_min_relative_volume: float, price_led_min_price_change_pct: float, volume_led_min_relative_volume: float, volume_led_min_price_change_pct: float}
      */
     public function getIgnitionBonusConfig(?string $setupType = null): array
     {
@@ -670,8 +677,13 @@ class BuySetupConfigService
             return $default;
         }
 
+        $color = isset($bonus['color']) && is_string($bonus['color']) && trim($bonus['color']) !== ''
+            ? trim($bonus['color'])
+            : ($default['color'] ?? 'yellow');
+
         return [
             'bonus_points' => (int) ($bonus['bonus_points'] ?? $default['bonus_points']),
+            'color' => $color,
             'min_base_days' => (int) ($bonus['min_base_days'] ?? $default['min_base_days']),
             'min_volume_dry_up_pct' => (float) ($bonus['min_volume_dry_up_pct'] ?? $default['min_volume_dry_up_pct']),
             'price_led_min_relative_volume' => (float) ($bonus['price_led_min_relative_volume'] ?? $default['price_led_min_relative_volume']),
@@ -1037,8 +1049,13 @@ class BuySetupConfigService
             return $default;
         }
 
+        $color = isset($saved['color']) && is_string($saved['color']) && trim($saved['color']) !== ''
+            ? trim($saved['color'])
+            : ($default['color'] ?? 'lightgreen');
+
         return [
             'enabled' => (bool) ($saved['enabled'] ?? $default['enabled'] ?? false),
+            'color' => $color,
             'max_points' => $maxPoints,
             'min_sales_yoy' => $minSalesYoy,
             'medium_threshold' => $medium,
@@ -1113,8 +1130,13 @@ class BuySetupConfigService
             return $default;
         }
 
+        $color = isset($saved['color']) && is_string($saved['color']) && trim($saved['color']) !== ''
+            ? trim($saved['color'])
+            : ($default['color'] ?? 'yellow');
+
         return [
             'bonus_points' => $bonusPoints,
+            'color' => $color,
             'min_base_days' => $minBaseDays,
             'min_volume_dry_up_pct' => $minVolumeDryUpPct,
             'price_led_min_relative_volume' => $priceLedRvol,

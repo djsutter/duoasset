@@ -44,6 +44,9 @@ class StockBuySetups extends Component
     #[Url(as: 'unwatched_only')]
     public bool $unwatchedOnly = false;
 
+    #[Url(as: 'ignition_only')]
+    public bool $ignitionOnly = false;
+
     #[Url(as: 'symbol')]
     public ?string $symbol = null;
 
@@ -95,6 +98,7 @@ class StockBuySetups extends Component
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->unwatchedOnly = false;
+        $this->ignitionOnly = false;
         $this->symbol = null;
         $this->company = null;
         $this->sortBy = 'setup_score';
@@ -556,6 +560,52 @@ class StockBuySetups extends Component
             ->when($this->unwatchedOnly && $watchedSymbols->isNotEmpty(),
                 fn ($q) => $q->whereNotIn('symbol', $watchedSymbols->all()));
 
+        if ($this->ignitionOnly) {
+            $configService = app(BuySetupConfigService::class);
+            $setupTypesConfig = $configService->getSetupTypes();
+            $query->where(function ($q) use ($setupTypesConfig, $configService) {
+                $hasAnyEnabled = false;
+                foreach ($setupTypesConfig as $typeKey => $typeData) {
+                    if (! ($typeData['enabled'] ?? true)) {
+                        continue;
+                    }
+                    $ignConfig = $configService->getIgnitionBonusConfig($typeKey);
+                    if ($ignConfig['bonus_points'] <= 0) {
+                        continue;
+                    }
+                    $hasAnyEnabled = true;
+                    $minBaseDays = (int) $ignConfig['min_base_days'];
+                    $minDryUpScore = ((float) $ignConfig['min_volume_dry_up_pct']) / 100.0;
+                    $priceLedRvol = (float) $ignConfig['price_led_min_relative_volume'];
+                    $priceLedPrice = (float) $ignConfig['price_led_min_price_change_pct'];
+                    $volLedRvol = (float) $ignConfig['volume_led_min_relative_volume'];
+                    $volLedPrice = (float) $ignConfig['volume_led_min_price_change_pct'];
+
+                    $q->orWhere(function ($sub) use ($typeKey, $minBaseDays, $minDryUpScore, $priceLedRvol, $priceLedPrice, $volLedRvol, $volLedPrice) {
+                        $sub->where('setup_type', $typeKey)
+                            ->whereNotNull('base_duration_days')
+                            ->where('base_duration_days', '>=', $minBaseDays)
+                            ->whereNotNull('volume_dry_up_score')
+                            ->where('volume_dry_up_score', '>=', $minDryUpScore)
+                            ->whereNotNull('spike_relative_volume')
+                            ->whereNotNull('spike_price_change_pct')
+                            ->where(function ($confirm) use ($priceLedRvol, $priceLedPrice, $volLedRvol, $volLedPrice) {
+                                $confirm->where(function ($p) use ($priceLedRvol, $priceLedPrice) {
+                                    $p->where('spike_relative_volume', '>=', $priceLedRvol)
+                                        ->where('spike_price_change_pct', '>=', $priceLedPrice);
+                                })->orWhere(function ($v) use ($volLedRvol, $volLedPrice) {
+                                    $v->where('spike_relative_volume', '>=', $volLedRvol)
+                                        ->where('spike_price_change_pct', '>=', $volLedPrice);
+                                });
+                            });
+                    });
+                }
+                if (! $hasAnyEnabled) {
+                    $q->whereRaw('0 = 1');
+                }
+            });
+        }
+
         $sortBy = in_array($this->sortBy, ['symbol', 'company_name', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
         $direction = strtolower($this->sortDirection) === 'asc' ? 'asc' : 'desc';
 
@@ -588,6 +638,8 @@ class StockBuySetups extends Component
             'exchanges' => $configService->getExchanges(),
             'setupTypes' => $this->setupTypes(),
             'scoreBreakdowns' => $scoreBreakdowns,
+            'scorer' => $scorer,
+            'configService' => $configService,
         ]);
     }
 
