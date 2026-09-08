@@ -15,9 +15,7 @@ use App\Services\Stocks\StockBuySetupScanner;
  */
 class HeartbeatConsolidationSpikeAlgorithm implements BuySetupAlgorithm
 {
-    public function __construct(private StockBuySetupScanner $scanner)
-    {
-    }
+    public function __construct(private StockBuySetupScanner $scanner) {}
 
     public function key(): string
     {
