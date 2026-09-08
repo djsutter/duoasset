@@ -348,3 +348,41 @@ test('user cannot add more than 10 prior year revenue penalty levels', function 
         ->assertCount('configState.setup_types.heartbeat_consolidation_spike.prior_year_revenue_penalties', 10)
         ->assertSee('A maximum of 10 prior-year revenue penalty levels is allowed.');
 });
+
+test('user can configure ignition bonus in modal and it persists per setup type', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.bonus_points', 0)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.min_base_days', 90)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.min_volume_dry_up_pct', 30.0)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.bonus_points', 8)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.min_base_days', 100)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.price_led_min_relative_volume', 2.5)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    $config = $service->getIgnitionBonusConfig('heartbeat_consolidation_spike');
+
+    expect($config['bonus_points'])->toBe(8)
+        ->and($config['min_base_days'])->toBe(100)
+        ->and($config['price_led_min_relative_volume'])->toBe(2.5);
+});
+
+test('modal rejects invalid ignition bonus configurations', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.ignition_bonus.min_volume_dry_up_pct', 150)
+        ->call('saveConfig')
+        ->assertSee('Ignition Bonus: bonus points >= 0, min base days >= 1, min volume dry-up between 0 and 100%, relative volume > 0, and price gain >= 0%.');
+
+    // Defaults remain intact
+    $config = app(BuySetupConfigService::class)->getIgnitionBonusConfig('heartbeat_consolidation_spike');
+    expect($config['min_volume_dry_up_pct'])->toBe(30.0);
+});

@@ -71,6 +71,7 @@ final class StockBuySetupResult
         public readonly ?float $roePct = null,
         public readonly ?float $profitMarginPct = null,
         public readonly ?float $spikeRelativeVolume = null,
+        public readonly ?float $spikePriceChangePct = null,
         public readonly ?array $epsGrowthSequence = null,
         public readonly ?array $revenueGrowthSequence = null,
         // Operating Margin Expansion (TTM YoY), in basis points, plus the

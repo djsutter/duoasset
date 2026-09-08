@@ -299,6 +299,13 @@ class FloorReversalAccumulationAlgorithm implements BuySetupAlgorithm
         }
         $volumeDryUp = $compAvgVol > 0 ? 1.0 - ($baseAvgVol / $compAvgVol) : 0.0;
 
+        $prevClose = ($anchorIdx > 0 && isset($bars[$anchorIdx - 1]['close']))
+            ? (float) $bars[$anchorIdx - 1]['close']
+            : null;
+        $spikePriceChangePct = ($prevClose !== null && $prevClose > 0)
+            ? round((($anchorClose - $prevClose) / $prevClose) * 100, 4)
+            : null;
+
         $distToBreakout = $baseHigh > 0 ? (($baseHigh - $anchorClose) / $baseHigh) * 100 : 0.0;
 
         $closesUpToAnchor = array_slice($allCloses, 0, $anchorIdx + 1);
@@ -346,6 +353,7 @@ class FloorReversalAccumulationAlgorithm implements BuySetupAlgorithm
             roePct: $this->nullableFloat($context['roe_pct'] ?? null),
             profitMarginPct: $this->nullableFloat($context['profit_margin_pct'] ?? null),
             spikeRelativeVolume: $baseAvgVol > 0 ? round($anchorVol / $baseAvgVol, 4) : null,
+            spikePriceChangePct: $spikePriceChangePct,
             epsGrowthSequence: $context['eps_growth_sequence'] ?? null,
             revenueGrowthSequence: $context['revenue_growth_sequence'] ?? null,
             operatingMarginExpansionBps: $this->nullableFloat($context['operating_margin_expansion_bps'] ?? null),

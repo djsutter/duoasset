@@ -161,6 +161,13 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $growthSynergyBonus = $scorer->growthSynergyBonus($result, $result->setupType);
                 $score = min(100, $score + $growthSynergyBonus['points']);
 
+                // Ignition / Early Accumulation Bonus: a flat configurable bonus
+                // added on top of the normal setup score (disabled by default per
+                // setup type when bonus_points = 0). See
+                // StockBuySetupScorer::ignitionBonus().
+                $ignitionBonus = $scorer->ignitionBonus($result, $result->setupType);
+                $score = min(100, $score + $ignitionBonus['points']);
+
                 $result->rawSetupScore = $rawScore;
                 $result->heartbeatScore = $rawScore;
                 $result->setupScore = $score;
@@ -224,6 +231,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'roe_pct' => $result->roePct,
                     'profit_margin_pct' => $result->profitMarginPct,
                     'spike_relative_volume' => $result->spikeRelativeVolume,
+                    'spike_price_change_pct' => $result->spikePriceChangePct,
                     'eps_growth_sequence' => $result->epsGrowthSequence,
                     'revenue_growth_sequence' => $result->revenueGrowthSequence,
                     'operating_margin_expansion_bps' => $result->operatingMarginExpansionBps,
@@ -302,6 +310,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'liquidity_penalty_pct' => $result->liquidityPenaltyPct,
                     'liquidity_penalty_points' => $result->liquidityPenaltyPoints,
                     'growth_synergy_bonus' => $growthSynergyBonus,
+                    'ignition_bonus' => $ignitionBonus,
                     'score_breakdown' => $breakdown,
                     'spike_date' => $spikeDate,
                     'spike_age_bars' => $result->spikeAgeBars,

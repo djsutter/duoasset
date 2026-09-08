@@ -299,6 +299,13 @@ class StockBuySetupScanner
 
         // ---------------- Quality metrics ----------------
         $spikeClose = (float) ($bars[$spikeIdx]['close'] ?? 0);
+        $prevClose = ($spikeIdx > 0 && isset($bars[$spikeIdx - 1]['close']))
+            ? (float) $bars[$spikeIdx - 1]['close']
+            : null;
+        $spikePriceChangePct = ($prevClose !== null && $prevClose > 0)
+            ? round((($spikeClose - $prevClose) / $prevClose) * 100, 4)
+            : null;
+
         $distToBreakout = $baseHigh > 0
             ? (($baseHigh - $spikeClose) / $baseHigh) * 100
             : 0.0;
@@ -354,6 +361,7 @@ class StockBuySetupScanner
             roePct: $this->nullableFloat($context['roe_pct'] ?? null),
             profitMarginPct: $this->nullableFloat($context['profit_margin_pct'] ?? null),
             spikeRelativeVolume: $baseAvgVol > 0 ? round($spikeVol / $baseAvgVol, 4) : null,
+            spikePriceChangePct: $spikePriceChangePct,
             epsGrowthSequence: $context['eps_growth_sequence'] ?? null,
             revenueGrowthSequence: $context['revenue_growth_sequence'] ?? null,
             operatingMarginExpansionBps: $this->nullableFloat($context['operating_margin_expansion_bps'] ?? null),

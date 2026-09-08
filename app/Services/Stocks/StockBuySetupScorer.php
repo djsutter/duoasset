@@ -620,8 +620,124 @@ class StockBuySetupScorer
         ];
     }
 
+    /**
+     * Ignition / Early Accumulation Bonus (v1): a flat configurable bonus
+     * added on top of the normalized setup score (disabled by default per
+     * setup type when bonus_points = 0).
+     *
+     * Rewards setups that have spent a meaningful period in a base with
+     * meaningful volume dry-up, and suddenly experience abnormal relative
+     * volume accompanied by a meaningful positive spike-day price move.
+     *
+     * Two confirmation paths:
+     * 1. Price-led: moderately abnormal RVOL + very strong price expansion
+     * 2. Volume-led: strongly abnormal RVOL + somewhat lower price expansion
+     *
+     * The two paths are alternative qualification methods and award the
+     * bonus at most once.
+     *
+     * @return array{bonus_points: int, points: int, max: int, eligible: bool, base_duration_days: int|null, volume_dry_up_pct: float|null, spike_relative_volume: float|null, spike_price_change_pct: float|null, price_led: bool, volume_led: bool, price_led_qualified: bool, volume_led_qualified: bool}
+     */
+    public function ignitionBonus(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType = null,
+    ): array {
+        $type = $setupType ?? ($r->setupType ?? $r->setup_type ?? null);
+        $configService = app(BuySetupConfigService::class);
+        $config = $configService->getIgnitionBonusConfig($type);
+        $bonusPoints = $config['bonus_points'];
+
+        $baseDays = $this->nullableInt($r->baseDurationDays ?? $r->base_duration_days ?? null);
+        $dryUpScore = $this->nullableFloat($r->volumeDryUpScore ?? $r->volume_dry_up_score ?? null);
+        $volumeDryUpPct = $dryUpScore !== null ? $dryUpScore * 100.0 : null;
+        $rvol = $this->nullableFloat($r->spikeRelativeVolume ?? $r->spike_relative_volume ?? null);
+        $priceChangePct = $this->nullableFloat($r->spikePriceChangePct ?? $r->spike_price_change_pct ?? null);
+
+        $hasAllInputs = $baseDays !== null
+            && $dryUpScore !== null
+            && $rvol !== null
+            && $priceChangePct !== null;
+
+        $dormant = $hasAllInputs
+            && $baseDays >= $config['min_base_days']
+            && $volumeDryUpPct >= $config['min_volume_dry_up_pct'];
+
+        $priceLed = $hasAllInputs
+            && $rvol >= $config['price_led_min_relative_volume']
+            && $priceChangePct >= $config['price_led_min_price_change_pct'];
+
+        $volumeLed = $hasAllInputs
+            && $rvol >= $config['volume_led_min_relative_volume']
+            && $priceChangePct >= $config['volume_led_min_price_change_pct'];
+
+        $priceLedQualified = $bonusPoints > 0 && $dormant && $priceLed;
+        $volumeLedQualified = $bonusPoints > 0 && $dormant && $volumeLed;
+        $qualifies = $priceLedQualified || $volumeLedQualified;
+
+        $points = $qualifies ? $bonusPoints : 0;
+
+        return [
+            'bonus_points' => $bonusPoints,
+            'points' => $points,
+            'max' => $bonusPoints,
+            'eligible' => $qualifies,
+            'base_duration_days' => $baseDays,
+            'volume_dry_up_pct' => $volumeDryUpPct,
+            'spike_relative_volume' => $rvol,
+            'spike_price_change_pct' => $priceChangePct,
+            'price_led' => $priceLed,
+            'volume_led' => $volumeLed,
+            'price_led_qualified' => $priceLedQualified,
+            'volume_led_qualified' => $volumeLedQualified,
+        ];
+    }
+
+    /**
+     * Builds a display-only score breakdown entry for the Ignition / Early
+     * Accumulation Bonus, in the same {label, points, max, value} shape as
+     * breakdown(). Deliberately NOT part of breakdown()'s weighted pool.
+     *
+     * @return array{label: string, points: int, max: int, value: string}
+     */
+    public function ignitionBonusBreakdownEntry(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType = null,
+    ): array {
+        $bonus = $this->ignitionBonus($r, $setupType);
+
+        $baseText = $bonus['base_duration_days'] !== null ? "{$bonus['base_duration_days']}d base" : 'n/a base';
+        $dryUpText = $bonus['volume_dry_up_pct'] !== null ? number_format($bonus['volume_dry_up_pct'], 0).'% dry-up' : 'n/a dry-up';
+        $rvolText = $bonus['spike_relative_volume'] !== null ? number_format($bonus['spike_relative_volume'], 1).'x relative volume' : 'n/a relative volume';
+        $priceText = $bonus['spike_price_change_pct'] !== null
+            ? ($bonus['spike_price_change_pct'] >= 0 ? '+' : '').number_format($bonus['spike_price_change_pct'], 1).'%'
+            : 'n/a price';
+
+        $stats = sprintf('%s | %s | %s | %s', $baseText, $dryUpText, $rvolText, $priceText);
+
+        $pathText = match (true) {
+            $bonus['price_led_qualified'] && $bonus['volume_led_qualified'] => 'Price + volume ignition',
+            $bonus['volume_led_qualified'] => 'Volume-led ignition',
+            $bonus['price_led_qualified'] => 'Price-led ignition',
+            default => null,
+        };
+
+        $value = $pathText !== null ? "{$pathText}\n{$stats}" : $stats;
+
+        return [
+            'label' => 'Ignition / early accumulation',
+            'points' => $bonus['points'],
+            'max' => $bonus['max'],
+            'value' => $value,
+        ];
+    }
+
     private function nullableFloat(mixed $value): ?float
     {
-        return $value === null || $value === '' ? null : (float) $value;
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
+    }
+
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null || $value === '' || ! is_numeric($value) ? null : (int) $value;
     }
 }

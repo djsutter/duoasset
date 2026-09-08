@@ -240,6 +240,12 @@ class StockBuySetups extends Component
             return;
         }
 
+        if (! $this->ignitionBonusIsValid()) {
+            $this->configFlash = 'Ignition Bonus: bonus points >= 0, min base days >= 1, min volume dry-up between 0 and 100%, relative volume > 0, and price gain >= 0%.';
+
+            return;
+        }
+
         if (! $this->marketCapRangesAreValid()) {
             $this->configFlash = 'Minimum Market Cap must be >= 0, Maximum Market Cap must be > 0, and Minimum Market Cap must not exceed Maximum Market Cap.';
 
@@ -346,6 +352,57 @@ class StockBuySetups extends Component
             }
 
             if (! ($values['medium_threshold'] < $values['strong_threshold'] && $values['strong_threshold'] < $values['exceptional_threshold'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Reject invalid Ignition Bonus configurations before they are ever
+     * persisted, rather than silently falling back server-side.
+     */
+    private function ignitionBonusIsValid(): bool
+    {
+        $types = (array) ($this->configState['setup_types'] ?? []);
+
+        foreach ($types as $type) {
+            $bonus = $type['ignition_bonus'] ?? null;
+            if (! is_array($bonus)) {
+                continue;
+            }
+
+            $numericKeys = [
+                'bonus_points',
+                'min_base_days',
+                'min_volume_dry_up_pct',
+                'price_led_min_relative_volume',
+                'price_led_min_price_change_pct',
+                'volume_led_min_relative_volume',
+                'volume_led_min_price_change_pct',
+            ];
+            $values = [];
+            foreach ($numericKeys as $key) {
+                if (! isset($bonus[$key]) || ! is_numeric($bonus[$key])) {
+                    return false;
+                }
+                $values[$key] = (float) $bonus[$key];
+            }
+
+            if ($values['bonus_points'] < 0 || $values['min_base_days'] < 1) {
+                return false;
+            }
+
+            if ($values['min_volume_dry_up_pct'] < 0 || $values['min_volume_dry_up_pct'] > 100) {
+                return false;
+            }
+
+            if ($values['price_led_min_relative_volume'] <= 0 || $values['price_led_min_price_change_pct'] < 0) {
+                return false;
+            }
+
+            if ($values['volume_led_min_relative_volume'] <= 0 || $values['volume_led_min_price_change_pct'] < 0) {
                 return false;
             }
         }
@@ -514,6 +571,10 @@ class StockBuySetups extends Component
                 $growthSynergyBonus = $scorer->growthSynergyBonusBreakdownEntry($alert, $alert->setup_type);
                 if ($growthSynergyBonus['max'] > 0) {
                     $breakdown['growth_synergy_bonus'] = $growthSynergyBonus;
+                }
+                $ignitionBonus = $scorer->ignitionBonusBreakdownEntry($alert, $alert->setup_type);
+                if ($ignitionBonus['max'] > 0) {
+                    $breakdown['ignition_bonus'] = $ignitionBonus;
                 }
 
                 return [$alert->id => $breakdown];

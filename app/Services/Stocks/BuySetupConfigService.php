@@ -48,6 +48,25 @@ class BuySetupConfigService
     ];
 
     /**
+     * Default Ignition / Early Accumulation Bonus configuration. Disabled by
+     * default (bonus_points = 0) so existing setup scores never change
+     * unless a user explicitly opts in.
+     * See StockBuySetupScorer::ignitionBonus().
+     */
+    public const DEFAULT_IGNITION_BONUS = [
+        'bonus_points' => 0,
+
+        'min_base_days' => 90,
+        'min_volume_dry_up_pct' => 30,
+
+        'price_led_min_relative_volume' => 2.2,
+        'price_led_min_price_change_pct' => 12.0,
+
+        'volume_led_min_relative_volume' => 3.0,
+        'volume_led_min_price_change_pct' => 8.0,
+    ];
+
+    /**
      * Default per-setup-type market-cap eligibility range, in whole
      * dollars. Applied to existing setup types missing this setting and
      * to newly created setup types.
@@ -107,6 +126,7 @@ class BuySetupConfigService
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
+                'ignition_bonus' => self::DEFAULT_IGNITION_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -145,6 +165,7 @@ class BuySetupConfigService
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
+                'ignition_bonus' => self::DEFAULT_IGNITION_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -183,6 +204,7 @@ class BuySetupConfigService
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
+                'ignition_bonus' => self::DEFAULT_IGNITION_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -221,6 +243,7 @@ class BuySetupConfigService
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
+                'ignition_bonus' => self::DEFAULT_IGNITION_BONUS,
                 'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
                 'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
             ],
@@ -633,6 +656,32 @@ class BuySetupConfigService
     }
 
     /**
+     * Ignition / Early Accumulation Bonus configuration for the given setup type.
+     *
+     * @return array{bonus_points: int, min_base_days: int, min_volume_dry_up_pct: float, price_led_min_relative_volume: float, price_led_min_price_change_pct: float, volume_led_min_relative_volume: float, volume_led_min_price_change_pct: float}
+     */
+    public function getIgnitionBonusConfig(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $default = self::DEFAULT_IGNITION_BONUS;
+        $bonus = $type['ignition_bonus'] ?? $default;
+
+        if (! is_array($bonus)) {
+            return $default;
+        }
+
+        return [
+            'bonus_points' => (int) ($bonus['bonus_points'] ?? $default['bonus_points']),
+            'min_base_days' => (int) ($bonus['min_base_days'] ?? $default['min_base_days']),
+            'min_volume_dry_up_pct' => (float) ($bonus['min_volume_dry_up_pct'] ?? $default['min_volume_dry_up_pct']),
+            'price_led_min_relative_volume' => (float) ($bonus['price_led_min_relative_volume'] ?? $default['price_led_min_relative_volume']),
+            'price_led_min_price_change_pct' => (float) ($bonus['price_led_min_price_change_pct'] ?? $default['price_led_min_price_change_pct']),
+            'volume_led_min_relative_volume' => (float) ($bonus['volume_led_min_relative_volume'] ?? $default['volume_led_min_relative_volume']),
+            'volume_led_min_price_change_pct' => (float) ($bonus['volume_led_min_price_change_pct'] ?? $default['volume_led_min_price_change_pct']),
+        ];
+    }
+
+    /**
      * Whether quarterly cash flow statements are needed by *any* configured
      * setup type, i.e. whether FCF Margin Expansion or the Growth Synergy
      * Bonus (which reuses the FCF Margin Expansion score) is enabled
@@ -691,6 +740,7 @@ class BuySetupConfigService
             'operating_margin_expansion_thresholds' => $defaultType['operating_margin_expansion_thresholds'],
             'fcf_margin_expansion_thresholds' => $defaultType['fcf_margin_expansion_thresholds'],
             'growth_synergy_bonus' => $defaultType['growth_synergy_bonus'],
+            'ignition_bonus' => $defaultType['ignition_bonus'],
             'min_market_cap' => $defaultType['min_market_cap'],
             'max_market_cap' => $defaultType['max_market_cap'],
         ];
@@ -841,6 +891,10 @@ class BuySetupConfigService
                 $saved['growth_synergy_bonus'] ?? null,
                 (array) ($default['growth_synergy_bonus'] ?? self::DEFAULT_GROWTH_SYNERGY_BONUS),
             ),
+            'ignition_bonus' => $this->mergeIgnitionBonus(
+                $saved['ignition_bonus'] ?? null,
+                (array) ($default['ignition_bonus'] ?? self::DEFAULT_IGNITION_BONUS),
+            ),
             ...$this->mergeMarketCapRange($saved, $default),
         ];
     }
@@ -990,6 +1044,83 @@ class BuySetupConfigService
             'medium_threshold' => $medium,
             'strong_threshold' => $strong,
             'exceptional_threshold' => $exceptional,
+        ];
+    }
+
+    /**
+     * Merge/validate the Ignition / Early Accumulation Bonus configuration.
+     *
+     * Requires:
+     * - bonus_points >= 0
+     * - min_base_days >= 1
+     * - 0 <= min_volume_dry_up_pct <= 100
+     * - price_led_min_relative_volume > 0
+     * - price_led_min_price_change_pct >= 0
+     * - volume_led_min_relative_volume > 0
+     * - volume_led_min_price_change_pct >= 0
+     *
+     * Invalid input falls back to the setup type's default rather than
+     * persisting a broken configuration.
+     *
+     * @param  array<string, mixed>  $default
+     * @return array<string, mixed>
+     */
+    private function mergeIgnitionBonus(mixed $saved, array $default): array
+    {
+        $default = array_merge(self::DEFAULT_IGNITION_BONUS, $default);
+
+        if (! is_array($saved)) {
+            return $default;
+        }
+
+        $numericKeys = [
+            'bonus_points',
+            'min_base_days',
+            'min_volume_dry_up_pct',
+            'price_led_min_relative_volume',
+            'price_led_min_price_change_pct',
+            'volume_led_min_relative_volume',
+            'volume_led_min_price_change_pct',
+        ];
+
+        foreach ($numericKeys as $key) {
+            if (! isset($saved[$key]) || ! is_numeric($saved[$key])) {
+                return $default;
+            }
+        }
+
+        $bonusPoints = (int) $saved['bonus_points'];
+        $minBaseDays = (int) $saved['min_base_days'];
+        $minVolumeDryUpPct = (float) $saved['min_volume_dry_up_pct'];
+        $priceLedRvol = (float) $saved['price_led_min_relative_volume'];
+        $priceLedPrice = (float) $saved['price_led_min_price_change_pct'];
+        $volumeLedRvol = (float) $saved['volume_led_min_relative_volume'];
+        $volumeLedPrice = (float) $saved['volume_led_min_price_change_pct'];
+
+        if ($bonusPoints < 0 || $minBaseDays < 1) {
+            return $default;
+        }
+
+        if ($minVolumeDryUpPct < 0 || $minVolumeDryUpPct > 100) {
+            return $default;
+        }
+
+        if ($priceLedRvol <= 0 || $priceLedPrice < 0) {
+            return $default;
+        }
+
+        if ($volumeLedRvol <= 0 || $volumeLedPrice < 0) {
+            return $default;
+        }
+
+        return [
+            'bonus_points' => $bonusPoints,
+            'min_base_days' => $minBaseDays,
+            'min_volume_dry_up_pct' => $minVolumeDryUpPct,
+            'price_led_min_relative_volume' => $priceLedRvol,
+            'price_led_min_price_change_pct' => $priceLedPrice,
+            'volume_led_min_relative_volume' => $volumeLedRvol,
+            'volume_led_min_price_change_pct' => $volumeLedPrice,
         ];
     }
 

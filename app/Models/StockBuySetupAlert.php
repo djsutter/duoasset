@@ -57,6 +57,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $roe_pct
  * @property string|null $profit_margin_pct
  * @property string|null $spike_relative_volume
+ * @property string|null $spike_price_change_pct
  * @property array|null $eps_growth_sequence
  * @property array|null $revenue_growth_sequence
  * @property string|null $operating_margin_expansion_bps
@@ -123,6 +124,7 @@ class StockBuySetupAlert extends Model
         'roe_pct',
         'profit_margin_pct',
         'spike_relative_volume',
+        'spike_price_change_pct',
         'eps_growth_sequence',
         'revenue_growth_sequence',
         'operating_margin_expansion_bps',
@@ -167,6 +169,7 @@ class StockBuySetupAlert extends Model
         'roe_pct' => 'decimal:4',
         'profit_margin_pct' => 'decimal:4',
         'spike_relative_volume' => 'decimal:4',
+        'spike_price_change_pct' => 'decimal:4',
         'eps_growth_sequence' => 'array',
         'revenue_growth_sequence' => 'array',
         'operating_margin_expansion_bps' => 'decimal:4',

@@ -218,6 +218,7 @@
                             'roe_pct' => $alert->roe_pct !== null ? number_format((float) $alert->roe_pct, 1).'%' : '—',
                             'profit_margin_pct' => $alert->profit_margin_pct !== null ? number_format((float) $alert->profit_margin_pct, 1).'%' : '—',
                             'spike_relative_volume' => $alert->spike_relative_volume !== null ? number_format((float) $alert->spike_relative_volume, 1).'x' : '—',
+                            'spike_price_change_pct' => $alert->spike_price_change_pct !== null ? ($alert->spike_price_change_pct >= 0 ? '+' : '').number_format((float) $alert->spike_price_change_pct, 1).'%' : '—',
                             'earnings_acceleration' => $alert->earnings_acceleration !== null ? number_format((float) $alert->earnings_acceleration, 1).' pts' : '—',
                             'sales_acceleration' => $alert->sales_acceleration !== null ? number_format((float) $alert->sales_acceleration, 1).' pts' : '—',
                             'eps_growth_sequence' => is_array($alert->eps_growth_sequence) ? implode(' → ', array_map(fn ($v) => $v.'%', $alert->eps_growth_sequence)) : '—',
@@ -428,7 +429,7 @@
                                                 <div class="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
                                                     <div class="h-2 rounded-full bg-emerald-500" :style="`width: ${component.pct}%`"></div>
                                                 </div>
-                                                <div class="mt-1 text-[11px] text-zinc-400" x-show="component.value" x-text="component.value"></div>
+                                                <div class="mt-1 text-[11px] text-zinc-400 whitespace-pre-line" x-show="component.value" x-text="component.value"></div>
                                             </div>
                                         </template>
                                     </div>
@@ -959,6 +960,84 @@
                                                    wire:key="type-gsb-exceptional-{{ $selectedConfigSetupType }}"
                                                    wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.growth_synergy_bonus.exceptional_threshold"
                                                    class="da-input">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {{-- Ignition / Early Accumulation Bonus --}}
+                                @php
+                                    $ignitionBonus = $configState['setup_types'][$selectedConfigSetupType]['ignition_bonus'] ?? [];
+                                @endphp
+                                <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 space-y-3">
+                                    <div>
+                                        <h3 class="font-semibold text-sm uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                                            {{ __('Ignition / Early Accumulation Bonus') }}
+                                        </h3>
+                                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            {{ __('Adds a flat bonus when a quiet, long-base setup suddenly expands strongly in price and/or relative volume. Qualifies with either: >=2.2x relative volume and >=12% price gain, or >=3.0x relative volume and >=8% price gain. Set Bonus Points to 0 to disable.') }}
+                                        </p>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div>
+                                            <label class="da-label">{{ __('Bonus points') }}</label>
+                                            <input type="number" step="1" min="0"
+                                                   wire:key="type-ign-bonus-points-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.bonus_points"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Minimum base duration (days)') }}</label>
+                                            <input type="number" step="1" min="1"
+                                                   wire:key="type-ign-min-base-days-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.min_base_days"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Minimum volume dry-up (%)') }}</label>
+                                            <input type="number" step="0.1" min="0" max="100"
+                                                   wire:key="type-ign-min-vol-dry-up-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.min_volume_dry_up_pct"
+                                                   class="da-input">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                        <div class="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/40 space-y-2">
+                                            <h4 class="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{{ __('Price-led ignition') }}</h4>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="da-label">{{ __('Min relative vol (x)') }}</label>
+                                                    <input type="number" step="0.1" min="0.1"
+                                                           wire:key="type-ign-price-led-rvol-{{ $selectedConfigSetupType }}"
+                                                           wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.price_led_min_relative_volume"
+                                                           class="da-input">
+                                                </div>
+                                                <div>
+                                                    <label class="da-label">{{ __('Min price gain (%)') }}</label>
+                                                    <input type="number" step="0.1" min="0"
+                                                           wire:key="type-ign-price-led-price-{{ $selectedConfigSetupType }}"
+                                                           wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.price_led_min_price_change_pct"
+                                                           class="da-input">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="rounded-lg border border-zinc-200/80 p-3 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/40 space-y-2">
+                                            <h4 class="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{{ __('Volume-led ignition') }}</h4>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="da-label">{{ __('Min relative vol (x)') }}</label>
+                                                    <input type="number" step="0.1" min="0.1"
+                                                           wire:key="type-ign-vol-led-rvol-{{ $selectedConfigSetupType }}"
+                                                           wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.volume_led_min_relative_volume"
+                                                           class="da-input">
+                                                </div>
+                                                <div>
+                                                    <label class="da-label">{{ __('Min price gain (%)') }}</label>
+                                                    <input type="number" step="0.1" min="0"
+                                                           wire:key="type-ign-vol-led-price-{{ $selectedConfigSetupType }}"
+                                                           wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.volume_led_min_price_change_pct"
+                                                           class="da-input">
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
