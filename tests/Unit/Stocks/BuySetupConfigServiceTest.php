@@ -12,7 +12,7 @@ test('it returns default configuration matching specification when no setting ex
 
     expect($config['scanner_enabled'])->toBeTrue()
         ->and($config['min_setup_score'])->toBe(0)
-        ->and($config['notify_min_setup_score'])->toBe(50)
+        ->and($config['notify_min_setup_score'])->toBe(70)
         ->and($config['min_heartbeat_score'])->toBe(50)
         ->and($config['min_market_cap'])->toBe(50000000)
         ->and($config['max_market_cap'])->toBe(1000000000000)
