@@ -16,7 +16,7 @@ test('it returns default configuration matching specification when no setting ex
         ->and($config['min_heartbeat_score'])->toBe(50)
         ->and($config['min_market_cap'])->toBe(50000000)
         ->and($config['max_market_cap'])->toBe(1000000000000)
-        ->and($config['max_symbols'])->toBe(4000)
+        ->and($config['max_symbols'])->toBe(40000)
         ->and($config['exchanges'])->toEqual(['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'])
         ->and($config['history_lookback_days'])->toBe(504)
         ->and($config['benchmark_symbols'])->toEqual(['SPY', 'IWM'])
