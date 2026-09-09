@@ -9,11 +9,13 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-test('it filters by ignition bonus only when ignitionOnly is true', function () {
+test('it filters by bonus type dropdown with options any, ignition accumulation, and growth synergy', function () {
     $user = User::factory()->create();
 
     $configService = app(BuySetupConfigService::class);
     $config = $configService->getConfig();
+
+    // Configure Ignition Bonus
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['bonus_points'] = 8;
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['min_base_days'] = 90;
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['min_volume_dry_up_pct'] = 30.0;
@@ -21,11 +23,18 @@ test('it filters by ignition bonus only when ignitionOnly is true', function () 
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['price_led_min_price_change_pct'] = 12.0;
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['volume_led_min_relative_volume'] = 3.0;
     $config['setup_types']['heartbeat_consolidation_spike']['ignition_bonus']['volume_led_min_price_change_pct'] = 8.0;
+
+    // Configure Growth Synergy Bonus
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['enabled'] = true;
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['max_points'] = 10;
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['min_sales_yoy'] = 20.0;
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['medium_threshold'] = 50.0;
+
     $configService->saveConfig($config);
 
-    // Alert 1: qualifies (150d base, 40% dry-up, 3.5x RVOL, 15% price gain)
+    // Alert 1: Only Ignition qualifies
     StockBuySetupAlert::create([
-        'symbol' => 'QUAL',
+        'symbol' => 'IGNONLY',
         'source' => 'test',
         'setup_type' => 'heartbeat_consolidation_spike',
         'setup_score' => 85,
@@ -38,46 +47,54 @@ test('it filters by ignition bonus only when ignitionOnly is true', function () 
         'status' => 'detected',
     ]);
 
-    // Alert 2: base too short (30d base)
+    // Alert 2: Only Growth Synergy qualifies
     StockBuySetupAlert::create([
-        'symbol' => 'SHORT',
+        'symbol' => 'GROWTHONLY',
         'source' => 'test',
         'setup_type' => 'heartbeat_consolidation_spike',
-        'setup_score' => 80,
-        'base_duration_days' => 30,
-        'volume_dry_up_score' => 0.40,
-        'spike_relative_volume' => 3.5,
-        'spike_price_change_pct' => 15.0,
+        'setup_score' => 85,
+        'base_duration_days' => 20,
+        'volume_dry_up_score' => 0.10,
+        'spike_relative_volume' => 1.0,
+        'spike_price_change_pct' => 1.0,
+        'quarterly_revenue_growth_pct' => 35.0,
+        'sales_acceleration' => 3000.0,
+        'operating_margin_expansion_bps' => 1500.0,
+        'fcf_margin_expansion_bps' => 1500.0,
         'spike_date' => now(),
         'detected_at' => now()->subMinute(),
         'status' => 'detected',
     ]);
 
-    // Alert 3: dry-up too low (10%)
+    // Alert 3: Both Bonuses qualify
     StockBuySetupAlert::create([
-        'symbol' => 'NODRY',
+        'symbol' => 'BOTH',
         'source' => 'test',
         'setup_type' => 'heartbeat_consolidation_spike',
-        'setup_score' => 75,
-        'base_duration_days' => 120,
-        'volume_dry_up_score' => 0.10,
+        'setup_score' => 95,
+        'base_duration_days' => 150,
+        'volume_dry_up_score' => 0.40,
         'spike_relative_volume' => 3.5,
         'spike_price_change_pct' => 15.0,
+        'quarterly_revenue_growth_pct' => 35.0,
+        'sales_acceleration' => 3000.0,
+        'operating_margin_expansion_bps' => 1500.0,
+        'fcf_margin_expansion_bps' => 1500.0,
         'spike_date' => now(),
         'detected_at' => now()->subMinutes(2),
         'status' => 'detected',
     ]);
 
-    // Alert 4: neither price-led nor volume-led (1.5x RVOL, 5% price)
+    // Alert 4: Neither qualifies
     StockBuySetupAlert::create([
-        'symbol' => 'LOWVOL',
+        'symbol' => 'NEITHER',
         'source' => 'test',
         'setup_type' => 'heartbeat_consolidation_spike',
-        'setup_score' => 70,
-        'base_duration_days' => 120,
-        'volume_dry_up_score' => 0.40,
-        'spike_relative_volume' => 1.5,
-        'spike_price_change_pct' => 5.0,
+        'setup_score' => 60,
+        'base_duration_days' => 20,
+        'volume_dry_up_score' => 0.10,
+        'spike_relative_volume' => 1.0,
+        'spike_price_change_pct' => 1.0,
         'spike_date' => now(),
         'detected_at' => now()->subMinutes(3),
         'status' => 'detected',
@@ -88,19 +105,26 @@ test('it filters by ignition bonus only when ignitionOnly is true', function () 
         ->set('minScore', null)
         ->set('minMarketCap', null);
 
-    // Unfiltered: all 4 alerts present
+    // Default 'any': all 4 alerts present
+    expect($component->get('bonusType'))->toBe('any');
     $alerts = $component->viewData('alerts');
     expect($alerts)->toHaveCount(4);
 
-    // Filter by ignition bonus only
-    $component->set('ignitionOnly', true);
-    $filteredAlerts = $component->viewData('alerts');
-    expect($filteredAlerts)->toHaveCount(1)
-        ->and($filteredAlerts->first()->symbol)->toBe('QUAL');
+    // Filter by ignition accumulation
+    $component->set('bonusType', 'ignition_accumulation');
+    $ignAlerts = $component->viewData('alerts');
+    expect($ignAlerts)->toHaveCount(2)
+        ->and($ignAlerts->pluck('symbol')->all())->toEqualCanonicalizing(['IGNONLY', 'BOTH']);
+
+    // Filter by growth synergy
+    $component->set('bonusType', 'growth_synergy');
+    $growthAlerts = $component->viewData('alerts');
+    expect($growthAlerts)->toHaveCount(2)
+        ->and($growthAlerts->pluck('symbol')->all())->toEqualCanonicalizing(['GROWTHONLY', 'BOTH']);
 
     // Reset filters
     $component->call('clearFilters');
-    expect($component->get('ignitionOnly'))->toBeFalse();
+    expect($component->get('bonusType'))->toBe('any');
     $resetAlerts = $component->viewData('alerts');
     expect($resetAlerts)->toHaveCount(4);
 });
@@ -131,7 +155,39 @@ test('it excludes alerts when setup type has ignition bonus_points = 0 even if t
         ->test(StockBuySetups::class)
         ->set('minScore', null)
         ->set('minMarketCap', null)
-        ->set('ignitionOnly', true);
+        ->set('bonusType', 'ignition_accumulation');
+
+    $alerts = $component->viewData('alerts');
+    expect($alerts)->toHaveCount(0);
+});
+
+test('it excludes alerts when setup type has growth synergy bonus disabled even if metrics qualify', function () {
+    $user = User::factory()->create();
+
+    $configService = app(BuySetupConfigService::class);
+    $config = $configService->getConfig();
+    $config['setup_types']['heartbeat_consolidation_spike']['growth_synergy_bonus']['enabled'] = false; // disabled
+    $configService->saveConfig($config);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'GROWTHDIS',
+        'source' => 'test',
+        'setup_type' => 'heartbeat_consolidation_spike',
+        'setup_score' => 85,
+        'quarterly_revenue_growth_pct' => 35.0,
+        'sales_acceleration' => 3000.0,
+        'operating_margin_expansion_bps' => 1500.0,
+        'fcf_margin_expansion_bps' => 1500.0,
+        'spike_date' => now(),
+        'detected_at' => now(),
+        'status' => 'detected',
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->set('minScore', null)
+        ->set('minMarketCap', null)
+        ->set('bonusType', 'growth_synergy');
 
     $alerts = $component->viewData('alerts');
     expect($alerts)->toHaveCount(0);

@@ -460,6 +460,46 @@ class StockBuySetupScorer
     }
 
     /**
+     * Calculates the minimum raw sales acceleration required to achieve the given normalized score.
+     */
+    public function minSalesAccelerationForScore(float $targetScore): float
+    {
+        if ($targetScore <= 0.0) {
+            return 0.0;
+        }
+
+        $scales = $this->accelerationScales();
+        $scale = $scales['sales_acceleration'];
+        $targetRatio = max(0.0, min(1.0, ($targetScore - 0.0001) / 100.0));
+
+        return max(0.0, pow(1.0 + $scale, $targetRatio) - 1.0);
+    }
+
+    /**
+     * Calculates the minimum raw operating margin expansion (in bps) required to achieve the given normalized score.
+     */
+    public function minOperatingMarginExpansionForScore(float $targetScore, ?string $setupType = null): float
+    {
+        if ($targetScore <= 0.0) {
+            return 0.0;
+        }
+
+        $thresholds = app(BuySetupConfigService::class)->getOperatingMarginExpansionThresholds($setupType);
+        $t25 = (float) $thresholds['threshold_25'];
+        $t50 = (float) $thresholds['threshold_50'];
+        $t75 = (float) $thresholds['threshold_75'];
+        $t100 = (float) $thresholds['threshold_100'];
+
+        return match (true) {
+            $targetScore <= 25.0 => $t25 * ($targetScore / 25.0),
+            $targetScore <= 50.0 => $t25 + ($t50 - $t25) * (($targetScore - 25.0) / 25.0),
+            $targetScore <= 75.0 => $t50 + ($t75 - $t50) * (($targetScore - 50.0) / 25.0),
+            $targetScore <= 100.0 => $t75 + ($t100 - $t75) * (($targetScore - 75.0) / 25.0),
+            default => $t100,
+        };
+    }
+
+    /**
      * Reduce the final earned sales-acceleration points when the YoY
      * comparison is based on a very small prior-year revenue denominator.
      *

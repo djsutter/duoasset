@@ -108,14 +108,17 @@
                     <option value="asc">{{ __('Ascending') }}</option>
                 </select>
             </div>
-            <div class="flex items-end">
-                <label class="inline-flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model.live="unwatchedOnly"> {{ __('Hide already-watched') }}
-                </label>
+            <div>
+                <label class="da-label">{{ __('Bonus type') }}</label>
+                <select wire:model.live="bonusType" class="da-input">
+                    <option value="any">{{ __('Any') }}</option>
+                    <option value="ignition_accumulation">{{ __('Ignition accumulation') }}</option>
+                    <option value="growth_synergy">{{ __('Growth synergy') }}</option>
+                </select>
             </div>
             <div class="flex items-end">
                 <label class="inline-flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model.live="ignitionOnly"> {{ __('Ignition bonus only') }}
+                    <input type="checkbox" wire:model.live="unwatchedOnly"> {{ __('Hide already-watched') }}
                 </label>
             </div>
         </div>

@@ -44,8 +44,8 @@ class StockBuySetups extends Component
     #[Url(as: 'unwatched_only')]
     public bool $unwatchedOnly = false;
 
-    #[Url(as: 'ignition_only')]
-    public bool $ignitionOnly = false;
+    #[Url(as: 'bonus_type')]
+    public string $bonusType = 'any';
 
     #[Url(as: 'symbol')]
     public ?string $symbol = null;
@@ -98,7 +98,7 @@ class StockBuySetups extends Component
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->unwatchedOnly = false;
-        $this->ignitionOnly = false;
+        $this->bonusType = 'any';
         $this->symbol = null;
         $this->company = null;
         $this->sortBy = 'setup_score';
@@ -560,8 +560,10 @@ class StockBuySetups extends Component
             ->when($this->unwatchedOnly && $watchedSymbols->isNotEmpty(),
                 fn ($q) => $q->whereNotIn('symbol', $watchedSymbols->all()));
 
-        if ($this->ignitionOnly) {
-            $configService = app(BuySetupConfigService::class);
+        $scorer = app(StockBuySetupScorer::class);
+        $configService = app(BuySetupConfigService::class);
+
+        if ($this->bonusType === 'ignition_accumulation' || $this->bonusType === 'ignition') {
             $setupTypesConfig = $configService->getSetupTypes();
             $query->where(function ($q) use ($setupTypesConfig, $configService) {
                 $hasAnyEnabled = false;
@@ -604,6 +606,37 @@ class StockBuySetups extends Component
                     $q->whereRaw('0 = 1');
                 }
             });
+        } elseif ($this->bonusType === 'growth_synergy') {
+            $setupTypesConfig = $configService->getSetupTypes();
+            $query->where(function ($q) use ($setupTypesConfig, $configService, $scorer) {
+                $hasAnyEnabled = false;
+                foreach ($setupTypesConfig as $typeKey => $typeData) {
+                    if (! ($typeData['enabled'] ?? true)) {
+                        continue;
+                    }
+                    $growthConfig = $configService->getGrowthSynergyBonusConfig($typeKey);
+                    if (! $growthConfig['enabled'] || $growthConfig['max_points'] <= 0) {
+                        continue;
+                    }
+                    $hasAnyEnabled = true;
+                    $minSalesYoy = (float) $growthConfig['min_sales_yoy'];
+                    $minSalesAccel = $scorer->minSalesAccelerationForScore((float) $growthConfig['medium_threshold']);
+                    $minOpMargin = $scorer->minOperatingMarginExpansionForScore((float) $growthConfig['medium_threshold'], $typeKey);
+
+                    $q->orWhere(function ($sub) use ($typeKey, $minSalesYoy, $minSalesAccel, $minOpMargin) {
+                        $sub->where('setup_type', $typeKey)
+                            ->whereNotNull('quarterly_revenue_growth_pct')
+                            ->where('quarterly_revenue_growth_pct', '>=', $minSalesYoy)
+                            ->whereNotNull('sales_acceleration')
+                            ->where('sales_acceleration', '>=', $minSalesAccel)
+                            ->whereNotNull('operating_margin_expansion_bps')
+                            ->where('operating_margin_expansion_bps', '>=', $minOpMargin);
+                    });
+                }
+                if (! $hasAnyEnabled) {
+                    $q->whereRaw('0 = 1');
+                }
+            });
         }
 
         $sortBy = in_array($this->sortBy, ['symbol', 'company_name', 'setup_score', 'heartbeat_score', 'detected_at', 'spike_date'], true) ? $this->sortBy : 'setup_score';
@@ -614,7 +647,6 @@ class StockBuySetups extends Component
             ->orderByDesc('detected_at')
             ->paginate(25);
 
-        $scorer = app(StockBuySetupScorer::class);
         $scoreBreakdowns = $alerts->getCollection()
             ->mapWithKeys(function (StockBuySetupAlert $alert) use ($scorer) {
                 $breakdown = $scorer->breakdown($alert, $alert->setup_type);
@@ -629,8 +661,6 @@ class StockBuySetups extends Component
 
                 return [$alert->id => $breakdown];
             });
-
-        $configService = app(BuySetupConfigService::class);
 
         return view('livewire.watchlists.stock-buy-setups', [
             'alerts' => $alerts,
