@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\MarketData\FakeMarketDataProvider;
 use App\Services\MarketData\FmpMarketDataProvider;
 use App\Services\MarketData\MarketDataProvider;
 use Illuminate\Support\ServiceProvider;
@@ -18,6 +19,7 @@ class MarketDataServiceProvider extends ServiceProvider
                     baseUrl: (string) config('market_data.fmp.base_url'),
                     apiKey: config('market_data.fmp.api_key'),
                 ),
+                'fake', 'testing', 'array' => new FakeMarketDataProvider,
                 default => throw new \RuntimeException("Unsupported market data provider [$driver]"),
             };
         });

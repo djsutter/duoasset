@@ -30,5 +30,6 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="BUY_SETUP_MIN_MARKET_CAP" value="50000000"/>
+        <env name="FMP_API_KEY" value="test-key"/>
     </php>
 </phpunit>

@@ -5,7 +5,7 @@ return [
 
     'fmp' => [
         'base_url' => env('FMP_BASE_URL', 'https://financialmodelingprep.com/stable'),
-        'api_key' => env('FMP_API_KEY'),
+        'api_key' => env('FMP_API_KEY', env('FMP_KEY')),
     ],
 
     /*

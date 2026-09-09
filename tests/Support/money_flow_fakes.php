@@ -18,6 +18,12 @@ if (! function_exists('fakeMoneyFlowFmp')) {
      */
     function fakeMoneyFlowFmp(array $emptyFor = [], float $priceStep = 0.5): void
     {
+        config([
+            'market_data.provider' => 'fmp',
+            'market_data.fmp.api_key' => config('market_data.fmp.api_key') ?: 'test-fmp-key',
+            'market_data.fmp.base_url' => config('market_data.fmp.base_url') ?: 'https://financialmodelingprep.com/stable',
+        ]);
+
         Http::fake(function ($request) use ($emptyFor, $priceStep) {
             $url = $request->url();
             parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
