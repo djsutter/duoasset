@@ -8,6 +8,7 @@ use App\Models\WatchlistAlertEvent;
 use App\Models\WatchlistAlertRule;
 use App\Models\WatchlistItem;
 use App\Notifications\WatchlistAlertMail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -138,11 +139,30 @@ class AlertEvaluator
     ): void {
         $user = $item->watchlist?->user;
         if (! $user) {
+            Log::info('alerts.watchlist_no_user', ['event_id' => $event->id]);
+
             return;
         }
 
-        Notification::send($user, new WatchlistAlertMail($event, $rule, $item, $stock));
-
-        $event->recordNotification('mail');
+        try {
+            Log::info('alerts.notifying_watchlist_user', [
+                'event_id' => $event->id,
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'symbol' => $stock->symbol,
+            ]);
+            Notification::send($user, new WatchlistAlertMail($event, $rule, $item, $stock));
+            $event->recordNotification('mail');
+            Log::info('alerts.watchlist_user_notified', [
+                'event_id' => $event->id,
+                'user_id' => $user->id,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('alerts.watchlist_notify_failed', [
+                'event_id' => $event->id,
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

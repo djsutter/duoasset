@@ -82,7 +82,7 @@ test('default setup type cannot be deleted and reset to defaults works', functio
     expect(app(BuySetupConfigService::class)->getMinMarketCap())->toBe(999999999);
 
     $component->call('resetConfigToDefaults');
-    expect(app(BuySetupConfigService::class)->getMinMarketCap())->toBe(100000000);
+    expect(app(BuySetupConfigService::class)->getMinMarketCap())->toBe(50000000);
 });
 
 test('multiple setup types retain distinct configurations when switching and reopening modal', function () {

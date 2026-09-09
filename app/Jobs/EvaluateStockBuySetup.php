@@ -107,6 +107,13 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $debug['reason'] = 'insufficient history ('.count($bars).' < 252 bars)';
                 $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 
+                Log::info('buy_setup.rejected', [
+                    'symbol' => $symbol,
+                    'exchange' => $exchange,
+                    'market_cap' => $marketCap,
+                    'reason' => $debug['reason'],
+                ]);
+
                 return $debug;
             }
 
@@ -130,7 +137,16 @@ class EvaluateStockBuySetup implements ShouldQueue
             if (empty($results)) {
                 $debug['status'] = 'rejected';
                 $debug['reason'] = $scanner->lastRejectionReason() ?? 'no enabled setup detector matched';
+                $debug['rejection_reasons'] = $scanner->lastRejectionReasons();
                 $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+                Log::info('buy_setup.rejected', [
+                    'symbol' => $symbol,
+                    'exchange' => $exchange,
+                    'market_cap' => $marketCap,
+                    'reason' => $debug['reason'],
+                    'rejection_reasons' => $debug['rejection_reasons'],
+                ]);
 
                 return $debug;
             }
@@ -327,9 +343,29 @@ class EvaluateStockBuySetup implements ShouldQueue
             if (empty($debug['matches'])) {
                 $debug['status'] = 'rejected';
                 $debug['reason'] = 'no detector match was saved';
+
+                Log::info('buy_setup.rejected', [
+                    'symbol' => $symbol,
+                    'exchange' => $exchange,
+                    'market_cap' => $marketCap,
+                    'reason' => $debug['reason'],
+                ]);
             } else {
                 $debug['status'] = 'matched';
                 $debug['reason'] = null;
+
+                Log::info('buy_setup.evaluated', [
+                    'symbol' => $symbol,
+                    'exchange' => $exchange,
+                    'market_cap' => $marketCap,
+                    'matches_count' => count($debug['matches']),
+                    'matches' => array_map(fn ($m) => [
+                        'setup_type' => $m['setup_type'],
+                        'status' => $m['status'],
+                        'setup_score' => $m['setup_score'],
+                        'notification_eligible' => $m['notification_eligible'],
+                    ], $debug['matches']),
+                ]);
             }
             $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 

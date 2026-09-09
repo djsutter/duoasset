@@ -47,8 +47,13 @@ trait SharedDetectionHelpers
             return null;
         }
 
-        $minMarketCap = (int) ($typeConfig['min_market_cap'] ?? BuySetupConfigService::DEFAULT_MIN_MARKET_CAP);
-        $maxMarketCap = (int) ($typeConfig['max_market_cap'] ?? BuySetupConfigService::DEFAULT_MAX_MARKET_CAP);
+        $configService = app(BuySetupConfigService::class);
+        $minMarketCap = isset($typeConfig['min_market_cap']) && is_numeric($typeConfig['min_market_cap'])
+            ? (int) $typeConfig['min_market_cap']
+            : $configService->getMinMarketCap();
+        $maxMarketCap = isset($typeConfig['max_market_cap']) && is_numeric($typeConfig['max_market_cap'])
+            ? (int) $typeConfig['max_market_cap']
+            : $configService->getMaxMarketCap();
         $marketCapInt = (int) $marketCap;
 
         if ($marketCapInt < $minMarketCap) {

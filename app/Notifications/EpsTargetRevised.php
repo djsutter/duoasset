@@ -21,6 +21,10 @@ class EpsTargetRevised extends Notification
 
     public function via(object $notifiable): array
     {
+        if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable) {
+            return ['mail'];
+        }
+
         $channels = ['database'];
 
         if (config('mail.default') && config('mail.from.address')) {

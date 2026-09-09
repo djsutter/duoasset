@@ -85,8 +85,8 @@ class BuySetupConfigService
         'min_setup_score' => 0,
         'notify_min_setup_score' => 50,
         'min_heartbeat_score' => 50,
-        'min_market_cap' => 100000000,
-        'max_market_cap' => 1000000000000,
+        'min_market_cap' => self::DEFAULT_MIN_MARKET_CAP,
+        'max_market_cap' => self::DEFAULT_MAX_MARKET_CAP,
         'max_symbols' => 4000,
         'exchanges' => ['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'],
         'history_lookback_days' => 504,
@@ -330,7 +330,7 @@ class BuySetupConfigService
 
     public function getMinMarketCap(): int
     {
-        return (int) ($this->getConfig()['min_market_cap'] ?? 100000000);
+        return (int) ($this->getConfig()['min_market_cap'] ?? self::DEFAULT_MIN_MARKET_CAP);
     }
 
     public function getMaxMarketCap(): int
@@ -358,8 +358,8 @@ class BuySetupConfigService
 
         if ($min < 0 || $max <= 0 || $min > $max) {
             return [
-                'min' => self::DEFAULT_MIN_MARKET_CAP,
-                'max' => self::DEFAULT_MAX_MARKET_CAP,
+                'min' => $this->getMinMarketCap(),
+                'max' => $this->getMaxMarketCap(),
             ];
         }
 
@@ -804,7 +804,13 @@ class BuySetupConfigService
             foreach ($savedTypes as $key => $savedType) {
                 if (is_array($savedType)) {
                     $defaultType = $defaultTypes[$key] ?? $defaultTypes['heartbeat_consolidation_spike'];
-                    $config['setup_types'][$key] = $this->mergeSetupType($key, $savedType, $defaultType);
+                    $config['setup_types'][$key] = $this->mergeSetupType(
+                        $key,
+                        $savedType,
+                        $defaultType,
+                        (int) $config['min_market_cap'],
+                        (int) $config['max_market_cap'],
+                    );
                 }
             }
             // Ensure heartbeat_consolidation_spike always exists
@@ -825,7 +831,7 @@ class BuySetupConfigService
      * @param  array<string, mixed>  $default
      * @return array<string, mixed>
      */
-    private function mergeSetupType(string $key, array $saved, array $default): array
+    private function mergeSetupType(string $key, array $saved, array $default, int $globalMinMcap = self::DEFAULT_MIN_MARKET_CAP, int $globalMaxMcap = self::DEFAULT_MAX_MARKET_CAP): array
     {
         $weights = [];
         $savedWeights = (array) ($saved['score_weights'] ?? []);
@@ -907,7 +913,7 @@ class BuySetupConfigService
                 $saved['ignition_bonus'] ?? null,
                 (array) ($default['ignition_bonus'] ?? self::DEFAULT_IGNITION_BONUS),
             ),
-            ...$this->mergeMarketCapRange($saved, $default),
+            ...$this->mergeMarketCapRange($saved, $default, $globalMinMcap, $globalMaxMcap),
         ];
     }
 
@@ -940,11 +946,11 @@ class BuySetupConfigService
      * @param  array<string, mixed>  $default
      * @return array{min_market_cap: int, max_market_cap: int}
      */
-    private function mergeMarketCapRange(array $saved, array $default): array
+    private function mergeMarketCapRange(array $saved, array $default, int $globalMinMcap = self::DEFAULT_MIN_MARKET_CAP, int $globalMaxMcap = self::DEFAULT_MAX_MARKET_CAP): array
     {
         $defaultRange = [
-            'min_market_cap' => (int) ($default['min_market_cap'] ?? self::DEFAULT_MIN_MARKET_CAP),
-            'max_market_cap' => (int) ($default['max_market_cap'] ?? self::DEFAULT_MAX_MARKET_CAP),
+            'min_market_cap' => $globalMinMcap,
+            'max_market_cap' => $globalMaxMcap,
         ];
 
         if (! isset($saved['min_market_cap']) && ! isset($saved['max_market_cap'])) {

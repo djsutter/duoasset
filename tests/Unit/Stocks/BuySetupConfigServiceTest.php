@@ -14,7 +14,7 @@ test('it returns default configuration matching specification when no setting ex
         ->and($config['min_setup_score'])->toBe(0)
         ->and($config['notify_min_setup_score'])->toBe(50)
         ->and($config['min_heartbeat_score'])->toBe(50)
-        ->and($config['min_market_cap'])->toBe(100000000)
+        ->and($config['min_market_cap'])->toBe(50000000)
         ->and($config['max_market_cap'])->toBe(1000000000000)
         ->and($config['max_symbols'])->toBe(4000)
         ->and($config['exchanges'])->toEqual(['NYSE', 'NASDAQ', 'TSX', 'TSXV', 'AMEX', 'OTC'])
@@ -336,4 +336,27 @@ test('an unknown algorithm key falls back to the setup types own key rather than
     $service->saveConfig($config);
 
     expect((new BuySetupConfigService)->getSetupAlgorithm('range_compression_breakout'))->toBe('range_compression_breakout');
+});
+
+test('configuring global min market cap in scanner controls is used and not circumvented by default', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    // User configures a lower min market cap (e.g. $10M) in Scanner & Global Filters
+    $config['min_market_cap'] = 10000000;
+    // And a legacy or unspecified setup type missing its own range
+    unset($config['setup_types']['heartbeat_consolidation_spike']['min_market_cap']);
+
+    $service->saveConfig($config);
+
+    $freshService = new BuySetupConfigService;
+    expect($freshService->getMinMarketCap())->toBe(10000000);
+
+    // Setup type without explicit override falls back to the configured global min market cap
+    $range = $freshService->getSetupMarketCapRange('heartbeat_consolidation_spike');
+    expect($range['min'])->toBe(10000000);
+
+    // Enabled setup types range encompasses the user-configured global minimum
+    $enabledRange = $freshService->getEnabledSetupTypesMarketCapRange();
+    expect($enabledRange['min'])->toBe(10000000);
 });

@@ -30,6 +30,9 @@ class StockBuySetupScanner
 {
     private ?string $lastRejectionReason = null;
 
+    /** @var array<string, string> */
+    private array $lastRejectionReasons = [];
+
     /**
      * Human-readable reason for the most recent non-match. Useful for
      * Artisan verbose/debug scans.
@@ -37,6 +40,16 @@ class StockBuySetupScanner
     public function lastRejectionReason(): ?string
     {
         return $this->lastRejectionReason;
+    }
+
+    /**
+     * Rejection reasons broken down by setup type from the most recent evaluation.
+     *
+     * @return array<string, string>
+     */
+    public function lastRejectionReasons(): array
+    {
+        return $this->lastRejectionReasons;
     }
 
     private function reject(string $reason): null
@@ -64,6 +77,9 @@ class StockBuySetupScanner
      */
     public function evaluateAll(array $bars, array $benchmarkBars = [], array $context = []): array
     {
+        $this->lastRejectionReason = null;
+        $this->lastRejectionReasons = [];
+
         $configService = app(BuySetupConfigService::class);
         $types = $configService->getSetupTypes();
 
@@ -79,6 +95,24 @@ class StockBuySetupScanner
 
             if ($result !== null) {
                 $results[] = $result;
+            } else {
+                $reason = $algorithm->lastRejectionReason();
+                if ($reason !== null) {
+                    $this->lastRejectionReasons[$key] = $reason;
+                }
+            }
+        }
+
+        if (empty($results) && ! empty($this->lastRejectionReasons)) {
+            $uniqueReasons = array_unique(array_values($this->lastRejectionReasons));
+            if (count($uniqueReasons) === 1) {
+                $this->lastRejectionReason = reset($uniqueReasons);
+            } else {
+                $parts = [];
+                foreach ($this->lastRejectionReasons as $k => $r) {
+                    $parts[] = "{$k}: {$r}";
+                }
+                $this->lastRejectionReason = implode('; ', $parts);
             }
         }
 
@@ -95,6 +129,7 @@ class StockBuySetupScanner
     public function evaluate(array $bars, array $benchmarkBars = [], array $context = [], ?array $typeConfig = null, ?string $setupType = null): ?StockBuySetupResult
     {
         $this->lastRejectionReason = null;
+        $this->lastRejectionReasons = [];
         $configService = app(BuySetupConfigService::class);
         $resolvedType = $setupType ?? ($typeConfig['key'] ?? StockBuySetupResult::TYPE_HEARTBEAT_CONSOLIDATION_SPIKE);
         $cfg = $typeConfig ?? $configService->getSetupType($resolvedType);
@@ -119,8 +154,12 @@ class StockBuySetupScanner
         // Market-cap eligibility is configurable per setup type (min_market_cap /
         // max_market_cap), inclusive on both ends, so a stock can qualify for
         // one setup type while being excluded from another.
-        $minMarketCap = (int) ($cfg['min_market_cap'] ?? BuySetupConfigService::DEFAULT_MIN_MARKET_CAP);
-        $maxMarketCap = (int) ($cfg['max_market_cap'] ?? BuySetupConfigService::DEFAULT_MAX_MARKET_CAP);
+        $minMarketCap = isset($cfg['min_market_cap']) && is_numeric($cfg['min_market_cap'])
+            ? (int) $cfg['min_market_cap']
+            : $configService->getMinMarketCap();
+        $maxMarketCap = isset($cfg['max_market_cap']) && is_numeric($cfg['max_market_cap'])
+            ? (int) $cfg['max_market_cap']
+            : $configService->getMaxMarketCap();
         if (is_numeric($marketCap)) {
             $marketCapInt = (int) $marketCap;
             if ($marketCapInt < $minMarketCap) {
