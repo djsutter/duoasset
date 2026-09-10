@@ -661,9 +661,9 @@ class StockBuySetupScorer
     }
 
     /**
-     * Ignition / Early Accumulation Bonus (v1): a flat configurable bonus
-     * added on top of the normalized setup score (disabled by default per
-     * setup type when bonus_points = 0).
+     * Ignition / Early Accumulation Bonus (v1 + freshness guard): a flat
+     * configurable bonus added on top of the normalized setup score (disabled
+     * by default per setup type when bonus_points = 0).
      *
      * Rewards setups that have spent a meaningful period in a base with
      * meaningful volume dry-up, and suddenly experience abnormal relative
@@ -673,10 +673,30 @@ class StockBuySetupScorer
      * 1. Price-led: moderately abnormal RVOL + very strong price expansion
      * 2. Volume-led: strongly abnormal RVOL + somewhat lower price expansion
      *
-     * The two paths are alternative qualification methods and award the
-     * bonus at most once.
+     * Freshness layer:
+     * The bonus progressively decays as the stock advances post-ignition.
+     * Peak post-ignition appreciation <= full_bonus_max_post_gain_pct receives
+     * 100% of bonus points, decaying linearly to 0% at zero_bonus_post_gain_pct.
      *
-     * @return array{bonus_points: int, points: int, max: int, eligible: bool, base_duration_days: int|null, volume_dry_up_pct: float|null, spike_relative_volume: float|null, spike_price_change_pct: float|null, price_led: bool, volume_led: bool, price_led_qualified: bool, volume_led_qualified: bool}
+     * @return array{
+     *     bonus_points: int,
+     *     points: int,
+     *     max: int,
+     *     eligible: bool,
+     *     quality_qualified: bool,
+     *     freshness_multiplier: float,
+     *     freshness_eligible: bool,
+     *     post_ignition_gain_pct: float|null,
+     *     post_ignition_peak_gain_pct: float|null,
+     *     base_duration_days: int|null,
+     *     volume_dry_up_pct: float|null,
+     *     spike_relative_volume: float|null,
+     *     spike_price_change_pct: float|null,
+     *     price_led: bool,
+     *     volume_led: bool,
+     *     price_led_qualified: bool,
+     *     volume_led_qualified: bool
+     * }
      */
     public function ignitionBonus(
         StockBuySetupResult|StockBuySetupAlert $r,
@@ -692,6 +712,17 @@ class StockBuySetupScorer
         $volumeDryUpPct = $dryUpScore !== null ? $dryUpScore * 100.0 : null;
         $rvol = $this->nullableFloat($r->spikeRelativeVolume ?? $r->spike_relative_volume ?? null);
         $priceChangePct = $this->nullableFloat($r->spikePriceChangePct ?? $r->spike_price_change_pct ?? null);
+
+        $currentGainPct = $this->nullableFloat(
+            $r->postIgnitionGainPct
+                ?? $r->post_ignition_gain_pct
+                ?? null
+        );
+        $peakGainPct = $this->nullableFloat(
+            $r->postIgnitionPeakGainPct
+                ?? $r->post_ignition_peak_gain_pct
+                ?? null
+        );
 
         $hasAllInputs = $baseDays !== null
             && $dryUpScore !== null
@@ -712,15 +743,38 @@ class StockBuySetupScorer
 
         $priceLedQualified = $bonusPoints > 0 && $dormant && $priceLed;
         $volumeLedQualified = $bonusPoints > 0 && $dormant && $volumeLed;
-        $qualifies = $priceLedQualified || $volumeLedQualified;
+        $qualityQualified = $priceLedQualified || $volumeLedQualified;
 
-        $points = $qualifies ? $bonusPoints : 0;
+        $fullBonusThrough = (float) $config['full_bonus_max_post_gain_pct'];
+        $zeroBonusAt = (float) $config['zero_bonus_post_gain_pct'];
+
+        if ($peakGainPct !== null && $zeroBonusAt > $fullBonusThrough) {
+            if ($peakGainPct <= $fullBonusThrough) {
+                $freshnessMultiplier = 1.0;
+            } elseif ($peakGainPct >= $zeroBonusAt) {
+                $freshnessMultiplier = 0.0;
+            } else {
+                $freshnessMultiplier = ($zeroBonusAt - $peakGainPct) / ($zeroBonusAt - $fullBonusThrough);
+            }
+            $freshnessMultiplier = max(0.0, min(1.0, $freshnessMultiplier));
+        } else {
+            $freshnessMultiplier = 0.0;
+        }
+
+        $freshnessEligible = $freshnessMultiplier > 0.0;
+        $eligible = $qualityQualified && $freshnessEligible;
+        $points = $qualityQualified ? (int) round($bonusPoints * $freshnessMultiplier) : 0;
 
         return [
             'bonus_points' => $bonusPoints,
             'points' => $points,
             'max' => $bonusPoints,
-            'eligible' => $qualifies,
+            'eligible' => $eligible,
+            'quality_qualified' => $qualityQualified,
+            'freshness_multiplier' => $freshnessMultiplier,
+            'freshness_eligible' => $freshnessEligible,
+            'post_ignition_gain_pct' => $currentGainPct,
+            'post_ignition_peak_gain_pct' => $peakGainPct,
             'base_duration_days' => $baseDays,
             'volume_dry_up_pct' => $volumeDryUpPct,
             'spike_relative_volume' => $rvol,
@@ -761,13 +815,35 @@ class StockBuySetupScorer
             default => null,
         };
 
-        $value = $pathText !== null ? "{$pathText}\n{$stats}" : $stats;
+        if ($pathText !== null && ! $bonus['freshness_eligible'] && $bonus['post_ignition_peak_gain_pct'] !== null) {
+            $pathText .= ' — late/extended';
+        }
+
+        $lines = [];
+        if ($pathText !== null) {
+            $lines[] = $pathText;
+        }
+        $lines[] = $stats;
+
+        if ($bonus['post_ignition_gain_pct'] !== null || $bonus['post_ignition_peak_gain_pct'] !== null) {
+            $currText = $bonus['post_ignition_gain_pct'] !== null
+                ? ($bonus['post_ignition_gain_pct'] >= 0 ? '+' : '').number_format($bonus['post_ignition_gain_pct'], 1).'%'
+                : 'n/a';
+            $peakText = $bonus['post_ignition_peak_gain_pct'] !== null
+                ? ($bonus['post_ignition_peak_gain_pct'] >= 0 ? '+' : '').number_format($bonus['post_ignition_peak_gain_pct'], 1).'%'
+                : 'n/a';
+            $freshnessText = $bonus['freshness_multiplier'] > 0
+                ? sprintf('freshness %d%%', (int) round($bonus['freshness_multiplier'] * 100))
+                : 'bonus expired';
+
+            $lines[] = sprintf('Post-ignition: %s current | %s peak | %s', $currText, $peakText, $freshnessText);
+        }
 
         return [
             'label' => 'Ignition / early accumulation',
             'points' => $bonus['points'],
             'max' => $bonus['max'],
-            'value' => $value,
+            'value' => implode("\n", $lines),
         ];
     }
 

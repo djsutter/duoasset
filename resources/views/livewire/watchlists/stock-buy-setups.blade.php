@@ -1010,7 +1010,7 @@
                                             {{ __('Ignition / Early Accumulation Bonus') }}
                                         </h3>
                                         <p class="text-xs text-zinc-500 dark:text-zinc-400">
-                                            {{ __('Adds a flat bonus when a quiet, long-base setup suddenly expands strongly in price and/or relative volume. Qualifies with either: >=2.2x relative volume and >=12% price gain, or >=3.0x relative volume and >=8% price gain. Set Bonus Points to 0 to disable.') }}
+                                            {{ __('Base duration, volume dry-up, RVOL, and price gain thresholds determine ignition quality (either >=2.2x RVOL and >=12% price gain, or >=3.0x RVOL and >=8% price gain). Full bonus remains through the configured early gain, progressively decays thereafter, and reaches zero at the configured late/extended threshold. Set Bonus Points to 0 to disable.') }}
                                         </p>
                                     </div>
                                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -1041,6 +1041,22 @@
                                             <input type="number" step="0.1" min="0" max="100"
                                                    wire:key="type-ign-min-vol-dry-up-{{ $selectedConfigSetupType }}"
                                                    wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.min_volume_dry_up_pct"
+                                                   class="da-input">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                        <div>
+                                            <label class="da-label">{{ __('Full bonus through post-ignition gain (%)') }}</label>
+                                            <input type="number" step="0.1" min="0"
+                                                   wire:key="type-ign-full-bonus-gain-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.full_bonus_max_post_gain_pct"
+                                                   class="da-input">
+                                        </div>
+                                        <div>
+                                            <label class="da-label">{{ __('Zero bonus at post-ignition gain (%)') }}</label>
+                                            <input type="number" step="0.1" min="0"
+                                                   wire:key="type-ign-zero-bonus-gain-{{ $selectedConfigSetupType }}"
+                                                   wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.ignition_bonus.zero_bonus_post_gain_pct"
                                                    class="da-input">
                                         </div>
                                     </div>

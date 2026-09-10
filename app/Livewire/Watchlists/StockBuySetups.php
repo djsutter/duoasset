@@ -245,7 +245,7 @@ class StockBuySetups extends Component
         }
 
         if (! $this->ignitionBonusIsValid()) {
-            $this->configFlash = 'Ignition Bonus: bonus points >= 0, min base days >= 1, min volume dry-up between 0 and 100%, relative volume > 0, and price gain >= 0%.';
+            $this->configFlash = 'Ignition Bonus: bonus points >= 0, min base days >= 1, min volume dry-up between 0 and 100%, relative volume > 0, price gain >= 0%, full bonus gain >= 0%, and zero bonus gain > full bonus gain.';
 
             return;
         }
@@ -385,6 +385,8 @@ class StockBuySetups extends Component
                 'price_led_min_price_change_pct',
                 'volume_led_min_relative_volume',
                 'volume_led_min_price_change_pct',
+                'full_bonus_max_post_gain_pct',
+                'zero_bonus_post_gain_pct',
             ];
             $values = [];
             foreach ($numericKeys as $key) {
@@ -407,6 +409,10 @@ class StockBuySetups extends Component
             }
 
             if ($values['volume_led_min_relative_volume'] <= 0 || $values['volume_led_min_price_change_pct'] < 0) {
+                return false;
+            }
+
+            if ($values['full_bonus_max_post_gain_pct'] < 0 || $values['zero_bonus_post_gain_pct'] <= $values['full_bonus_max_post_gain_pct']) {
                 return false;
             }
         }
@@ -582,8 +588,9 @@ class StockBuySetups extends Component
                     $priceLedPrice = (float) $ignConfig['price_led_min_price_change_pct'];
                     $volLedRvol = (float) $ignConfig['volume_led_min_relative_volume'];
                     $volLedPrice = (float) $ignConfig['volume_led_min_price_change_pct'];
+                    $zeroBonusPostGain = (float) $ignConfig['zero_bonus_post_gain_pct'];
 
-                    $q->orWhere(function ($sub) use ($typeKey, $minBaseDays, $minDryUpScore, $priceLedRvol, $priceLedPrice, $volLedRvol, $volLedPrice) {
+                    $q->orWhere(function ($sub) use ($typeKey, $minBaseDays, $minDryUpScore, $priceLedRvol, $priceLedPrice, $volLedRvol, $volLedPrice, $zeroBonusPostGain) {
                         $sub->where('setup_type', $typeKey)
                             ->whereNotNull('base_duration_days')
                             ->where('base_duration_days', '>=', $minBaseDays)
@@ -591,6 +598,8 @@ class StockBuySetups extends Component
                             ->where('volume_dry_up_score', '>=', $minDryUpScore)
                             ->whereNotNull('spike_relative_volume')
                             ->whereNotNull('spike_price_change_pct')
+                            ->whereNotNull('post_ignition_peak_gain_pct')
+                            ->where('post_ignition_peak_gain_pct', '<', $zeroBonusPostGain)
                             ->where(function ($confirm) use ($priceLedRvol, $priceLedPrice, $volLedRvol, $volLedPrice) {
                                 $confirm->where(function ($p) use ($priceLedRvol, $priceLedPrice) {
                                     $p->where('spike_relative_volume', '>=', $priceLedRvol)

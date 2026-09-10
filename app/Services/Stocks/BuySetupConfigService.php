@@ -66,6 +66,9 @@ class BuySetupConfigService
 
         'volume_led_min_relative_volume' => 3.0,
         'volume_led_min_price_change_pct' => 8.0,
+
+        'full_bonus_max_post_gain_pct' => 15.0,
+        'zero_bonus_post_gain_pct' => 40.0,
     ];
 
     /**
@@ -663,9 +666,20 @@ class BuySetupConfigService
     }
 
     /**
-     * Ignition / Early Accumulation Bonus configuration for the given setup type.
+     * Get Ignition / Early Accumulation Bonus configuration for a setup type.
      *
-     * @return array{bonus_points: int, color: string, min_base_days: int, min_volume_dry_up_pct: float, price_led_min_relative_volume: float, price_led_min_price_change_pct: float, volume_led_min_relative_volume: float, volume_led_min_price_change_pct: float}
+     * @return array{
+     *     bonus_points: int,
+     *     color: string,
+     *     min_base_days: int,
+     *     min_volume_dry_up_pct: float,
+     *     price_led_min_relative_volume: float,
+     *     price_led_min_price_change_pct: float,
+     *     volume_led_min_relative_volume: float,
+     *     volume_led_min_price_change_pct: float,
+     *     full_bonus_max_post_gain_pct: float,
+     *     zero_bonus_post_gain_pct: float
+     * }
      */
     public function getIgnitionBonusConfig(?string $setupType = null): array
     {
@@ -690,6 +704,8 @@ class BuySetupConfigService
             'price_led_min_price_change_pct' => (float) ($bonus['price_led_min_price_change_pct'] ?? $default['price_led_min_price_change_pct']),
             'volume_led_min_relative_volume' => (float) ($bonus['volume_led_min_relative_volume'] ?? $default['volume_led_min_relative_volume']),
             'volume_led_min_price_change_pct' => (float) ($bonus['volume_led_min_price_change_pct'] ?? $default['volume_led_min_price_change_pct']),
+            'full_bonus_max_post_gain_pct' => (float) ($bonus['full_bonus_max_post_gain_pct'] ?? $default['full_bonus_max_post_gain_pct']),
+            'zero_bonus_post_gain_pct' => (float) ($bonus['zero_bonus_post_gain_pct'] ?? $default['zero_bonus_post_gain_pct']),
         ];
     }
 
@@ -1081,6 +1097,8 @@ class BuySetupConfigService
      * - price_led_min_price_change_pct >= 0
      * - volume_led_min_relative_volume > 0
      * - volume_led_min_price_change_pct >= 0
+     * - full_bonus_max_post_gain_pct >= 0
+     * - zero_bonus_post_gain_pct > full_bonus_max_post_gain_pct
      *
      * Invalid input falls back to the setup type's default rather than
      * persisting a broken configuration.
@@ -1096,6 +1114,10 @@ class BuySetupConfigService
             return $default;
         }
 
+        // Merge missing new values from defaults to maintain backwards compatibility
+        // with existing saved configurations.
+        $saved = array_merge($default, $saved);
+
         $numericKeys = [
             'bonus_points',
             'min_base_days',
@@ -1104,6 +1126,8 @@ class BuySetupConfigService
             'price_led_min_price_change_pct',
             'volume_led_min_relative_volume',
             'volume_led_min_price_change_pct',
+            'full_bonus_max_post_gain_pct',
+            'zero_bonus_post_gain_pct',
         ];
 
         foreach ($numericKeys as $key) {
@@ -1119,6 +1143,8 @@ class BuySetupConfigService
         $priceLedPrice = (float) $saved['price_led_min_price_change_pct'];
         $volumeLedRvol = (float) $saved['volume_led_min_relative_volume'];
         $volumeLedPrice = (float) $saved['volume_led_min_price_change_pct'];
+        $fullBonusMaxPostGainPct = (float) $saved['full_bonus_max_post_gain_pct'];
+        $zeroBonusPostGainPct = (float) $saved['zero_bonus_post_gain_pct'];
 
         if ($bonusPoints < 0 || $minBaseDays < 1) {
             return $default;
@@ -1136,6 +1162,10 @@ class BuySetupConfigService
             return $default;
         }
 
+        if ($fullBonusMaxPostGainPct < 0 || $zeroBonusPostGainPct <= $fullBonusMaxPostGainPct) {
+            return $default;
+        }
+
         $color = isset($saved['color']) && is_string($saved['color']) && trim($saved['color']) !== ''
             ? trim($saved['color'])
             : ($default['color'] ?? 'yellow');
@@ -1149,6 +1179,8 @@ class BuySetupConfigService
             'price_led_min_price_change_pct' => $priceLedPrice,
             'volume_led_min_relative_volume' => $volumeLedRvol,
             'volume_led_min_price_change_pct' => $volumeLedPrice,
+            'full_bonus_max_post_gain_pct' => $fullBonusMaxPostGainPct,
+            'zero_bonus_post_gain_pct' => $zeroBonusPostGainPct,
         ];
     }
 

@@ -10,6 +10,7 @@ use App\Models\Watchlist;
 use App\Models\WatchlistItem;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\BuySetupConfigService;
+use App\Services\Stocks\IgnitionExtensionCalculator;
 use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockBuySetupScanner;
 use App\Services\Stocks\StockBuySetupScorer;
@@ -61,7 +62,9 @@ class EvaluateStockBuySetup implements ShouldQueue
         StockBuySetupLiquidityPenalty $liquidityPenalty,
         StockFundamentalsAnalyzer $fundamentals,
         StockProvisioner $stocks,
+        ?IgnitionExtensionCalculator $ignitionExtensionCalculator = null,
     ): array {
+        $ignitionExtensionCalculator = $ignitionExtensionCalculator ?? app(IgnitionExtensionCalculator::class);
         $startedAt = microtime(true);
         $debug = [
             'symbol' => strtoupper(trim($this->symbol)),
@@ -177,6 +180,17 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $growthSynergyBonus = $scorer->growthSynergyBonus($result, $result->setupType);
                 $score = min(100, $score + $growthSynergyBonus['points']);
 
+                // Ignition extension calculation: determine post-ignition price appreciation
+                // and historical peak gain before calculating the ignition bonus.
+                $extension = $ignitionExtensionCalculator->calculate(
+                    $bars,
+                    $result->spikeDate,
+                    $result->price,
+                );
+                $result->ignitionReferencePrice = $extension['reference_price'];
+                $result->postIgnitionGainPct = $extension['current_gain_pct'];
+                $result->postIgnitionPeakGainPct = $extension['peak_gain_pct'];
+
                 // Ignition / Early Accumulation Bonus: a flat configurable bonus
                 // added on top of the normal setup score (disabled by default per
                 // setup type when bonus_points = 0). See
@@ -248,6 +262,9 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'profit_margin_pct' => $result->profitMarginPct,
                     'spike_relative_volume' => $result->spikeRelativeVolume,
                     'spike_price_change_pct' => $result->spikePriceChangePct,
+                    'ignition_reference_price' => $result->ignitionReferencePrice,
+                    'post_ignition_gain_pct' => $result->postIgnitionGainPct,
+                    'post_ignition_peak_gain_pct' => $result->postIgnitionPeakGainPct,
                     'eps_growth_sequence' => $result->epsGrowthSequence,
                     'revenue_growth_sequence' => $result->revenueGrowthSequence,
                     'operating_margin_expansion_bps' => $result->operatingMarginExpansionBps,

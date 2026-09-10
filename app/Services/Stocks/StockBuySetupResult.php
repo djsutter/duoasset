@@ -32,6 +32,12 @@ final class StockBuySetupResult
     /** Number of setup-score points removed by liquidityPenaltyPct. */
     public int $liquidityPenaltyPoints = 0;
 
+    public ?float $ignitionReferencePrice = null;
+
+    public ?float $postIgnitionGainPct = null;
+
+    public ?float $postIgnitionPeakGainPct = null;
+
     public string $reasonSummary = '';
 
     public function __construct(

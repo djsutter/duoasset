@@ -58,6 +58,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $profit_margin_pct
  * @property string|null $spike_relative_volume
  * @property string|null $spike_price_change_pct
+ * @property string|null $ignition_reference_price
+ * @property string|null $post_ignition_gain_pct
+ * @property string|null $post_ignition_peak_gain_pct
  * @property array|null $eps_growth_sequence
  * @property array|null $revenue_growth_sequence
  * @property string|null $operating_margin_expansion_bps
@@ -125,6 +128,9 @@ class StockBuySetupAlert extends Model
         'profit_margin_pct',
         'spike_relative_volume',
         'spike_price_change_pct',
+        'ignition_reference_price',
+        'post_ignition_gain_pct',
+        'post_ignition_peak_gain_pct',
         'eps_growth_sequence',
         'revenue_growth_sequence',
         'operating_margin_expansion_bps',
@@ -170,6 +176,9 @@ class StockBuySetupAlert extends Model
         'profit_margin_pct' => 'decimal:4',
         'spike_relative_volume' => 'decimal:4',
         'spike_price_change_pct' => 'decimal:4',
+        'ignition_reference_price' => 'decimal:4',
+        'post_ignition_gain_pct' => 'decimal:4',
+        'post_ignition_peak_gain_pct' => 'decimal:4',
         'eps_growth_sequence' => 'array',
         'revenue_growth_sequence' => 'array',
         'operating_margin_expansion_bps' => 'decimal:4',
