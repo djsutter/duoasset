@@ -837,6 +837,8 @@ class StockBuySetupScorer
                 : 'bonus expired';
 
             $lines[] = sprintf('Post-ignition: %s current | %s peak | %s', $currText, $peakText, $freshnessText);
+        } elseif ($bonus['quality_qualified']) {
+            $lines[] = 'Post-ignition freshness unavailable | bonus withheld';
         }
 
         return [

@@ -180,16 +180,38 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $growthSynergyBonus = $scorer->growthSynergyBonus($result, $result->setupType);
                 $score = min(100, $score + $growthSynergyBonus['points']);
 
+                $spikeDate = $result->spikeDate->toDateString();
+
+                $alert = StockBuySetupAlert::firstOrNew([
+                    'source' => 'fmp',
+                    'symbol' => $symbol,
+                    'setup_type' => $result->setupType,
+                    'spike_date' => $result->spikeDate,
+                ]);
+
+                $wasRecentlyCreated = ! $alert->exists;
+
                 // Ignition extension calculation: determine post-ignition price appreciation
                 // and historical peak gain before calculating the ignition bonus.
+                // Preserve existing peak gain across rescans so that once an ignition
+                // becomes extended, pullbacks cannot reactivate the bonus.
                 $extension = $ignitionExtensionCalculator->calculate(
                     $bars,
                     $result->spikeDate,
                     $result->price,
                 );
+
+                $peakGainPct = $extension['peak_gain_pct'];
+                if ($alert->exists && $alert->post_ignition_peak_gain_pct !== null) {
+                    $existingPeakGainPct = (float) $alert->post_ignition_peak_gain_pct;
+                    $peakGainPct = $peakGainPct !== null
+                        ? max($peakGainPct, $existingPeakGainPct)
+                        : $existingPeakGainPct;
+                }
+
                 $result->ignitionReferencePrice = $extension['reference_price'];
                 $result->postIgnitionGainPct = $extension['current_gain_pct'];
-                $result->postIgnitionPeakGainPct = $extension['peak_gain_pct'];
+                $result->postIgnitionPeakGainPct = $peakGainPct;
 
                 // Ignition / Early Accumulation Bonus: a flat configurable bonus
                 // added on top of the normal setup score (disabled by default per
@@ -206,17 +228,6 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $result->liquidityPenaltyPct = (float) $liquidity['penalty_pct'];
                 $result->liquidityPenaltyPoints = (int) $liquidity['penalty_points'];
 
-                $spikeDate = $result->spikeDate->toDateString();
-
-                $alert = StockBuySetupAlert::firstOrNew(
-                    [
-                        'source' => 'fmp',
-                        'symbol' => $symbol,
-                        'setup_type' => $result->setupType,
-                        'spike_date' => $spikeDate,
-                    ],
-                );
-                $wasRecentlyCreated = ! $alert->exists;
                 $alert->fill([
                     'setup_score' => $result->setupScore,
                     'raw_setup_score' => $result->rawSetupScore,
