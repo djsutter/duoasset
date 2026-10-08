@@ -47,6 +47,10 @@ class StockBuySetups extends Component
     #[Url(as: 'bonus_type')]
     public string $bonusType = 'any';
 
+    /** Latest spike for each symbol/setup type, or every historical detection. */
+    #[Url(as: 'history')]
+    public string $historyView = 'latest';
+
     #[Url(as: 'symbol')]
     public ?string $symbol = null;
 
@@ -99,6 +103,7 @@ class StockBuySetups extends Component
         $this->dateTo = null;
         $this->unwatchedOnly = false;
         $this->bonusType = 'any';
+        $this->historyView = 'latest';
         $this->symbol = null;
         $this->company = null;
         $this->sortBy = 'setup_score';
@@ -553,7 +558,28 @@ class StockBuySetups extends Component
                 ->map(fn ($s) => strtoupper((string) $s));
         }
 
-        $query = StockBuySetupAlert::query()
+        // Apply recency to the entire alert universe BEFORE score/date/bonus
+        // filters: an older high-scoring detection must never replace a newer
+        // low-scoring detection when a minimum score filter is active.
+        // The newest spike date wins; ID resolves same-day ties deterministically.
+        $query = StockBuySetupAlert::query();
+        if ($this->historyView !== 'all') {
+            $query->whereNotExists(function ($newer) {
+                $newer->selectRaw('1')
+                    ->from('stock_buy_setup_alerts as newer')
+                    ->whereColumn('newer.symbol', 'stock_buy_setup_alerts.symbol')
+                    ->whereColumn('newer.setup_type', 'stock_buy_setup_alerts.setup_type')
+                    ->where(function ($recency) {
+                        $recency->whereColumn('newer.spike_date', '>', 'stock_buy_setup_alerts.spike_date')
+                            ->orWhere(function ($sameDate) {
+                                $sameDate->whereColumn('newer.spike_date', '=', 'stock_buy_setup_alerts.spike_date')
+                                    ->whereColumn('newer.id', '>', 'stock_buy_setup_alerts.id');
+                            });
+                    });
+            });
+        }
+
+        $query
             ->when($this->symbol, fn ($q) => $q->where('symbol', 'like', $this->symbol.'%'))
             ->when($this->company, fn ($q) => $q->where('company_name', 'like', '%'.$this->company.'%'))
             ->when($this->setupType, fn ($q) => $q->where('setup_type', $this->setupType))

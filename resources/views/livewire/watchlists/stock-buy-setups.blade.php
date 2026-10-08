@@ -89,7 +89,14 @@
                 <input type="date" wire:model.live="dateTo" class="da-input">
             </div>
         </div>
-        <div class="mt-3 grid grid-cols-1 gap-2 sm:gap-3 md:grid-cols-4">
+        <div class="mt-3 grid grid-cols-1 gap-2 sm:gap-3 md:grid-cols-5">
+            <div>
+                <label class="da-label">{{ __('Setup history') }}</label>
+                <select wire:model.live="historyView" class="da-input">
+                    <option value="latest">{{ __('Latest per stock and setup type') }}</option>
+                    <option value="all">{{ __('All historical setups') }}</option>
+                </select>
+            </div>
             <div>
                 <label class="da-label">{{ __('Sort by') }}</label>
                 <select wire:model.live="sortBy" class="da-input">
