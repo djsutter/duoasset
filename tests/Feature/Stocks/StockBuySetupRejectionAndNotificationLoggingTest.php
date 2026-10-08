@@ -6,7 +6,6 @@ use App\Models\StockBuySetupAlert;
 use App\Models\User;
 use App\Notifications\StockBuySetupDetected;
 use App\Services\MarketData\MarketDataProvider;
-use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockBuySetupScanner;

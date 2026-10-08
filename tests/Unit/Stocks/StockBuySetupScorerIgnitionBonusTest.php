@@ -67,7 +67,7 @@ function ignitionAlert(
 }
 
 /* -------------------------------------------------------------------------- */
-/* PART 1: ORIGINAL REGRESSION TESTS (Ignition Qualification & Properties)   */
+/* PART 1: ORIGINAL REGRESSION TESTS (Ignition Qualification & Properties) */
 /* -------------------------------------------------------------------------- */
 
 test('1. bonus_points = 0 awards zero', function () {
@@ -400,7 +400,7 @@ test('23. result struct carries spikePriceChangePct and works with scorer', func
 });
 
 /* -------------------------------------------------------------------------- */
-/* PART 2: FRESHNESS & DECAY GUARD TESTS                                     */
+/* PART 2: FRESHNESS & DECAY GUARD TESTS */
 /* -------------------------------------------------------------------------- */
 
 test('24. Peak gain <= 15% receives full bonus', function () {

@@ -21,8 +21,6 @@ class IgnitionExtensionCalculator
      * Calculate reference price, current post-ignition gain %, and peak post-ignition gain %.
      *
      * @param  array<int, array<string, mixed>>  $bars
-     * @param  CarbonImmutable|string  $spikeDate
-     * @param  float|null  $currentPrice
      * @return array{
      *     reference_price: float|null,
      *     current_gain_pct: float|null,
