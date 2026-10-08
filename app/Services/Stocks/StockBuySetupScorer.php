@@ -111,7 +111,7 @@ class StockBuySetupScorer
                 'value' => ($this->nullableFloat($r->salesAcceleration ?? $r->sales_acceleration ?? null) !== null) ? number_format((float) ($r->salesAcceleration ?? $r->sales_acceleration), 1).' pts' : 'n/a',
             ],
             'operating_margin_expansion' => [
-                'label' => 'Operating margin expansion',
+                'label' => 'Operating improvement (loss-validated)',
                 'points' => $this->operatingMarginExpansionPoints(
                     $this->nullableFloat($r->operatingMarginExpansionBps ?? $r->operating_margin_expansion_bps ?? null),
                     $weights['operating_margin_expansion'] ?? 0,
@@ -121,7 +121,7 @@ class StockBuySetupScorer
                 'value' => $this->operatingMarginExpansionValue($r),
             ],
             'fcf_margin_expansion' => [
-                'label' => 'FCF margin expansion',
+                'label' => 'FCF improvement (cash-burn-validated)',
                 'points' => $this->fcfMarginExpansionPoints(
                     $this->nullableFloat($r->fcfMarginExpansionBps ?? $r->fcf_margin_expansion_bps ?? null),
                     $weights['fcf_margin_expansion'] ?? 0,
@@ -348,6 +348,15 @@ class StockBuySetupScorer
             return 'n/a';
         }
 
+        // A zero score-facing expansion alongside improving negative margins
+        // indicates the absolute TTM operating loss increased. Keep the reason
+        // visible to avoid presenting this as a missing/miscomputed metric.
+        $currentMargin = $this->nullableFloat($r->currentTtmOperatingMargin ?? $r->current_ttm_operating_margin ?? null);
+        $priorMargin = $this->nullableFloat($r->priorTtmOperatingMargin ?? $r->prior_ttm_operating_margin ?? null);
+        if ($bps == 0.0 && $currentMargin !== null && $priorMargin !== null && $currentMargin < 0 && $currentMargin > $priorMargin) {
+            return '0 bps (operating loss increased)';
+        }
+
         $sign = $bps >= 0 ? '+' : '';
 
         return $sign.number_format($bps).' bps';
@@ -374,6 +383,12 @@ class StockBuySetupScorer
         $bps = $this->nullableFloat($r->fcfMarginExpansionBps ?? $r->fcf_margin_expansion_bps ?? null);
         if ($bps === null) {
             return 'n/a';
+        }
+
+        $currentMargin = $this->nullableFloat($r->currentTtmFcfMargin ?? $r->current_ttm_fcf_margin ?? null);
+        $priorMargin = $this->nullableFloat($r->priorTtmFcfMargin ?? $r->prior_ttm_fcf_margin ?? null);
+        if ($bps == 0.0 && $currentMargin !== null && $priorMargin !== null && $currentMargin < 0 && $currentMargin > $priorMargin) {
+            return '0 bps (cash burn increased)';
         }
 
         $sign = $bps >= 0 ? '+' : '';

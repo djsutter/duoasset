@@ -82,7 +82,12 @@ class StockFundamentalsAnalyzer
      * (current TTM) against the immediately preceding four quarters (prior
      * TTM), expressed in basis points:
      *
-     *   margin_expansion_bps = (current_ttm_margin - prior_ttm_margin) * 10000
+     *   raw_margin_expansion_bps = (current_ttm_margin - prior_ttm_margin) * 10000
+     *
+     * The scored expansion is zero when current TTM operating income is
+     * negative and worse in absolute dollars than prior TTM operating income.
+     * This prevents fast revenue growth from disguising an increasing loss.
+     * The actual margin change is retained in raw_operating_margin_expansion_bps.
      *
      * Requires at least eight valid, distinct, consistently-currencied
      * quarterly income statements with numeric revenue and operating
@@ -103,21 +108,23 @@ class StockFundamentalsAnalyzer
             'prior_ttm_operating_income' => null,
             'prior_ttm_operating_margin' => null,
             'operating_margin_expansion_bps' => null,
+            'raw_operating_margin_expansion_bps' => null,
         ];
 
         $quarters = $this->dedupeQuartersDescending($incomeRows);
 
-        $valid = array_values(array_filter(
-            $quarters,
-            fn (array $row) => is_numeric($row['revenue'] ?? null) && is_numeric($row['operating_income'] ?? null),
-        ));
-
-        if (count($valid) < 8) {
+        if (count($quarters) < 8) {
             return $empty;
         }
 
-        // Q0 (newest) .. Q7 (oldest required quarter).
-        $latestEight = array_slice($valid, 0, 8);
+        // Never skip a missing latest quarter and substitute an older one:
+        // that would silently compare stale, non-contiguous TTM windows.
+        $latestEight = array_slice($quarters, 0, 8);
+        foreach ($latestEight as $row) {
+            if (! is_numeric($row['revenue'] ?? null) || ! is_numeric($row['operating_income'] ?? null)) {
+                return $empty;
+            }
+        }
 
         $currencies = array_values(array_unique(array_filter(
             array_map(fn (array $row) => $row['reported_currency'] ?? null, $latestEight),
@@ -143,6 +150,8 @@ class StockFundamentalsAnalyzer
 
         $currentMargin = $currentOperatingIncome / $currentRevenue;
         $priorMargin = $priorOperatingIncome / $priorRevenue;
+        $rawExpansionBps = round(($currentMargin - $priorMargin) * 10000, 4);
+        $lossWorsened = $currentOperatingIncome < 0 && $currentOperatingIncome < $priorOperatingIncome;
 
         return [
             'current_ttm_revenue' => $currentRevenue,
@@ -151,7 +160,10 @@ class StockFundamentalsAnalyzer
             'prior_ttm_revenue' => $priorRevenue,
             'prior_ttm_operating_income' => $priorOperatingIncome,
             'prior_ttm_operating_margin' => round($priorMargin, 6),
-            'operating_margin_expansion_bps' => round(($currentMargin - $priorMargin) * 10000, 4),
+            // Existing field feeds persisted alerts and setup scoring. Preserve
+            // its meaning as *scorable* expansion, not misleading ratio growth.
+            'operating_margin_expansion_bps' => $lossWorsened ? min(0.0, $rawExpansionBps) : $rawExpansionBps,
+            'raw_operating_margin_expansion_bps' => $rawExpansionBps,
         ];
     }
 
@@ -162,7 +174,12 @@ class StockFundamentalsAnalyzer
      * reported quarters (current TTM) against the immediately preceding
      * four quarters (prior TTM), expressed in basis points:
      *
-     *   fcf_margin_expansion_bps = (current_ttm_fcf_margin - prior_ttm_fcf_margin) * 10000
+     *   raw_fcf_margin_expansion_bps = (current_ttm_fcf_margin - prior_ttm_fcf_margin) * 10000
+     *
+     * When current TTM FCF is negative and deteriorating in absolute dollars,
+     * positive margin expansion alone is *not* an improvement in cash flow.
+     * The score-facing fcf_margin_expansion_bps is capped at zero in that case,
+     * while raw_fcf_margin_expansion_bps retains the mathematical ratio change.
      *
      * Revenue comes from the quarterly income statements; free cash flow
      * comes from the quarterly cash flow statements. The two series are
@@ -187,14 +204,17 @@ class StockFundamentalsAnalyzer
             'prior_ttm_revenue_fcf' => null,
             'prior_ttm_fcf_margin' => null,
             'fcf_margin_expansion_bps' => null,
+            'raw_fcf_margin_expansion_bps' => null,
         ];
 
         $revenueByDate = [];
+        $revenueCurrencyByDate = [];
         foreach ($incomeRows as $row) {
             if (! is_array($row) || empty($row['date']) || ! is_numeric($row['revenue'] ?? null)) {
                 continue;
             }
             $revenueByDate[(string) $row['date']] = (float) $row['revenue'];
+            $revenueCurrencyByDate[(string) $row['date']] = $row['reported_currency'] ?? null;
         }
 
         if (empty($revenueByDate)) {
@@ -203,22 +223,32 @@ class StockFundamentalsAnalyzer
 
         $quarters = $this->dedupeQuartersDescending($cashFlowRows);
 
-        $valid = array_values(array_filter(
-            $quarters,
-            fn (array $row) => isset($revenueByDate[(string) ($row['date'] ?? '')]) && is_numeric($row['free_cash_flow'] ?? null),
-        ));
-
-        if (count($valid) < 8) {
+        if (count($quarters) < 8) {
             return $empty;
         }
 
-        // Q0 (newest) .. Q7 (oldest required quarter).
-        $latestEight = array_slice($valid, 0, 8);
+        // Missing latest FCF or a matching income-statement quarter must not
+        // cause an older observation to masquerade as the latest quarter.
+        $latestEight = array_slice($quarters, 0, 8);
+        foreach ($latestEight as $row) {
+            if (! isset($revenueByDate[(string) ($row['date'] ?? '')]) || ! is_numeric($row['free_cash_flow'] ?? null)) {
+                return $empty;
+            }
+        }
 
-        $currencies = array_values(array_unique(array_filter(
-            array_map(fn (array $row) => $row['reported_currency'] ?? null, $latestEight),
-        )));
-        if (count($currencies) > 1) {
+        // Currency must be consistent across BOTH cash-flow and income
+        // statement quarters; checking cash-flow currency alone can divide
+        // CAD cash flow by USD revenue without a conversion.
+        $currencies = [];
+        foreach ($latestEight as $row) {
+            $date = (string) $row['date'];
+            foreach ([$row['reported_currency'] ?? null, $revenueCurrencyByDate[$date] ?? null] as $currency) {
+                if ($currency !== null && $currency !== '') {
+                    $currencies[] = strtoupper((string) $currency);
+                }
+            }
+        }
+        if (count(array_unique($currencies)) > 1) {
             return $empty;
         }
 
@@ -239,6 +269,8 @@ class StockFundamentalsAnalyzer
 
         $currentMargin = $currentFcf / $currentRevenue;
         $priorMargin = $priorFcf / $priorRevenue;
+        $rawExpansionBps = round(($currentMargin - $priorMargin) * 10000, 4);
+        $cashBurnWorsened = $currentFcf < 0 && $currentFcf < $priorFcf;
 
         return [
             'current_ttm_fcf' => $currentFcf,
@@ -247,7 +279,10 @@ class StockFundamentalsAnalyzer
             'prior_ttm_fcf' => $priorFcf,
             'prior_ttm_revenue_fcf' => $priorRevenue,
             'prior_ttm_fcf_margin' => round($priorMargin, 6),
-            'fcf_margin_expansion_bps' => round(($currentMargin - $priorMargin) * 10000, 4),
+            // Score-facing expansion gets no credit for a worsening cash burn,
+            // even when rapid revenue growth makes the margin look better.
+            'fcf_margin_expansion_bps' => $cashBurnWorsened ? min(0.0, $rawExpansionBps) : $rawExpansionBps,
+            'raw_fcf_margin_expansion_bps' => $rawExpansionBps,
         ];
     }
 

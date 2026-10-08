@@ -49,10 +49,11 @@ test('it calculates a normal profitable company margin expansion', function () {
         ->and($result['prior_ttm_revenue'])->toBe(1000.0)
         ->and($result['prior_ttm_operating_income'])->toBe(100.0)
         ->and($result['prior_ttm_operating_margin'])->toBe(0.1)
-        ->and($result['operating_margin_expansion_bps'])->toBe(500.0);
+        ->and($result['operating_margin_expansion_bps'])->toBe(500.0)
+        ->and($result['raw_operating_margin_expansion_bps'])->toBe(500.0);
 });
 
-test('it scores negative-to-less-negative margins as a strong positive expansion', function () {
+test('it scores negative-to-less-negative margins when operating losses also shrink', function () {
     $analyzer = new StockFundamentalsAnalyzer;
 
     // Current TTM: revenue 1500, operating income -75 -> margin -5%
@@ -67,7 +68,10 @@ test('it scores negative-to-less-negative margins as a strong positive expansion
 
     expect($result['current_ttm_operating_margin'])->toBe(-0.05)
         ->and($result['prior_ttm_operating_margin'])->toBe(-0.2)
-        ->and($result['operating_margin_expansion_bps'])->toBe(1500.0);
+        ->and($result['prior_ttm_operating_income'])->toBe(-200.0)
+        ->and($result['current_ttm_operating_income'])->toBe(-75.0)
+        ->and($result['operating_margin_expansion_bps'])->toBe(1500.0)
+        ->and($result['raw_operating_margin_expansion_bps'])->toBe(1500.0);
 });
 
 test('it reports margin contraction as a negative bps value', function () {
@@ -196,4 +200,50 @@ test('it handles decimal calculations and very large positive expansion', functi
     $result = $analyzer->operatingMarginExpansion($rows);
 
     expect($result['operating_margin_expansion_bps'])->toBe(1500.0);
+});
+
+// Regression: a better margin ratio must not hide rising operating losses.
+test('it does not reward improving operating margins when absolute losses worsen', function () {
+    $analyzer = new StockFundamentalsAnalyzer;
+
+    // Prior TTM: $10M revenue, -$20M operating income (-200% margin).
+    // Current TTM: $40M revenue, -$30M operating income (-75% margin).
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [10_000_000.0, -7_500_000.0]),
+        array_fill(0, 4, [2_500_000.0, -5_000_000.0]),
+    ));
+
+    $result = $analyzer->operatingMarginExpansion($rows);
+
+    expect($result['prior_ttm_operating_income'])->toBe(-20_000_000.0)
+        ->and($result['current_ttm_operating_income'])->toBe(-30_000_000.0)
+        ->and($result['prior_ttm_operating_margin'])->toBe(-2.0)
+        ->and($result['current_ttm_operating_margin'])->toBe(-0.75)
+        ->and($result['raw_operating_margin_expansion_bps'])->toBe(12_500.0)
+        ->and($result['operating_margin_expansion_bps'])->toBe(0.0);
+});
+
+test('it still rewards shrinking operating losses', function () {
+    $analyzer = new StockFundamentalsAnalyzer;
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [10_000_000.0, -3_750_000.0]),
+        array_fill(0, 4, [2_500_000.0, -5_000_000.0]),
+    ));
+
+    $result = $analyzer->operatingMarginExpansion($rows);
+    expect($result['operating_margin_expansion_bps'])->toBe(16_250.0)
+        ->and($result['raw_operating_margin_expansion_bps'])->toBe(16_250.0);
+});
+
+test('it does not replace invalid recent operating income with a ninth old quarter', function () {
+    $analyzer = new StockFundamentalsAnalyzer;
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [375.0, 56.25]),
+        array_fill(0, 5, [250.0, 25.0]),
+    ));
+    $rows[0]['operating_income'] = null;
+
+    $result = $analyzer->operatingMarginExpansion($rows);
+    expect($result['operating_margin_expansion_bps'])->toBeNull()
+        ->and($result['raw_operating_margin_expansion_bps'])->toBeNull();
 });
