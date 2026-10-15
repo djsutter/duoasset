@@ -114,6 +114,29 @@ class StockFundamentalsAnalyzerTest extends TestCase
         $this->assertNull($this->analyzer->fcfMarginExpansion($income, $cash)['fcf_margin_expansion_bps']);
     }
 
+    public function test_duplicate_quarter_cannot_shift_yoy_sales_acceleration(): void
+    {
+        [$income] = $this->quarters(10_000_000, 40_000_000, -20_000_000, -30_000_000);
+        foreach ($income as $i => &$row) {
+            $row['fiscal_year'] = (int) substr($row['date'], 0, 4);
+            $row['period'] = 'Q'.(int) ceil(((int) substr($row['date'], 5, 2)) / 3);
+        }
+        unset($row);
+        $income[] = $income[6];
+        $result = $this->analyzer->analyze($income);
+
+        // Current/previous YoY rates are both 300%, hence zero acceleration.
+        $this->assertSame(300.0, $result['quarterly_revenue_growth_pct']);
+        $this->assertSame(0.0, $result['sales_acceleration']);
+    }
+
+    public function test_a_gap_in_fiscal_quarters_prevents_ttm_margin_scoring(): void
+    {
+        [$income] = $this->quarters(10_000_000, 40_000_000, -20_000_000, -30_000_000);
+        $income[2]['date'] = '2024-12-01'; // Q4 2024 duplicates an existing quarter.
+        $this->assertNull($this->analyzer->operatingMarginExpansion($income)['operating_margin_expansion_bps']);
+    }
+
     /**
      * Build eight quarters in ascending order (prior TTM, then current TTM).
      * The date matching / sorting code is exercised by the public methods.

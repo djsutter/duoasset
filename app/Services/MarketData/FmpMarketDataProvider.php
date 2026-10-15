@@ -2,6 +2,8 @@
 
 namespace App\Services\MarketData;
 
+use App\Services\Earnings\EarningsSurpriseScorer;
+
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -220,7 +222,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $limit = max(4, min(40, $limit));
-        $cacheKey = "fmp.income_quarter.$symbol.$limit";
+        $cacheKey = "fmp.income_quarter.v2.$symbol.$limit";
 
         return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
             $rows = $this->get('income-statement', [
@@ -268,7 +270,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $limit = max(4, min(40, $limit));
-        $cacheKey = "fmp.cash_flow_quarter.$symbol.$limit";
+        $cacheKey = "fmp.cash_flow_quarter.v2.$symbol.$limit";
 
         return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
             $rows = $this->get('cash-flow-statement', [
@@ -677,6 +679,13 @@ class FmpMarketDataProvider implements MarketDataProvider
         $estimated = $this->toFloat($row['epsEstimated'] ?? $row['estimatedEarning'] ?? null);
         $actual = $this->toFloat($row['epsActual'] ?? $row['actualEarningResult'] ?? $row['eps'] ?? null);
 
+        // Prefer our single, sign-safe EPS-surprise definition over the
+        // provider's optional surprisePercentage, particularly when the
+        // estimate is negative or rounds to zero.
+        $calculated = EarningsSurpriseScorer::calculateSurprisePercent($actual, $estimated);
+        $providerPercent = $estimated === null || $actual === null
+            ? $this->toFloat($row['surprisePercentage'] ?? null) : null;
+
         return [
             'symbol' => $symbol,
             // Some FMP /earnings-surprises payloads include company name and
@@ -688,8 +697,8 @@ class FmpMarketDataProvider implements MarketDataProvider
             'report_date' => substr((string) $date, 0, 10),
             'eps_estimated' => $estimated,
             'eps_actual' => $actual,
-            'eps_surprise' => $this->toFloat($row['surprise'] ?? null),
-            'eps_surprise_percent' => $this->toFloat($row['surprisePercentage'] ?? null),
+            'eps_surprise' => $estimated !== null && $actual !== null ? $actual - $estimated : $this->toFloat($row['surprise'] ?? null),
+            'eps_surprise_percent' => $calculated ?? $providerPercent,
             'revenue_estimated' => $this->toInt($row['revenueEstimated'] ?? null),
             'revenue_actual' => $this->toInt($row['revenueActual'] ?? $row['revenue'] ?? null),
             'raw' => $row,
@@ -757,6 +766,7 @@ class FmpMarketDataProvider implements MarketDataProvider
             'operating_income' => $this->toFloat($row['operatingIncome'] ?? $row['operating_income'] ?? null),
             'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
             'period' => $row['period'] ?? null,
+            'filing_date' => $row['fillingDate'] ?? $row['filingDate'] ?? null,
             'reported_currency' => $row['reportedCurrency'] ?? null,
             'raw' => $row,
         ];
@@ -782,6 +792,10 @@ class FmpMarketDataProvider implements MarketDataProvider
                     ?? $row['totalEquity']
                     ?? null,
             ),
+            'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
+            'period' => $row['period'] ?? null,
+            'filing_date' => $row['fillingDate'] ?? $row['filingDate'] ?? null,
+            'reported_currency' => $row['reportedCurrency'] ?? null,
             'raw' => $row,
         ];
     }
@@ -818,6 +832,7 @@ class FmpMarketDataProvider implements MarketDataProvider
             'free_cash_flow' => $freeCashFlow,
             'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
             'period' => $row['period'] ?? null,
+            'filing_date' => $row['fillingDate'] ?? $row['filingDate'] ?? null,
             'reported_currency' => $row['reportedCurrency'] ?? null,
             'raw' => $row,
         ];

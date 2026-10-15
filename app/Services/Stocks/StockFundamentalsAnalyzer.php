@@ -37,7 +37,9 @@ class StockFundamentalsAnalyzer
      */
     public function analyze(array $incomeRows, array $balanceRows = [], array $cashFlowRows = []): array
     {
-        $income = $this->sortAscending($incomeRows);
+        // Use one observation per fiscal quarter before computing any YoY or
+        // TTM metric. Duplicate filings otherwise shift the i-4 comparator.
+        $income = array_reverse($this->dedupeQuartersDescending($incomeRows));
         $balance = $this->sortAscending($balanceRows);
 
         $epsYoy = $this->yoyGrowthSeries($income, 'eps');
@@ -48,12 +50,21 @@ class StockFundamentalsAnalyzer
         $latestNetIncome = $this->toFloat($latest['net_income'] ?? null);
 
         $latestEquity = null;
-        if ($balance) {
+        if ($balance && $income) {
             $lastBalance = $balance[array_key_last($balance)];
-            $latestEquity = $this->toFloat($lastBalance['stockholders_equity'] ?? null);
+            // ROE must not use a stale equity balance sheet or silently mix
+            // different reporting currencies with the income statements.
+            if ($this->sameQuarter($lastBalance, $income[array_key_last($income)])
+                && $this->consistentCurrency(array_merge(array_slice($income, -4), [$lastBalance]))) {
+                $latestEquity = $this->toFloat($lastBalance['stockholders_equity'] ?? null);
+            }
         }
 
-        $ttmNetIncome = $this->sumLast($income, 'net_income', 4);
+        $latestFour = array_slice($income, -4);
+        $ttmNetIncome = count($latestFour) === 4
+            && $this->hasConsecutiveQuarters(array_reverse($latestFour))
+            && $this->consistentCurrency($latestFour)
+            ? $this->sumStrict($latestFour, 'net_income') : null;
 
         return array_merge([
             // Acceleration = most recent YoY growth minus previous YoY growth.
@@ -113,7 +124,7 @@ class StockFundamentalsAnalyzer
 
         $quarters = $this->dedupeQuartersDescending($incomeRows);
 
-        if (count($quarters) < 8) {
+        if (count($quarters) < 8 || ! $this->hasConsecutiveQuarters(array_slice($quarters, 0, 8))) {
             return $empty;
         }
 
@@ -126,10 +137,7 @@ class StockFundamentalsAnalyzer
             }
         }
 
-        $currencies = array_values(array_unique(array_filter(
-            array_map(fn (array $row) => $row['reported_currency'] ?? null, $latestEight),
-        )));
-        if (count($currencies) > 1) {
+        if (! $this->consistentCurrency($latestEight)) {
             return $empty;
         }
 
@@ -209,12 +217,14 @@ class StockFundamentalsAnalyzer
 
         $revenueByDate = [];
         $revenueCurrencyByDate = [];
-        foreach ($incomeRows as $row) {
-            if (! is_array($row) || empty($row['date']) || ! is_numeric($row['revenue'] ?? null)) {
+        $incomeByDate = [];
+        foreach ($this->dedupeQuartersDescending($incomeRows) as $row) {
+            if (empty($row['date']) || ! is_numeric($row['revenue'] ?? null)) {
                 continue;
             }
             $revenueByDate[(string) $row['date']] = (float) $row['revenue'];
             $revenueCurrencyByDate[(string) $row['date']] = $row['reported_currency'] ?? null;
+            $incomeByDate[(string) $row['date']] = $row;
         }
 
         if (empty($revenueByDate)) {
@@ -223,15 +233,23 @@ class StockFundamentalsAnalyzer
 
         $quarters = $this->dedupeQuartersDescending($cashFlowRows);
 
-        if (count($quarters) < 8) {
+        if (count($quarters) < 8 || ! $this->hasConsecutiveQuarters(array_slice($quarters, 0, 8))) {
             return $empty;
         }
 
         // Missing latest FCF or a matching income-statement quarter must not
         // cause an older observation to masquerade as the latest quarter.
         $latestEight = array_slice($quarters, 0, 8);
+        // Reject a lagging cash-flow feed when a newer income statement is
+        // available, rather than reporting an old TTM as the current one.
+        $latestIncome = $this->dedupeQuartersDescending($incomeRows);
+        if (! $latestIncome || ! $this->sameQuarter($latestEight[0], $latestIncome[0])) {
+            return $empty;
+        }
         foreach ($latestEight as $row) {
-            if (! isset($revenueByDate[(string) ($row['date'] ?? '')]) || ! is_numeric($row['free_cash_flow'] ?? null)) {
+            $date = (string) ($row['date'] ?? '');
+            if (! isset($revenueByDate[$date]) || ! $this->sameQuarter($row, $incomeByDate[$date])
+                || ! is_numeric($row['free_cash_flow'] ?? null)) {
                 return $empty;
             }
         }
@@ -288,8 +306,9 @@ class StockFundamentalsAnalyzer
 
     /**
      * Deduplicate quarterly rows by fiscal quarter (fiscal_year + period
-     * when available, falling back to date), keeping the row with the
-     * newest date for each quarter, then sort newest-first.
+     * when available, falling back to the calendar quarter). Prefer the
+     * latest filing date for restatements, with statement date as a tie
+     * breaker, then sort the selected quarters newest-first.
      *
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<int, array<string, mixed>>
@@ -302,13 +321,18 @@ class StockFundamentalsAnalyzer
                 continue;
             }
 
-            $fiscalYear = $row['fiscal_year'] ?? null;
-            $period = $row['period'] ?? null;
-            $key = ($fiscalYear !== null && $period !== null)
-                ? $fiscalYear.'-'.$period
-                : (string) $row['date'];
+            $key = $this->quarterIndex($row);
+            $key = $key !== null ? (string) $key : (string) $row['date'];
 
-            if (! isset($byQuarter[$key]) || strcmp((string) $row['date'], (string) $byQuarter[$key]['date']) > 0) {
+            // When FMP provides multiple statements for a fiscal quarter,
+            // prefer the latest filing (a restatement can share the original
+            // quarter-end date). An unavailable filing date never beats a
+            // known newer filing. Ties retain the first provider record.
+            $filing = (string) ($row['filing_date'] ?? $row['raw']['fillingDate'] ?? $row['raw']['filingDate'] ?? '');
+            $previous = $byQuarter[$key] ?? null;
+            $previousFiling = (string) ($previous['filing_date'] ?? $previous['raw']['fillingDate'] ?? $previous['raw']['filingDate'] ?? '');
+            if ($previous === null || strcmp($filing, $previousFiling) > 0
+                || ($filing === $previousFiling && strcmp((string) $row['date'], (string) $previous['date']) > 0)) {
                 $byQuarter[$key] = $row;
             }
         }
@@ -317,6 +341,63 @@ class StockFundamentalsAnalyzer
         usort($list, fn (array $a, array $b) => strcmp((string) $b['date'], (string) $a['date']));
 
         return $list;
+    }
+
+    /**
+     * Fiscal-quarter identity for validating comparable quarters. A fiscal
+     * year's Q1 can fall in the preceding calendar year, so prefer the
+     * explicit FMP fiscalYear+period pair to the calendar date when possible.
+     */
+    private function quarterIndex(array $row): ?int
+    {
+        $year = $row['fiscal_year'] ?? null;
+        $period = strtoupper((string) ($row['period'] ?? ''));
+        if (is_numeric($year) && preg_match('/^Q([1-4])$/', $period, $match)) {
+            return ((int) $year) * 4 + (int) $match[1] - 1;
+        }
+
+        $date = (string) ($row['date'] ?? '');
+        if (! preg_match('/^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/', $date, $match)) {
+            return null;
+        }
+
+        return ((int) $match[1]) * 4 + intdiv(((int) $match[2]) - 1, 3);
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private function consistentCurrency(array $rows): bool
+    {
+        $currencies = [];
+        foreach ($rows as $row) {
+            $currency = strtoupper(trim((string) ($row['reported_currency'] ?? '')));
+            if ($currency !== '') {
+                $currencies[$currency] = true;
+            }
+        }
+
+        return count($currencies) <= 1;
+    }
+
+    private function sameQuarter(array $a, array $b): bool
+    {
+        $aIndex = $this->quarterIndex($a);
+        $bIndex = $this->quarterIndex($b);
+
+        return $aIndex !== null && $bIndex !== null && $aIndex === $bIndex;
+    }
+
+    /** @param array<int, array<string, mixed>> $newestFirst */
+    private function hasConsecutiveQuarters(array $newestFirst): bool
+    {
+        for ($i = 1, $count = count($newestFirst); $i < $count; $i++) {
+            $newer = $this->quarterIndex($newestFirst[$i - 1]);
+            $older = $this->quarterIndex($newestFirst[$i]);
+            if ($newer === null || $older === null || $newer - $older !== 1) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param array<int, array<string, mixed>> $rows */
@@ -345,8 +426,18 @@ class StockFundamentalsAnalyzer
         for ($i = 4; $i < $count; $i++) {
             $current = $this->toFloat($rows[$i][$field] ?? null);
             $prior = $this->toFloat($rows[$i - 4][$field] ?? null);
+            $currentQuarter = $this->quarterIndex($rows[$i]);
+            $priorQuarter = $this->quarterIndex($rows[$i - 4]);
+            $currentCurrency = strtoupper(trim((string) ($rows[$i]['reported_currency'] ?? '')));
+            $priorCurrency = strtoupper(trim((string) ($rows[$i - 4]['reported_currency'] ?? '')));
 
-            if ($current === null || $prior === null) {
+            // 'Four rows ago' is not necessarily the same fiscal quarter
+            // last year: a missing/duplicated quarter silently corrupts YoY.
+            // Never compare different currencies without FX conversion.
+            if ($currentQuarter === null || $priorQuarter === null
+                || $currentQuarter - $priorQuarter !== 4
+                || ($currentCurrency !== '' && $priorCurrency !== '' && $currentCurrency !== $priorCurrency)
+                || $current === null || $prior === null) {
                 $out[] = null;
 
                 continue;
@@ -371,7 +462,7 @@ class StockFundamentalsAnalyzer
                 $growth = (($current - $prior) / abs($prior)) * 100;
             } else {
                 // Revenue and similar fields require positive comparable values.
-                if ($prior <= 0 || $current <= 0) {
+                if ($prior <= 0 || $current < 0) {
                     $out[] = null;
 
                     continue;
@@ -380,7 +471,9 @@ class StockFundamentalsAnalyzer
                 $growth = (($current - $prior) / $prior) * 100;
             }
 
-            $out[] = round($growth, 4);
+            // Protect persisted decimal columns and the scoring formula from
+            // tiny-denominator explosions and non-finite arithmetic.
+            $out[] = $this->boundedPercent($growth);
         }
 
         return $out;
@@ -418,7 +511,7 @@ class StockFundamentalsAnalyzer
             return null;
         }
 
-        return round($latest - $previous, 4);
+        return $this->boundedPercent($latest - $previous);
     }
 
     /** @param array<int, float|null> $series */
@@ -442,8 +535,13 @@ class StockFundamentalsAnalyzer
 
         $latestFour = array_slice($rows, -4);
         $priorFour = array_slice($rows, -8, 4);
-        $latest = $this->sum($latestFour, $field);
-        $prior = $this->sum($priorFour, $field);
+        if (! $this->hasConsecutiveQuarters(array_reverse(array_slice($rows, -8)))
+            || ! $this->consistentCurrency(array_slice($rows, -8))) {
+            return null;
+        }
+
+        $latest = $this->sumStrict($latestFour, $field);
+        $prior = $this->sumStrict($priorFour, $field);
 
         if ($latest === null || $prior === null) {
             return null;
@@ -457,12 +555,31 @@ class StockFundamentalsAnalyzer
                 return null;
             }
         } else {
-            if ($prior <= 0 || $latest <= 0) {
+            if ($prior <= 0 || $latest < 0) {
                 return null;
             }
         }
 
-        return round((($latest - $prior) / $prior) * 100, 4);
+        return $this->boundedPercent((($latest - $prior) / $prior) * 100);
+    }
+
+    /** Sum only when every required quarter has a finite numeric value. */
+    private function sumStrict(array $rows, string $field): ?float
+    {
+        if (! $rows) {
+            return null;
+        }
+
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $number = $this->toFloat($row[$field] ?? null);
+            if ($number === null || ! is_finite($number)) {
+                return null;
+            }
+            $total += $number;
+        }
+
+        return is_finite($total) ? $total : null;
     }
 
     /** @param array<int, array<string, mixed>> $rows */

@@ -61,7 +61,7 @@ class EarningsSurpriseScorer
      */
     public static function calculateSurprisePercent(?float $actual, ?float $estimated): ?float
     {
-        if ($actual === null || $estimated === null) {
+        if ($actual === null || $estimated === null || ! is_finite($actual) || ! is_finite($estimated)) {
             return null;
         }
 
@@ -72,6 +72,8 @@ class EarningsSurpriseScorer
             return null;
         }
 
-        return (($actual - $estimated) / abs($estimated)) * 100.0;
+        $percent = (($actual - $estimated) / abs($estimated)) * 100.0;
+
+        return is_finite($percent) ? $percent : null;
     }
 }
