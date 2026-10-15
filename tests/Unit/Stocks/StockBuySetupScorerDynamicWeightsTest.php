@@ -11,6 +11,14 @@ test('it normalizes setup score to 100 even when components are disabled or weig
     $scorer = new StockBuySetupScorer;
     $configService = app(BuySetupConfigService::class);
 
+    // Full-credit inputs must follow the effective scoring thresholds rather
+    // than assume the deployment uses the development machine's config.
+    $scales = (array) config('market_data.buy_setup_scanner.acceleration_scales', []);
+    $earningsFullCredit = max(0.0001, (float) ($scales['earnings_acceleration'] ?? 75));
+    $salesFullCredit = max(0.0001, (float) ($scales['sales_acceleration'] ?? 3000));
+    $operatingFullCredit = $configService->getOperatingMarginExpansionThresholds('heartbeat_consolidation_spike')['threshold_100'];
+    $fcfFullCredit = $configService->getFcfMarginExpansionThresholds('heartbeat_consolidation_spike')['threshold_100'];
+
     $alert = new StockBuySetupAlert([
         'setup_type' => 'heartbeat_consolidation_spike',
         'spike_rarity_points' => 7, // full points on spike rarity
@@ -21,15 +29,19 @@ test('it normalizes setup score to 100 even when components are disabled or weig
         'distance_to_breakout_pct' => 1.0, // full points on breakout distance
         'ma_alignment' => '50>150>200, price>50', // full points on MA
         'relative_strength_score' => 25.0, // full points on relative strength
-        'earnings_acceleration' => 75.0,
-        'sales_acceleration' => 3000.0,
-        'operating_margin_expansion_bps' => 1500.0, // full points (>= threshold_100)
-        'fcf_margin_expansion_bps' => 1500.0, // full points (>= threshold_100)
+        'earnings_acceleration' => $earningsFullCredit,
+        'sales_acceleration' => $salesFullCredit,
+        'operating_margin_expansion_bps' => $operatingFullCredit,
+        'fcf_margin_expansion_bps' => $fcfFullCredit,
     ]);
 
     // With all default weights enabled (total = 130, incl. operating/FCF margin
     // expansion which are enabled by default for heartbeat_consolidation_spike),
     // max score is 100 once every component scores full points.
+    $defaultBreakdown = $scorer->breakdown($alert);
+    $notAtMax = array_filter($defaultBreakdown, fn (array $component) => $component['points'] !== $component['max']);
+    expect($notAtMax)->toBe([]); // A failure now identifies the under-scored component.
+
     $defaultScore = $scorer->scoreFromAlert($alert);
     expect($defaultScore)->toBe(100);
 
