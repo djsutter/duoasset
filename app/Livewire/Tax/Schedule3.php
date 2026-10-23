@@ -8,6 +8,7 @@ use App\Enums\Schedule3Method;
 use App\Models\AcbEvent;
 use App\Services\Tax\TaxService;
 use App\Tax\Application\Schedule3MethodResolver;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 class Schedule3 extends Component
@@ -44,15 +45,21 @@ class Schedule3 extends Component
 
     public function getYearOptionsProperty(): array
     {
+        $driver = DB::connection()->getDriverName();
+        $yearExpr = match ($driver) {
+            'sqlite' => "cast(strftime('%Y', event_at) as integer)",
+            default => 'YEAR(event_at)',
+        };
+
         $years = AcbEvent::where('event_type', AcbEventType::Disposal)
-            ->selectRaw('MIN(YEAR(event_at)) as min_year, MAX(YEAR(event_at)) as max_year')
+            ->selectRaw("MIN({$yearExpr}) as min_year, MAX({$yearExpr}) as max_year")
             ->first();
 
         if (! $years || ! $years->min_year) {
             return [now()->year];
         }
 
-        return range($years->max_year, $years->min_year);
+        return range((int) $years->max_year, (int) $years->min_year);
     }
 
     private function initYear(): void

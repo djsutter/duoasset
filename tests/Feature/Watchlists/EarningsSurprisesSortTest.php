@@ -9,7 +9,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 test('it can sort by eps surprise percent', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     EarningsEvent::create([
         'symbol' => 'LOW',
@@ -51,7 +51,7 @@ test('it can sort by eps surprise percent', function () {
 });
 
 test('it can sort by revenue surprise percent', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     EarningsEvent::create([
         'symbol' => 'LOW_REV',

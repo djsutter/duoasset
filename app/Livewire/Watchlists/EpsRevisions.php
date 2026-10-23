@@ -3,6 +3,7 @@
 namespace App\Livewire\Watchlists;
 
 use App\Enums\MoatLevel;
+use App\Livewire\Watchlists\Concerns\ClampsGuestScoringPagination;
 use App\Models\EpsRevisionAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
@@ -10,11 +11,10 @@ use App\Services\Stocks\StockProvisioner;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Livewire\WithPagination;
 
 class EpsRevisions extends Component
 {
-    use WithPagination;
+    use ClampsGuestScoringPagination;
 
     #[Url(as: 'min_pct')]
     public ?string $minRevisionPercent = null;
@@ -136,7 +136,7 @@ class EpsRevisions extends Component
             ->when($this->dateTo, fn ($q) => $q->whereDate('detected_at', '<=', $this->dateTo))
             ->when($this->direction !== 'both', fn ($q) => $q->where('direction', $this->direction));
 
-        $alerts = $query->orderByDesc('detected_at')->paginate(25);
+        $alerts = $query->orderByDesc('detected_at')->paginate(25, ['*'], 'page', $this->getPage());
 
         $watched = collect();
         if (auth()->check()) {

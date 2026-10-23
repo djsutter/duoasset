@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\UserRole;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -29,6 +30,8 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => UserRole::GUEST,
+            'view_mode' => 'stocks',
         ];
     }
 
@@ -40,5 +43,68 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
         ]);
+    }
+
+    /**
+     * Indicate that the user has guest role.
+     */
+    public function guest(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::GUEST,
+            'view_mode' => 'stocks',
+        ]);
+    }
+
+    /**
+     * Indicate that the user has equities subscription role.
+     */
+    public function equities(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::EQUITIES,
+            'view_mode' => 'stocks',
+        ]);
+    }
+
+    /**
+     * Indicate that the user has crypto subscription role.
+     */
+    public function crypto(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::CRYPTO,
+            'view_mode' => 'crypto',
+        ]);
+    }
+
+    /**
+     * Indicate that the user has full subscription role.
+     */
+    public function fullSubscription(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::FULL_SUBSCRIPTION,
+            'view_mode' => 'stocks',
+        ]);
+    }
+
+    /**
+     * Indicate that the user has administrator role.
+     */
+    public function administrator(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::ADMINISTRATOR,
+            'view_mode' => 'stocks',
+        ]);
+    }
+
+    /**
+     * Alias for administrator role.
+     */
+    public function admin(): static
+    {
+        return $this->administrator();
     }
 }

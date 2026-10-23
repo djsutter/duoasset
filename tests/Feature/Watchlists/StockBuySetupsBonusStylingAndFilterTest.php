@@ -10,7 +10,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 test('it filters by bonus type dropdown with options any, ignition accumulation, and growth synergy', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     $configService = app(BuySetupConfigService::class);
     $config = $configService->getConfig();
@@ -136,7 +136,7 @@ test('it filters by bonus type dropdown with options any, ignition accumulation,
 });
 
 test('it excludes alerts when setup type has ignition bonus_points = 0 even if technicals qualify', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     $configService = app(BuySetupConfigService::class);
     $config = $configService->getConfig();
@@ -168,7 +168,7 @@ test('it excludes alerts when setup type has ignition bonus_points = 0 even if t
 });
 
 test('it excludes alerts when setup type has growth synergy bonus disabled even if metrics qualify', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     $configService = app(BuySetupConfigService::class);
     $config = $configService->getConfig();
@@ -200,7 +200,7 @@ test('it excludes alerts when setup type has growth synergy bonus disabled even 
 });
 
 test('it configures and renders ignition bonus background color and growth synergy border color', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     $configService = app(BuySetupConfigService::class);
     $config = $configService->getConfig();
@@ -309,7 +309,7 @@ test('it configures and renders ignition bonus background color and growth syner
 });
 
 test('it allows saving custom colors in the setup config modal', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     Livewire::actingAs($user)
         ->test(StockBuySetups::class)

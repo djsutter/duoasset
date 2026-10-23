@@ -113,7 +113,11 @@
                 @empty
                     <tr>
                         <td colspan="11" class="text-center text-sm text-zinc-500 py-6">
-                            {{ __('No EPS revision alerts yet.') }}
+                            @if (auth()->user()?->isGuest() && $alerts->total() > 0)
+                                {{ __('Guest preview is clamped to page 4. This dataset contains :count results across :pages page(s). Subscribe to access all pages starting from Page 1.', ['count' => $alerts->total(), 'pages' => $alerts->lastPage()]) }}
+                            @else
+                                {{ __('No EPS revision alerts yet.') }}
+                            @endif
                         </td>
                     </tr>
                 @endforelse
@@ -121,7 +125,11 @@
         </table>
 
         <div class="mt-4">
-            {{ $alerts->links() }}
+            @if (auth()->user()?->isGuest())
+                <x-guest-preview-banner :paginator="$alerts" item-name="EPS revisions" />
+            @else
+                {{ $alerts->links() }}
+            @endif
         </div>
     </div>
 </div>

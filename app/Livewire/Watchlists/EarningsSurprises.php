@@ -3,6 +3,7 @@
 namespace App\Livewire\Watchlists;
 
 use App\Enums\MoatLevel;
+use App\Livewire\Watchlists\Concerns\ClampsGuestScoringPagination;
 use App\Models\EarningsAlert;
 use App\Models\EarningsEvent;
 use App\Models\Watchlist;
@@ -11,11 +12,10 @@ use App\Services\Stocks\StockProvisioner;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Livewire\WithPagination;
 
 class EarningsSurprises extends Component
 {
-    use WithPagination;
+    use ClampsGuestScoringPagination;
 
     /** Minimum absolute surprise magnitude (e.g. 30 matches both +30% and -30%). */
     #[Url(as: 'min_pct')]
@@ -204,7 +204,7 @@ class EarningsSurprises extends Component
 
         $events = $query->orderBy($this->sortField, $this->sortDirection)
             ->orderByDesc('detected_at')
-            ->paginate(25);
+            ->paginate(25, ['*'], 'page', $this->getPage());
 
         // Watchlisted symbol set for the current user (for "Already watched" badge).
         $watched = collect();

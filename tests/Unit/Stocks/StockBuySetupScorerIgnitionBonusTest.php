@@ -652,7 +652,7 @@ test('37. Existing saved ignition configuration in database Setting table withou
 });
 
 test('38. Ignition UI filter excludes signals at >= 40% peak extension', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
     enableIgnitionBonus(['bonus_points' => 20]);
 
     // Alert with peak gain 45% (expired)
@@ -683,7 +683,7 @@ test('38. Ignition UI filter excludes signals at >= 40% peak extension', functio
 });
 
 test('39. Ignition UI filter retains partially decayed signals below 40%', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
     enableIgnitionBonus(['bonus_points' => 20]);
 
     // Alert with peak gain 25% (partially decayed, but active)

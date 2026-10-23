@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\UserRole;
+use App\Models\User;
 use Livewire\Volt\Volt;
 
 test('registration screen can be rendered', function () {
@@ -21,4 +23,8 @@ test('new users can register', function () {
         ->assertRedirect(route('dashboard', absolute: false));
 
     $this->assertAuthenticated();
+
+    $user = User::where('email', 'test@example.com')->firstOrFail();
+    expect($user->role)->toBe(UserRole::GUEST)
+        ->and($user->view_mode)->toBe('stocks');
 });

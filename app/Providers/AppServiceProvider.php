@@ -10,7 +10,9 @@ use App\Tax\SuperficialLoss\Application\ResolveSuperficialLosses;
 use App\Tax\SuperficialLoss\Domain\CraSuperficialLossResolver;
 use App\Tax\SuperficialLoss\Domain\SuperficialLossResolver;
 use App\Tax\SuperficialLoss\Policies\CraSuperficialLossMatchingPolicy;
+use App\Models\User;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -127,5 +129,21 @@ PHP;
         );
 
         View::addNamespace('layouts', resource_path('views/components/layouts'));
+
+        Gate::define('access-stocks', function (User $user) {
+            return $user->hasStockAccess();
+        });
+
+        Gate::define('access-crypto', function (User $user) {
+            return $user->hasCryptoAccess();
+        });
+
+        Gate::define('toggle-view-mode', function (User $user) {
+            return $user->canToggleViewMode();
+        });
+
+        Gate::define('admin', function (User $user) {
+            return $user->isAdmin();
+        });
     }
 }

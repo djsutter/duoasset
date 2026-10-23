@@ -9,7 +9,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 test('it can filter by symbol (starts with)', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     StockBuySetupAlert::create([
         'symbol' => 'AAPL',
@@ -68,7 +68,7 @@ test('it can filter by symbol (starts with)', function () {
 });
 
 test('it can sort by symbol', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     StockBuySetupAlert::create([
         'symbol' => 'MSFT',
@@ -107,7 +107,7 @@ test('it can sort by symbol', function () {
 });
 
 test('it can filter by company (contains string)', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     StockBuySetupAlert::create([
         'symbol' => 'AAPL',
@@ -169,7 +169,7 @@ test('it can filter by company (contains string)', function () {
 });
 
 test('it can sort by company', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     StockBuySetupAlert::create([
         'symbol' => 'AAPL',
@@ -210,7 +210,7 @@ test('it can sort by company', function () {
 });
 
 test('it can sort by spike date', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     StockBuySetupAlert::create([
         'symbol' => 'AAPL',

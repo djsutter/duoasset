@@ -9,7 +9,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 test('it can filter by symbol (starts with)', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     EarningsEvent::create([
         'symbol' => 'AAPL',
@@ -64,7 +64,7 @@ test('it can filter by symbol (starts with)', function () {
 });
 
 test('it can sort by symbol', function () {
-    $user = User::factory()->create();
+    $user = User::factory()->equities()->create();
 
     EarningsEvent::create([
         'symbol' => 'MSFT',

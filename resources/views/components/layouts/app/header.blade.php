@@ -20,6 +20,27 @@
 
             <flux:spacer />
 
+            @can('toggle-view-mode')
+                <div class="me-2 flex items-center">
+                    <livewire:view-mode-toggle />
+                </div>
+            @endcan
+
+            @if (auth()->user()?->isGuest())
+                <div class="me-2 flex items-center">
+                    <a
+                        href="#subscribe"
+                        class="inline-flex items-center gap-1.5 rounded-md bg-amber-500 hover:bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 transition"
+                        role="button"
+                        aria-label="{{ __('Subscribe to DuoAsset') }}"
+                        data-testid="header-guest-subscribe-button"
+                    >
+                        <flux:icon icon="sparkles" variant="mini" class="size-4" />
+                        <span>{{ __('Subscribe') }}</span>
+                    </a>
+                </div>
+            @endif
+
             <flux:navbar class="me-1.5 space-x-0.5 rtl:space-x-reverse py-0!">
                 <flux:tooltip :content="__('Search')" position="bottom">
                     <flux:navbar.item class="!h-10 [&>div>svg]:size-5" icon="magnifying-glass" href="#" :label="__('Search')" />

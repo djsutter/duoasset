@@ -3,6 +3,7 @@
 namespace App\Livewire\Watchlists;
 
 use App\Enums\MoatLevel;
+use App\Livewire\Watchlists\Concerns\ClampsGuestScoringPagination;
 use App\Models\StockBuySetupAlert;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
@@ -14,11 +15,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Livewire\WithPagination;
 
 class StockBuySetups extends Component
 {
-    use WithPagination;
+    use ClampsGuestScoringPagination;
 
     #[Url(as: 'type')]
     public ?string $setupType = null;
@@ -680,7 +680,7 @@ class StockBuySetups extends Component
         $alerts = $query
             ->orderBy($sortBy, $direction)
             ->orderByDesc('detected_at')
-            ->paginate(25);
+            ->paginate(25, ['*'], 'page', $this->getPage());
 
         $scoreBreakdowns = $alerts->getCollection()
             ->mapWithKeys(function (StockBuySetupAlert $alert) use ($scorer) {

@@ -14,7 +14,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        $middleware->alias([
+            'domain' => \App\Http\Middleware\EnsureDomainAccess::class,
+            'EnsureDomainAccess' => \App\Http\Middleware\EnsureDomainAccess::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
