@@ -61,19 +61,9 @@ class EarningsSurpriseScorer
      */
     public static function calculateSurprisePercent(?float $actual, ?float $estimated): ?float
     {
-        if ($actual === null || $estimated === null || ! is_finite($actual) || ! is_finite($estimated)) {
-            return null;
-        }
-
-        // Percentage surprise becomes economically meaningless when the EPS
-        // estimate is effectively zero. Avoid allowing a fraction-of-a-cent
-        // estimate to generate a multi-thousand-percent surprise.
-        if (abs($estimated) < 0.02) {
-            return null;
-        }
-
-        $percent = (($actual - $estimated) / abs($estimated)) * 100.0;
-
-        return is_finite($percent) ? $percent : null;
+        // The same validation must be applied by FMP normalization, the scanner
+        // and queued enrichment. Never turn an implausible EPS estimate into a
+        // seemingly legitimate 100% surprise (e.g. GPUS -28540.2169 / -0.30).
+        return EpsSurpriseSanity::calculatePercent($actual, $estimated);
     }
 }

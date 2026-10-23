@@ -683,8 +683,6 @@ class FmpMarketDataProvider implements MarketDataProvider
         // provider's optional surprisePercentage, particularly when the
         // estimate is negative or rounds to zero.
         $calculated = EarningsSurpriseScorer::calculateSurprisePercent($actual, $estimated);
-        $providerPercent = $estimated === null || $actual === null
-            ? $this->toFloat($row['surprisePercentage'] ?? null) : null;
 
         return [
             'symbol' => $symbol,
@@ -698,7 +696,7 @@ class FmpMarketDataProvider implements MarketDataProvider
             'eps_estimated' => $estimated,
             'eps_actual' => $actual,
             'eps_surprise' => $estimated !== null && $actual !== null ? $actual - $estimated : $this->toFloat($row['surprise'] ?? null),
-            'eps_surprise_percent' => $calculated ?? $providerPercent,
+            'eps_surprise_percent' => $calculated,
             'revenue_estimated' => $this->toInt($row['revenueEstimated'] ?? null),
             'revenue_actual' => $this->toInt($row['revenueActual'] ?? $row['revenue'] ?? null),
             'raw' => $row,

@@ -280,3 +280,82 @@ it('scorer awards points proportional to surprise size and fundamentals', functi
     // rev>0 +10, rev>=5 +10, relvol>=2 +10 = 120
     expect((new EarningsSurpriseScorer)->score($event))->toBe(120);
 });
+
+
+it('discards the malformed GPUS EPS estimate rather than creating a fake 100 percent beat', function () {
+    fakeFmp(
+        surprises: [[
+            'symbol' => 'GPUS',
+            'date' => now()->toDateString(),
+            'epsEstimated' => -28540.2169,
+            'epsActual' => -0.30,
+            'surprisePercentage' => 100.0, // Do not trust the provider's percentage.
+        ]],
+        profiles: [
+            'GPUS' => [
+                'symbol' => 'GPUS',
+                'companyName' => 'Hyperscale Data, Inc.',
+                'exchangeShortName' => 'AMEX',
+                'mktCap' => 38_356_364,
+            ],
+        ],
+        quotes: [
+            'GPUS' => [
+                'symbol' => 'GPUS',
+                'price' => 0.159,
+                'marketCap' => 38_356_364,
+                'exchange' => 'AMEX',
+            ],
+        ],
+    );
+
+    // Remove eligibility distractions to test only the EPS data-quality gate.
+    config([
+        'market_data.earnings_scanner.min_market_cap' => 0,
+        'market_data.earnings_scanner.exchanges' => ['AMEX'],
+    ]);
+
+    $this->artisan('earnings:scan-surprises')->assertSuccessful();
+    expect(EarningsEvent::where('symbol', 'GPUS')->exists())->toBeFalse()
+        ->and(EarningsAlert::where('symbol', 'GPUS')->exists())->toBeFalse();
+});
+
+
+it('can score a low-cap AMEX earnings alert when both exchange and market-cap gates explicitly permit it', function () {
+    fakeFmp(
+        surprises: [[
+            'symbol' => 'GPUS',
+            'date' => now()->toDateString(),
+            'epsEstimated' => -0.50,
+            'epsActual' => 0.10, // +120%; a reasonable hypothetical, not actual GPUS EPS
+            'surprisePercentage' => 9999.0, // Must be recomputed, not trusted.
+        ]],
+        profiles: [
+            'GPUS' => [
+                'symbol' => 'GPUS',
+                'companyName' => 'Hyperscale Data, Inc.',
+                'exchangeShortName' => 'AMEX',
+                'mktCap' => 38_356_364,
+            ],
+        ],
+        quotes: [
+            'GPUS' => [
+                'symbol' => 'GPUS',
+                'price' => 0.159,
+                'marketCap' => 38_356_364,
+                'exchange' => 'AMEX',
+            ],
+        ],
+    );
+
+    config([
+        'market_data.earnings_scanner.min_market_cap' => 30_000_000,
+        'market_data.earnings_scanner.exchanges' => ['AMEX'],
+    ]);
+
+    $this->artisan('earnings:scan-surprises')->assertSuccessful();
+    $event = EarningsEvent::where('symbol', 'GPUS')->first();
+    expect($event)->not->toBeNull()
+        ->and(round((float) $event->eps_surprise_percent, 2))->toBe(120.0)
+        ->and($event->alert)->not->toBeNull();
+});

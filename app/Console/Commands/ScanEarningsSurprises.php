@@ -91,15 +91,20 @@ class ScanEarningsSurprises extends Command
                     continue;
                 }
 
-                // Surprise percent: prefer provider value, else compute.
-                $surprisePct = $row['eps_surprise_percent'] ?? null;
+                // Always calculate from the EPS pair. The provider's reported
+                // percentage can be wrong (e.g. split-adjustment mismatch) and
+                // must never bypass the EPS sanity guard.
+                $surprisePct = EarningsSurpriseScorer::calculateSurprisePercent(
+                    (float) $epsActual,
+                    (float) $epsEstimated,
+                );
                 if ($surprisePct === null) {
-                    $surprisePct = EarningsSurpriseScorer::calculateSurprisePercent(
-                        (float) $epsActual,
-                        (float) $epsEstimated,
-                    );
-                }
-                if ($surprisePct === null) {
+                    Log::warning('earnings.invalid_eps', [
+                        'symbol' => $row['symbol'] ?? null,
+                        'report_date' => $row['report_date'] ?? null,
+                        'eps_estimated' => $epsEstimated,
+                        'eps_actual' => $epsActual,
+                    ]);
                     continue;
                 }
 
@@ -115,10 +120,7 @@ class ScanEarningsSurprises extends Command
                     continue;
                 }
 
-                $surpriseAbs = ($row['eps_surprise'] ?? null);
-                if ($surpriseAbs === null) {
-                    $surpriseAbs = (float) $epsActual - (float) $epsEstimated;
-                }
+                $surpriseAbs = (float) $epsActual - (float) $epsEstimated;
 
                 $event = EarningsEvent::updateOrCreate(
                     [
