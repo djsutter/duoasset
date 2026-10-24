@@ -3,8 +3,10 @@
 namespace App\Livewire\Admin;
 
 use App\Enums\UserRole;
+use App\Models\StockBuySetupRun;
 use App\Models\User;
 use App\Models\UserCredit;
+use App\Services\Admin\LogReaderService;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
@@ -27,7 +29,7 @@ class Configuration extends Component
 
     public function setTab(string $tab): void
     {
-        if (in_array($tab, ['overview', 'accounts'], true)) {
+        if (in_array($tab, ['overview', 'accounts', 'logs', 'setup-run'], true)) {
             $this->tab = $tab;
         }
     }
@@ -45,6 +47,11 @@ class Configuration extends Component
         $totalCreditsAllocated = UserCredit::where('amount', '>', 0)->sum('amount');
         $netOutstandingCredits = User::sum('credit_balance');
 
+        $lastSetupRun = StockBuySetupRun::orderByDesc('id')->first();
+        /** @var LogReaderService $logService */
+        $logService = app(LogReaderService::class);
+        $logSummary = $logService->getLogs(null, LogReaderService::TYPE_ALL, LogReaderService::LEVEL_ALL, '', 1)['summary'];
+
         return view('livewire.admin.configuration', [
             'totalUsers' => $totalUsers,
             'adminCount' => $adminCount,
@@ -55,6 +62,8 @@ class Configuration extends Component
             'totalSubscribers' => $totalSubscribers,
             'totalCreditsAllocated' => $totalCreditsAllocated,
             'netOutstandingCredits' => $netOutstandingCredits,
+            'lastSetupRun' => $lastSetupRun,
+            'logSummary' => $logSummary,
         ])->layout('components.layouts.app', ['title' => 'Admin Configuration - DuoAsset']);
     }
 }

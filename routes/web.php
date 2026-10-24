@@ -27,6 +27,8 @@ Route::middleware([
     Route::middleware(['can:admin'])->prefix('admin')->name('admin.')->group(function () {
         Route::get('/configuration', \App\Livewire\Admin\Configuration::class)->name('config');
         Route::get('/accounts', \App\Livewire\Admin\ManageAccounts::class)->name('accounts');
+        Route::get('/logs', \App\Livewire\Admin\ErrorLogs::class)->name('logs');
+        Route::get('/setup-run-report', \App\Livewire\Admin\SetupRunReport::class)->name('setup-run-report');
     });
 
     Route::middleware(['domain:crypto'])->group(function () {

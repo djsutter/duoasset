@@ -14,6 +14,22 @@
         </div>
 
         <div class="flex items-center gap-2">
+            <a href="{{ route('admin.logs') }}"
+               class="da-btn da-btn-secondary gap-1.5"
+               wire:navigate
+               data-testid="nav-error-logs-btn">
+                <flux:icon icon="document-text" variant="mini" class="size-4" />
+                <span>{{ __('Error Logs') }}</span>
+            </a>
+
+            <a href="{{ route('admin.setup-run-report') }}"
+               class="da-btn da-btn-secondary gap-1.5"
+               wire:navigate
+               data-testid="nav-setup-report-btn">
+                <flux:icon icon="chart-bar" variant="mini" class="size-4" />
+                <span>{{ __('Setup Run Report') }}</span>
+            </a>
+
             <a href="{{ route('admin.accounts') }}"
                class="da-btn da-btn-primary gap-1.5"
                wire:navigate
@@ -41,6 +57,22 @@
                     data-testid="tab-accounts">
                 <flux:icon icon="users" variant="mini" class="size-4" />
                 <span>{{ __('Account Management') }}</span>
+            </button>
+
+            <button type="button"
+                    wire:click="setTab('logs')"
+                    class="py-2.5 px-1 inline-flex items-center gap-2 border-b-2 text-sm font-medium transition {{ $tab === 'logs' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300 dark:text-zinc-400 dark:hover:text-zinc-200' }}"
+                    data-testid="tab-logs">
+                <flux:icon icon="document-text" variant="mini" class="size-4" />
+                <span>{{ __('Error Log Viewer') }}</span>
+            </button>
+
+            <button type="button"
+                    wire:click="setTab('setup-run')"
+                    class="py-2.5 px-1 inline-flex items-center gap-2 border-b-2 text-sm font-medium transition {{ $tab === 'setup-run' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300 dark:text-zinc-400 dark:hover:text-zinc-200' }}"
+                    data-testid="tab-setup-run">
+                <flux:icon icon="sparkles" variant="mini" class="size-4" />
+                <span>{{ __('Setup Run Report') }}</span>
             </button>
         </nav>
     </div>
@@ -202,9 +234,136 @@
                 </div>
             </div>
         </div>
+
+        {{-- Observability & Processing Diagnostics Summary Cards --}}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {{-- Error Logs Quick Overview --}}
+            <div class="da-card space-y-4" data-testid="overview-error-logs-card">
+                <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+                    <h3 class="text-base font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <flux:icon icon="document-text" variant="mini" class="size-5 text-indigo-500" />
+                        <span>{{ __('Application Diagnostics & Error Logs') }}</span>
+                    </h3>
+                    <a href="{{ route('admin.logs') }}" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium" wire:navigate>
+                        {{ __('Open Error Console →') }}
+                    </a>
+                </div>
+
+                <div class="space-y-3 text-xs">
+                    <p class="text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                        {{ __('Real-time log stream categorized by domain. Diagnose email notifications, setup scoring evaluations, and EPS surprises without server access.') }}
+                    </p>
+
+                    <div class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 font-mono">
+                        <div class="flex justify-between">
+                            <span class="text-zinc-500">{{ __('Total Scanned:') }}</span>
+                            <span class="font-bold text-zinc-900 dark:text-white">{{ number_format($logSummary['total_scanned'] ?? 0) }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-zinc-500">{{ __('Errors / Failures:') }}</span>
+                            <span class="font-bold text-rose-600 dark:text-rose-400">{{ number_format($logSummary['errors'] ?? 0) }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-zinc-500">{{ __('Notifications:') }}</span>
+                            <span class="font-bold text-purple-600 dark:text-purple-400">{{ number_format($logSummary['notifications'] ?? 0) }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-zinc-500">{{ __('Setup Processing:') }}</span>
+                            <span class="font-bold text-emerald-600 dark:text-emerald-400">{{ number_format($logSummary['setup'] ?? 0) }}</span>
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <button type="button"
+                                wire:click="setTab('logs')"
+                                class="w-full da-btn da-btn-secondary gap-1.5"
+                                data-testid="config-goto-logs-tab-btn">
+                            <flux:icon icon="document-text" variant="mini" class="size-4" />
+                            <span>{{ __('View Filtered Error Logs in Tab') }}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Last Setup Run Quick Overview --}}
+            <div class="da-card space-y-4" data-testid="overview-setup-run-card">
+                <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+                    <h3 class="text-base font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <flux:icon icon="sparkles" variant="mini" class="size-5 text-emerald-500" />
+                        <span>{{ __('Last Setup Run Report') }}</span>
+                    </h3>
+                    <a href="{{ route('admin.setup-run-report') }}" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium" wire:navigate>
+                        {{ __('Open Full Report →') }}
+                    </a>
+                </div>
+
+                <div class="space-y-3 text-xs">
+                    @if ($lastSetupRun)
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-zinc-900 dark:text-white">{{ __('Run #') }}{{ $lastSetupRun->id }}</span>
+                                <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold {{ $lastSetupRun->status === 'completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300' }}">
+                                    {{ $lastSetupRun->status }}
+                                </span>
+                            </div>
+                            <span class="text-zinc-500 font-mono">{{ $lastSetupRun->started_at?->diffForHumans() ?? '—' }}</span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 font-mono">
+                            <div class="flex justify-between">
+                                <span class="text-zinc-500">{{ __('Scored:') }}</span>
+                                <span class="font-bold text-sky-600 dark:text-sky-400">{{ number_format($lastSetupRun->scored_count) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-zinc-500">{{ __('Matches:') }}</span>
+                                <span class="font-bold text-emerald-600 dark:text-emerald-400">{{ number_format($lastSetupRun->matched_count) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-zinc-500">{{ __('Rejected:') }}</span>
+                                <span class="font-bold text-amber-600 dark:text-amber-400">{{ number_format($lastSetupRun->rejected_count) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-zinc-500">{{ __('Duration:') }}</span>
+                                <span class="font-bold text-zinc-900 dark:text-white">{{ $lastSetupRun->formattedDuration() }}</span>
+                            </div>
+                        </div>
+
+                        <div class="pt-2">
+                            <button type="button"
+                                    wire:click="setTab('setup-run')"
+                                    class="w-full da-btn da-btn-secondary gap-1.5"
+                                    data-testid="config-goto-setup-tab-btn">
+                                <flux:icon icon="chart-bar" variant="mini" class="size-4" />
+                                <span>{{ __('View Rejection Breakdown in Tab') }}</span>
+                            </button>
+                        </div>
+                    @else
+                        <p class="text-zinc-500 py-3 text-center">
+                            {{ __('No stock buy setup runs recorded yet. Execute `php artisan stocks:scan-buy-setups` to generate.') }}
+                        </p>
+                        <div class="pt-2">
+                            <a href="{{ route('admin.setup-run-report') }}"
+                               class="w-full da-btn da-btn-secondary gap-1.5 justify-center"
+                               wire:navigate>
+                                <flux:icon icon="chart-bar" variant="mini" class="size-4" />
+                                <span>{{ __('Open Setup Dashboard') }}</span>
+                            </a>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
     @elseif ($tab === 'accounts')
         <div data-testid="embedded-manage-accounts">
             <livewire:admin.manage-accounts />
+        </div>
+    @elseif ($tab === 'logs')
+        <div data-testid="embedded-error-logs">
+            <livewire:admin.error-logs />
+        </div>
+    @elseif ($tab === 'setup-run')
+        <div data-testid="embedded-setup-run-report">
+            <livewire:admin.setup-run-report />
         </div>
     @endif
 </div>

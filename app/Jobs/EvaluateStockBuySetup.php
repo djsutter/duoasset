@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\MoatLevel;
 use App\Models\StockBuySetupAlert;
+use App\Models\StockBuySetupRun;
 use App\Models\StockDailyBar;
 use App\Models\User;
 use App\Models\Watchlist;
@@ -53,6 +54,7 @@ class EvaluateStockBuySetup implements ShouldQueue
         public ?int $sharesOutstanding = null,
         public ?int $floatShares = null,
         public ?float $freeFloat = null,
+        public ?int $scanRunId = null,
     ) {}
 
     public function handle(
@@ -82,6 +84,10 @@ class EvaluateStockBuySetup implements ShouldQueue
         if ($symbol === '') {
             $debug['status'] = 'skipped';
             $debug['reason'] = 'empty symbol';
+
+            if ($this->scanRunId !== null) {
+                StockBuySetupRun::recordResult($this->scanRunId, $debug);
+            }
 
             return $debug;
         }
@@ -117,6 +123,10 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'reason' => $debug['reason'],
                 ]);
 
+                if ($this->scanRunId !== null) {
+                    StockBuySetupRun::recordResult($this->scanRunId, $debug);
+                }
+
                 return $debug;
             }
 
@@ -150,6 +160,10 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'reason' => $debug['reason'],
                     'rejection_reasons' => $debug['rejection_reasons'],
                 ]);
+
+                if ($this->scanRunId !== null) {
+                    StockBuySetupRun::recordResult($this->scanRunId, $debug);
+                }
 
                 return $debug;
             }
@@ -397,6 +411,10 @@ class EvaluateStockBuySetup implements ShouldQueue
             }
             $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 
+            if ($this->scanRunId !== null) {
+                StockBuySetupRun::recordResult($this->scanRunId, $debug);
+            }
+
             return $debug;
         } catch (Throwable $e) {
             Log::error('buy_setup.evaluate_failed', [
@@ -407,6 +425,10 @@ class EvaluateStockBuySetup implements ShouldQueue
             $debug['status'] = 'error';
             $debug['reason'] = $e->getMessage();
             $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+            if ($this->scanRunId !== null) {
+                StockBuySetupRun::recordResult($this->scanRunId, $debug);
+            }
 
             return $debug;
         }

@@ -114,6 +114,8 @@
                         <flux:menu.radio.group>
                             <flux:menu.item :href="route('admin.config')" icon="wrench-screwdriver" wire:navigate data-testid="dropdown-admin-config-link">{{ __('Admin Configuration') }}</flux:menu.item>
                             <flux:menu.item :href="route('admin.accounts')" icon="users" wire:navigate data-testid="dropdown-manage-accounts-link">{{ __('Manage Accounts') }}</flux:menu.item>
+                            <flux:menu.item :href="route('admin.logs')" icon="document-text" wire:navigate data-testid="dropdown-error-logs-link">{{ __('Error Logs') }}</flux:menu.item>
+                            <flux:menu.item :href="route('admin.setup-run-report')" icon="chart-bar" wire:navigate data-testid="dropdown-setup-report-link">{{ __('Setup Run Report') }}</flux:menu.item>
                         </flux:menu.radio.group>
                     @endcan
 

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\EvaluateStockBuySetup;
+use App\Models\StockBuySetupRun;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\BuySetupConfigService;
 use Illuminate\Console\Command;
@@ -120,6 +121,19 @@ class ScanBuySetups extends Command
             'top' => [],
         ];
 
+        $scanRun = StockBuySetupRun::create([
+            'started_at' => now(),
+            'status' => 'running',
+            'trigger' => $sync ? 'cli-sync' : 'cli',
+            'symbols_considered' => count($rows),
+            'summary_data' => [
+                'limit' => $limit,
+                'letter' => $letter,
+                'exchanges' => $exchanges,
+                'explicit' => ! empty($explicit),
+            ],
+        ]);
+
         if ($sync && ! $verbose) {
             $this->line('Scanning '.count($rows).' symbols...');
             $bar = $this->output->createProgressBar(count($rows));
@@ -143,6 +157,7 @@ class ScanBuySetups extends Command
                 'sharesOutstanding' => isset($row['shares_outstanding']) ? (int) $row['shares_outstanding'] : null,
                 'floatShares' => isset($row['float_shares']) ? (int) $row['float_shares'] : null,
                 'freeFloat' => isset($row['free_float']) && is_numeric($row['free_float']) ? (float) $row['free_float'] : null,
+                'scanRunId' => $scanRun->id,
             ];
 
             if ($sync) {
@@ -159,6 +174,7 @@ class ScanBuySetups extends Command
                     $payload['sharesOutstanding'],
                     $payload['floatShares'],
                     $payload['freeFloat'],
+                    $payload['scanRunId'],
                 );
                 $result = app()->call([$job, 'handle']);
                 if (! is_array($result)) {
@@ -186,7 +202,11 @@ class ScanBuySetups extends Command
             $this->newLine(2);
         }
 
-        $this->info(($sync ? 'Processed' : 'Dispatched').": {$dispatched} per-symbol buy-setup evaluations.");
+        if ($sync) {
+            $scanRun->finishSync($summary, microtime(true) - $startedAt);
+        }
+
+        $this->info(($sync ? 'Processed' : 'Dispatched').": {$dispatched} per-symbol buy-setup evaluations (Run #{$scanRun->id}).");
 
         if ($sync) {
             $this->renderSyncSummary($summary, microtime(true) - $startedAt);

@@ -70,6 +70,24 @@
                             <flux:icon icon="users" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
                             <span>{{ __('Manage Accounts') }}</span>
                         </a>
+                        <a
+                            href="{{ route('admin.logs') }}"
+                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 transition"
+                            wire:navigate
+                            data-testid="sidebar-error-logs-link"
+                        >
+                            <flux:icon icon="document-text" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                            <span>{{ __('Error Logs') }}</span>
+                        </a>
+                        <a
+                            href="{{ route('admin.setup-run-report') }}"
+                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 transition"
+                            wire:navigate
+                            data-testid="sidebar-setup-report-link"
+                        >
+                            <flux:icon icon="chart-bar" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                            <span>{{ __('Setup Run Report') }}</span>
+                        </a>
                     </div>
                 </div>
             @endcan
