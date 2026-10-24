@@ -32,6 +32,7 @@ class UserFactory extends Factory
             'remember_token' => Str::random(10),
             'role' => UserRole::GUEST,
             'view_mode' => 'stocks',
+            'credit_balance' => 0.00,
         ];
     }
 
@@ -106,5 +107,15 @@ class UserFactory extends Factory
     public function admin(): static
     {
         return $this->administrator();
+    }
+
+    /**
+     * Indicate that the user has a specific dollar credit balance.
+     */
+    public function withCredit(float|int|string $amount): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'credit_balance' => round((float) $amount, 2),
+        ]);
     }
 }

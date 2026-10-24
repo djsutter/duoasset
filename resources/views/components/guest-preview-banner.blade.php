@@ -51,11 +51,12 @@
 
         <div class="shrink-0 w-full sm:w-auto">
             <a
-                href="#subscribe"
+                href="{{ route('subscription') }}"
                 class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 transition"
                 role="button"
                 aria-label="{{ __('Subscribe to DuoAsset for Full Access') }}"
                 data-testid="guest-preview-subscribe-button"
+                wire:navigate
             >
                 <flux:icon icon="sparkles" variant="mini" class="size-4" />
                 <span>{{ __('Subscribe for Full Access') }}</span>

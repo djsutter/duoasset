@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -12,10 +13,14 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        User::factory()->create([
-            'name' => 'Admin',
-            'email' => 'demo@crypto.x',
-            'password' => 'admin1111',
-        ]);
+        User::query()->updateOrCreate(
+            ['email' => 'demo@crypto.x'],
+            [
+                'name' => 'Admin',
+                'password' => 'admin1111',
+                'role' => UserRole::ADMINISTRATOR,
+                'view_mode' => 'stocks',
+            ]
+        );
     }
 }

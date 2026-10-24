@@ -26,14 +26,43 @@
                 </div>
             @endcan
 
+            @can('admin')
+                <div class="me-2 flex items-center gap-1.5">
+                    <a
+                        href="{{ route('admin.config') }}"
+                        class="inline-flex items-center gap-1.5 rounded-md bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/60 border border-purple-200 dark:border-purple-800 px-2.5 py-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 shadow-xs transition"
+                        role="button"
+                        aria-label="{{ __('Admin Configuration') }}"
+                        data-testid="header-admin-config-button"
+                        wire:navigate
+                    >
+                        <flux:icon icon="wrench-screwdriver" variant="mini" class="size-4" />
+                        <span>{{ __('Admin Config') }}</span>
+                    </a>
+
+                    <a
+                        href="{{ route('admin.accounts') }}"
+                        class="inline-flex items-center gap-1.5 rounded-md bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/60 border border-purple-200 dark:border-purple-800 px-2.5 py-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 shadow-xs transition"
+                        role="button"
+                        aria-label="{{ __('Manage Accounts') }}"
+                        data-testid="header-manage-accounts-button"
+                        wire:navigate
+                    >
+                        <flux:icon icon="users" variant="mini" class="size-4" />
+                        <span>{{ __('Manage Accounts') }}</span>
+                    </a>
+                </div>
+            @endcan
+
             @if (auth()->user()?->isGuest())
                 <div class="me-2 flex items-center">
                     <a
-                        href="#subscribe"
+                        href="{{ route('subscription') }}"
                         class="inline-flex items-center gap-1.5 rounded-md bg-amber-500 hover:bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 transition"
                         role="button"
                         aria-label="{{ __('Subscribe to DuoAsset') }}"
                         data-testid="header-guest-subscribe-button"
+                        wire:navigate
                     >
                         <flux:icon icon="sparkles" variant="mini" class="size-4" />
                         <span>{{ __('Subscribe') }}</span>
@@ -79,6 +108,14 @@
                             </div>
                         </div>
                     </flux:menu.radio.group>
+
+                    @can('admin')
+                        <flux:menu.separator />
+                        <flux:menu.radio.group>
+                            <flux:menu.item :href="route('admin.config')" icon="wrench-screwdriver" wire:navigate data-testid="dropdown-admin-config-link">{{ __('Admin Configuration') }}</flux:menu.item>
+                            <flux:menu.item :href="route('admin.accounts')" icon="users" wire:navigate data-testid="dropdown-manage-accounts-link">{{ __('Manage Accounts') }}</flux:menu.item>
+                        </flux:menu.radio.group>
+                    @endcan
 
                     <flux:menu.separator />
 

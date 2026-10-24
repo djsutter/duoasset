@@ -35,4 +35,15 @@ enum UserRole: string
     {
         return $this !== self::GUEST;
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::GUEST => 'Guest',
+            self::EQUITIES => 'Equities Subscriber',
+            self::CRYPTO => 'Crypto Subscriber',
+            self::FULL_SUBSCRIPTION => 'Full Subscription',
+            self::ADMINISTRATOR => 'Administrator',
+        };
+    }
 }

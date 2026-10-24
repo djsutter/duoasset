@@ -35,17 +35,44 @@
             @if ($isGuest)
                 <div class="px-2 py-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
                     <a
-                        href="#subscribe"
+                        href="{{ route('subscription') }}"
                         class="flex w-full items-center justify-center gap-2 rounded-md bg-amber-500 hover:bg-amber-600 px-3 py-2 text-xs font-semibold text-white shadow-xs transition"
                         role="button"
                         aria-label="{{ __('Subscribe to DuoAsset') }}"
                         data-testid="sidebar-guest-subscribe-button"
+                        wire:navigate
                     >
                         <flux:icon icon="sparkles" variant="mini" class="size-4" />
                         <span>{{ __('Subscribe') }}</span>
                     </a>
                 </div>
             @endif
+
+            @can('admin')
+                <div class="px-2 py-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">
+                    <div class="mb-1.5 text-xs font-medium uppercase tracking-wider text-purple-600 dark:text-purple-400">{{ __('Administration') }}</div>
+                    <div class="space-y-1">
+                        <a
+                            href="{{ route('admin.config') }}"
+                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 transition"
+                            wire:navigate
+                            data-testid="sidebar-admin-config-link"
+                        >
+                            <flux:icon icon="wrench-screwdriver" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                            <span>{{ __('Admin Configuration') }}</span>
+                        </a>
+                        <a
+                            href="{{ route('admin.accounts') }}"
+                            class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 transition"
+                            wire:navigate
+                            data-testid="sidebar-manage-accounts-link"
+                        >
+                            <flux:icon icon="users" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                            <span>{{ __('Manage Accounts') }}</span>
+                        </a>
+                    </div>
+                </div>
+            @endcan
 
             @if ($canToggleViewMode)
                 <div class="px-2 py-2 mb-2 border-b border-zinc-200 dark:border-zinc-800">

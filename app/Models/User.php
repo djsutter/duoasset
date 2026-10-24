@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -24,6 +25,7 @@ class User extends Authenticatable
     protected $attributes = [
         'role' => 'guest',
         'view_mode' => 'stocks',
+        'credit_balance' => 0.00,
     ];
 
     /**
@@ -40,6 +42,7 @@ class User extends Authenticatable
         'notify_stock_buy_setup',
         'role',
         'view_mode',
+        'credit_balance',
     ];
 
     /**
@@ -51,6 +54,7 @@ class User extends Authenticatable
         'password',
         'remember_token',
     ];
+
 
     /**
      * Get the attributes that should be cast.
@@ -66,6 +70,7 @@ class User extends Authenticatable
             'notify_eps_revisions' => 'boolean',
             'notify_stock_buy_setup' => 'boolean',
             'role' => UserRole::class,
+            'credit_balance' => 'decimal:2',
         ];
     }
 
@@ -76,6 +81,77 @@ class User extends Authenticatable
     public function earningsDeliveries(): HasMany
     {
         return $this->hasMany(EarningsNotificationDelivery::class);
+    }
+
+    /**
+     * Dollar credits and balance adjustments for this user.
+     */
+    public function credits(): HasMany
+    {
+        return $this->hasMany(UserCredit::class)->orderBy('id', 'desc');
+    }
+
+    /**
+     * Formatted string representation of the user's dollar credit balance.
+     */
+    public function formattedCreditBalance(): string
+    {
+        return '$' . number_format((float) ($this->credit_balance ?? 0), 2);
+    }
+
+    /**
+     * Apply a dollar credit (or debit) adjustment to the user's account.
+     */
+    public function applyCredit(
+        float|int|string $amount,
+        ?string $description = null,
+        ?User $admin = null,
+        string $type = 'credit'
+    ): UserCredit {
+        $numericAmount = round((float) $amount, 2);
+
+        return DB::transaction(function () use ($numericAmount, $description, $admin, $type) {
+            $currentBalance = (float) ($this->credit_balance ?? 0);
+            $newBalance = round($currentBalance + $numericAmount, 2);
+
+            $this->credit_balance = $newBalance;
+            $this->save();
+
+            return $this->credits()->create([
+                'admin_id' => $admin?->id,
+                'amount' => $numericAmount,
+                'balance_after' => $newBalance,
+                'type' => $type,
+                'description' => $description,
+            ]);
+        });
+    }
+
+    /**
+     * Assign a new role to the user and align view_mode if single-domain.
+     */
+    public function assignRole(UserRole|string $role): static
+    {
+        $targetRole = is_string($role) ? UserRole::from($role) : $role;
+        $this->role = $targetRole;
+
+        if ($targetRole === UserRole::CRYPTO) {
+            $this->view_mode = 'crypto';
+        } elseif ($targetRole === UserRole::EQUITIES || $targetRole === UserRole::GUEST) {
+            $this->view_mode = 'stocks';
+        }
+
+        $this->save();
+
+        return $this;
+    }
+
+    /**
+     * Remove role from the user by resetting to guest.
+     */
+    public function removeRole(): static
+    {
+        return $this->assignRole(UserRole::GUEST);
     }
 
     /**

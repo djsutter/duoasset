@@ -21,6 +21,14 @@ Route::middleware([
 ])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');
 
+    Route::get('/subscription', \App\Livewire\Subscription\Index::class)->name('subscription');
+    Route::get('/subscribe', \App\Livewire\Subscription\Index::class)->name('subscription.index');
+
+    Route::middleware(['can:admin'])->prefix('admin')->name('admin.')->group(function () {
+        Route::get('/configuration', \App\Livewire\Admin\Configuration::class)->name('config');
+        Route::get('/accounts', \App\Livewire\Admin\ManageAccounts::class)->name('accounts');
+    });
+
     Route::middleware(['domain:crypto'])->group(function () {
         Route::get('/import', \App\Livewire\Import\Index::class)->name('import.index');
         Route::get('/import/stage', \App\Livewire\Import\Stage::class)->name('import.stage');
