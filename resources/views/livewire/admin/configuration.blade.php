@@ -13,7 +13,25 @@
             </p>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="button"
+                    wire:click="sendTestEmail"
+                    wire:loading.attr="disabled"
+                    class="da-btn da-btn-secondary gap-1.5"
+                    data-testid="send-test-email-btn">
+                <span wire:loading.remove wire:target="sendTestEmail">
+                    <flux:icon icon="envelope" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                </span>
+                <span wire:loading wire:target="sendTestEmail" class="inline-flex items-center">
+                    <svg class="animate-spin size-4 text-purple-600 dark:text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                </span>
+                <span wire:loading.remove wire:target="sendTestEmail">{{ __('Send Test Email') }}</span>
+                <span wire:loading wire:target="sendTestEmail">{{ __('Sending...') }}</span>
+            </button>
+
             <a href="{{ route('admin.logs') }}"
                class="da-btn da-btn-secondary gap-1.5"
                wire:navigate
@@ -39,6 +57,41 @@
             </a>
         </div>
     </div>
+
+    {{-- Test Email Status & Error Alerts --}}
+    @if ($testEmailStatus)
+        <div class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-300 shadow-xs flex items-center justify-between"
+             data-testid="admin-test-email-status" role="alert">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="check-circle" variant="mini" class="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>{{ $testEmailStatus }}</span>
+            </div>
+            <button type="button"
+                    wire:click="$set('testEmailStatus', null)"
+                    class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 p-1"
+                    data-testid="dismiss-test-email-status-btn"
+                    aria-label="{{ __('Dismiss') }}">
+                <flux:icon icon="x-mark" variant="mini" class="size-4" />
+            </button>
+        </div>
+    @endif
+
+    @if ($testEmailError)
+        <div class="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300 shadow-xs flex items-center justify-between"
+             data-testid="admin-test-email-error" role="alert">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="exclamation-circle" variant="mini" class="size-5 text-red-600 dark:text-red-400 shrink-0" />
+                <span>{{ $testEmailError }}</span>
+            </div>
+            <button type="button"
+                    wire:click="$set('testEmailError', null)"
+                    class="text-red-600 hover:text-red-800 dark:text-red-400 p-1"
+                    data-testid="dismiss-test-email-error-btn"
+                    aria-label="{{ __('Dismiss') }}">
+                <flux:icon icon="x-mark" variant="mini" class="size-4" />
+            </button>
+        </div>
+    @endif
 
     {{-- Tabs Navigation --}}
     <div class="border-b border-zinc-200 dark:border-zinc-800">
@@ -273,13 +326,31 @@
                         </div>
                     </div>
 
-                    <div class="pt-2">
+                    <div class="pt-2 flex flex-col sm:flex-row gap-2">
                         <button type="button"
                                 wire:click="setTab('logs')"
-                                class="w-full da-btn da-btn-secondary gap-1.5"
+                                class="flex-1 da-btn da-btn-secondary gap-1.5 justify-center"
                                 data-testid="config-goto-logs-tab-btn">
                             <flux:icon icon="document-text" variant="mini" class="size-4" />
                             <span>{{ __('View Filtered Error Logs in Tab') }}</span>
+                        </button>
+
+                        <button type="button"
+                                wire:click="sendTestEmail"
+                                wire:loading.attr="disabled"
+                                class="da-btn da-btn-secondary gap-1.5 justify-center"
+                                data-testid="diagnostic-send-test-email-btn">
+                            <span wire:loading.remove wire:target="sendTestEmail">
+                                <flux:icon icon="envelope" variant="mini" class="size-4 text-purple-600 dark:text-purple-400" />
+                            </span>
+                            <span wire:loading wire:target="sendTestEmail" class="inline-flex items-center">
+                                <svg class="animate-spin size-4 text-purple-600 dark:text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                                </svg>
+                            </span>
+                            <span wire:loading.remove wire:target="sendTestEmail">{{ __('Send Test Email') }}</span>
+                            <span wire:loading wire:target="sendTestEmail">{{ __('Sending...') }}</span>
                         </button>
                     </div>
                 </div>

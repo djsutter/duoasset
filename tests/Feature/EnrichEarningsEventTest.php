@@ -2,6 +2,7 @@
 
 use App\Jobs\EnrichEarningsEvent;
 use App\Models\EarningsEvent;
+use App\Models\Stock;
 use App\Services\Earnings\EarningsSurpriseScorer;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\StockProvisioner;
@@ -45,7 +46,7 @@ it('populates company_name, exchange and computed market_cap when only quote() r
     ]);
 
     $stocks = Mockery::mock(StockProvisioner::class);
-    $stocks->shouldReceive('findOrCreate')->andReturnNull();
+    $stocks->shouldReceive('findOrCreate')->andReturn(new Stock(['symbol' => 'TEST']));
 
     (new EnrichEarningsEvent($event->id))
         ->handle($provider, app(EarningsSurpriseScorer::class), $stocks);
@@ -85,7 +86,7 @@ it('falls back to provider-reported market_cap when shares_outstanding is unavai
     ]);
 
     $stocks = Mockery::mock(StockProvisioner::class);
-    $stocks->shouldReceive('findOrCreate')->andReturnNull();
+    $stocks->shouldReceive('findOrCreate')->andReturn(new Stock(['symbol' => 'LEGACY']));
 
     (new EnrichEarningsEvent($event->id))
         ->handle($provider, app(EarningsSurpriseScorer::class), $stocks);

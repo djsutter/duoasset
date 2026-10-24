@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasComputedMarketCap;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -66,7 +68,6 @@ class EarningsEvent extends Model
     ];
 
     protected $casts = [
-        'report_date' => 'date',
         'detected_at' => 'datetime',
         'raw' => 'array',
         'eps_estimated' => 'decimal:4',
@@ -85,6 +86,25 @@ class EarningsEvent extends Model
         'volume' => 'integer',
         'avg_volume' => 'integer',
     ];
+
+    /**
+     * Report date of the earnings event.
+     *
+     * Stored as a canonical Y-m-d string (not a datetime) so that
+     * updateOrCreate(['source' => .., 'symbol' => .., 'report_date' => 'Y-m-d'])
+     * is idempotent on every driver — SQLite keeps the literal string, so a
+     * 'date' cast (which serializes to 'Y-m-d 00:00:00') would never match
+     * a 'Y-m-d' lookup. Reads still return a Carbon for convenience.
+     *
+     * @return Attribute<Carbon|null, string|null>
+     */
+    protected function reportDate(): Attribute
+    {
+        return Attribute::make(
+            get: fn (?string $value) => $value !== null ? Carbon::parse($value) : null,
+            set: fn ($value) => $value !== null ? Carbon::parse($value)->toDateString() : null,
+        );
+    }
 
     /**
      * Legacy single-alert accessor (returns the first/positive direction alert).
