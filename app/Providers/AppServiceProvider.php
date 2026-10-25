@@ -4,13 +4,13 @@ namespace App\Providers;
 
 use App\Domain\Tax\Continuity\PoolLedgerStateBuilder;
 use App\Domain\Tax\Continuity\TaxAssetStateBuilderInterface;
+use App\Models\User;
 use App\Tax\Events\AcquisitionEventRepository;
 use App\Tax\Events\EloquentAcquisitionEventRepository;
 use App\Tax\SuperficialLoss\Application\ResolveSuperficialLosses;
 use App\Tax\SuperficialLoss\Domain\CraSuperficialLossResolver;
 use App\Tax\SuperficialLoss\Domain\SuperficialLossResolver;
 use App\Tax\SuperficialLoss\Policies\CraSuperficialLossMatchingPolicy;
-use App\Models\User;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;

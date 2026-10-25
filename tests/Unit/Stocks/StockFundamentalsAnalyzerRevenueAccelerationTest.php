@@ -18,6 +18,7 @@ function revenueAccelerationQuarters(array $revenues): array
             'net_income' => 10.0,
         ];
     }
+
     return $rows;
 }
 

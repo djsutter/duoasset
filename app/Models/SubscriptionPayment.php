@@ -30,11 +30,15 @@ class SubscriptionPayment extends Model
     use HasFactory;
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_FAILED = 'failed';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const PROVIDER_SWIPE = 'swipe';
+
     public const PROVIDER_INTERNAL_CREDIT = 'internal_credit';
 
     public const PLAN_PRICES = [

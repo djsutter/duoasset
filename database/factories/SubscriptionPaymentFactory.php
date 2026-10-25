@@ -30,9 +30,9 @@ class SubscriptionPaymentFactory extends Factory
             'amount_due' => 29.00,
             'currency' => 'CAD',
             'provider' => SubscriptionPayment::PROVIDER_SWIPE,
-            'provider_session_id' => 'swipe_sess_' . Str::random(20),
+            'provider_session_id' => 'swipe_sess_'.Str::random(20),
             'provider_payment_id' => null,
-            'checkout_url' => 'https://checkout.swipe.example.com/pay/' . Str::random(16),
+            'checkout_url' => 'https://checkout.swipe.example.com/pay/'.Str::random(16),
             'metadata' => [],
             'fulfilled_at' => null,
         ];
@@ -45,7 +45,7 @@ class SubscriptionPaymentFactory extends Factory
     {
         return $this->state(fn () => [
             'status' => SubscriptionPayment::STATUS_COMPLETED,
-            'provider_payment_id' => 'swipe_pi_' . Str::random(20),
+            'provider_payment_id' => 'swipe_pi_'.Str::random(20),
             'fulfilled_at' => now(),
         ]);
     }
@@ -60,7 +60,7 @@ class SubscriptionPaymentFactory extends Factory
             'credit_applied' => 29.00,
             'amount_due' => 0.00,
             'provider' => SubscriptionPayment::PROVIDER_INTERNAL_CREDIT,
-            'provider_payment_id' => 'credit_' . Str::random(16),
+            'provider_payment_id' => 'credit_'.Str::random(16),
             'fulfilled_at' => now(),
         ]);
     }

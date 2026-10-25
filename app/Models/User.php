@@ -57,7 +57,6 @@ class User extends Authenticatable
         'two_factor_code',
     ];
 
-
     /**
      * Get the attributes that should be cast.
      *
@@ -107,7 +106,7 @@ class User extends Authenticatable
      */
     public function formattedCreditBalance(): string
     {
-        return '$' . number_format((float) ($this->credit_balance ?? 0), 2);
+        return '$'.number_format((float) ($this->credit_balance ?? 0), 2);
     }
 
     /**

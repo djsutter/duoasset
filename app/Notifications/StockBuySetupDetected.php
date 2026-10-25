@@ -2,8 +2,8 @@
 
 namespace App\Notifications;
 
-use App\Models\StockBuySetupAlert;
 use App\Models\NotificationOptOut;
+use App\Models\StockBuySetupAlert;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\Messages\MailMessage;

@@ -3,7 +3,7 @@
 use App\Services\Admin\LogReaderService;
 
 test('log reader service correctly categorizes log entries into domain types', function () {
-    $service = new LogReaderService();
+    $service = new LogReaderService;
 
     // Notifications / Email
     expect($service->categorize('buy_setup.notifying_user'))->toBe(LogReaderService::TYPE_NOTIFICATIONS);
@@ -34,9 +34,9 @@ test('log reader service correctly categorizes log entries into domain types', f
 });
 
 test('log reader service parses and filters log content with multiline stack traces and json context', function () {
-    $service = new LogReaderService();
+    $service = new LogReaderService;
 
-    $logContent = <<<LOG
+    $logContent = <<<'LOG'
 [2026-10-24 06:10:00] local.INFO: Application booted successfully
 [2026-10-24 06:15:00] local.INFO: buy_setup.notifying_user {"alert_id":10,"user_id":1,"email":"trader@test.com"}
 [2026-10-24 06:16:00] local.ERROR: buy_setup.notify_failed {"alert_id":10,"error":"SMTP timeout"}
@@ -102,8 +102,8 @@ LOG;
 });
 
 test('log reader service gracefully handles non-existent or empty log files', function () {
-    $service = new LogReaderService();
-    $result = $service->getLogs('/path/to/non_existent_file_' . uniqid() . '.log');
+    $service = new LogReaderService;
+    $result = $service->getLogs('/path/to/non_existent_file_'.uniqid().'.log');
 
     expect($result['file_exists'])->toBeFalse();
     expect($result['entries'])->toBeEmpty();

@@ -23,12 +23,12 @@ final class EpsSurpriseSanity
     /**
      * Calculate a validated earnings surprise in percentage points.
      *
-     * @param mixed $actual      Provider's epsActual
-     * @param mixed $estimated   Provider's epsEstimated
-     * @param mixed $sharePrice  Optional current/historical share price in the SAME currency
-     * @return float|null       Null means no trustworthy surprise should be calculated.
-     *                          Estimates under two cents are also rejected to
-     *                          avoid near-zero denominators (existing rule).
+     * @param  mixed  $actual  Provider's epsActual
+     * @param  mixed  $estimated  Provider's epsEstimated
+     * @param  mixed  $sharePrice  Optional current/historical share price in the SAME currency
+     * @return float|null Null means no trustworthy surprise should be calculated.
+     *                    Estimates under two cents are also rejected to
+     *                    avoid near-zero denominators (existing rule).
      */
     public static function calculatePercent(mixed $actual, mixed $estimated, mixed $sharePrice = null): ?float
     {

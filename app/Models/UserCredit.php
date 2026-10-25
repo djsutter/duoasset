@@ -59,9 +59,9 @@ class UserCredit extends Model
     public function formattedAmount(): string
     {
         $num = (float) $this->amount;
-        $formatted = '$' . number_format(abs($num), 2);
+        $formatted = '$'.number_format(abs($num), 2);
 
-        return $num >= 0 ? '+' . $formatted : '-' . $formatted;
+        return $num >= 0 ? '+'.$formatted : '-'.$formatted;
     }
 
     /**
@@ -69,6 +69,6 @@ class UserCredit extends Model
      */
     public function formattedBalanceAfter(): string
     {
-        return '$' . number_format((float) $this->balance_after, 2);
+        return '$'.number_format((float) $this->balance_after, 2);
     }
 }

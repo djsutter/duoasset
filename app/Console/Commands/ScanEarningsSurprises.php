@@ -105,6 +105,7 @@ class ScanEarningsSurprises extends Command
                         'eps_estimated' => $epsEstimated,
                         'eps_actual' => $epsActual,
                     ]);
+
                     continue;
                 }
 

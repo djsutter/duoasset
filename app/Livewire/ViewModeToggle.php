@@ -21,6 +21,7 @@ class ViewModeToggle extends Component
     {
         if ($mode && in_array(strtolower($mode), ['stocks', 'crypto'], true)) {
             $this->viewMode = strtolower($mode);
+
             return;
         }
 

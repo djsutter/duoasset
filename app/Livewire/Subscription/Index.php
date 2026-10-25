@@ -13,6 +13,7 @@ use Livewire\Component;
 class Index extends Component
 {
     public ?string $checkout = null;
+
     public ?string $session_id = null;
 
     protected $queryString = [
@@ -38,11 +39,11 @@ class Index extends Component
                 if ($recentPayment && $recentPayment->isCompleted()) {
                     session()->flash('message', "Your payment has been confirmed! Your account is upgraded to {$user->role->label()}.");
                 } else {
-                    session()->flash('info', "Thank you! Your payment is being verified. Your subscription will be activated automatically once confirmation completes.");
+                    session()->flash('info', 'Thank you! Your payment is being verified. Your subscription will be activated automatically once confirmation completes.');
                 }
             }
         } elseif ($this->checkout === 'cancelled') {
-            session()->flash('error', "Checkout was cancelled. No charges were made.");
+            session()->flash('error', 'Checkout was cancelled. No charges were made.');
         }
     }
 
@@ -63,6 +64,7 @@ class Index extends Component
 
         if ($user->role === $targetRole) {
             session()->flash('message', "You are already active on the {$targetRole->label()} plan.");
+
             return;
         }
 
@@ -75,12 +77,14 @@ class Index extends Component
 
         if ($result->isAlreadyActive()) {
             session()->flash('message', $result->message);
+
             return;
         }
 
         if ($result->isCreditCompleted()) {
             $this->dispatch('view-mode-updated', mode: $user->activeViewMode());
             session()->flash('message', $result->message);
+
             return;
         }
 

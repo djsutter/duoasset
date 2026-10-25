@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -18,11 +17,17 @@ class StockBuySetupRun extends Model
     use HasFactory;
 
     public const CATEGORY_INSUFFICIENT_HISTORY = 'insufficient_history';
+
     public const CATEGORY_BELOW_MIN_MARKET_CAP = 'below_min_market_cap';
+
     public const CATEGORY_ABOVE_MAX_MARKET_CAP = 'above_max_market_cap';
+
     public const CATEGORY_EXCHANGE_MISMATCH = 'exchange_mismatch';
+
     public const CATEGORY_TECHNICAL_CRITERIA_UNMET = 'technical_criteria_unmet';
+
     public const CATEGORY_EXECUTION_ERROR = 'execution_error';
+
     public const CATEGORY_OTHER = 'other';
 
     protected $table = 'stock_buy_setup_runs';

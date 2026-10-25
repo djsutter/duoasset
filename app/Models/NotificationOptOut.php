@@ -9,8 +9,11 @@ use Illuminate\Support\Str;
 class NotificationOptOut extends Model
 {
     public const TYPE_EARNINGS = 'earnings';
+
     public const TYPE_REVISION = 'revision';
+
     public const TYPE_BUY_SETUP = 'buy_setup';
+
     public const TYPE_WATCHLIST = 'watchlist';
 
     public const VALID_TYPES = [

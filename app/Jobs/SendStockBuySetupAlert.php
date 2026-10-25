@@ -74,6 +74,7 @@ class SendStockBuySetupAlert implements ShouldQueue
                             'email' => $user->email,
                             'alert_id' => $alertId,
                         ]);
+
                         continue;
                     }
 

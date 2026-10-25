@@ -3,7 +3,6 @@
 namespace App\Services\MarketData;
 
 use App\Services\Earnings\EarningsSurpriseScorer;
-
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;

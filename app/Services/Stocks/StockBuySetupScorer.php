@@ -355,6 +355,7 @@ class StockBuySetupScorer
         $priorMargin = $this->nullableFloat($r->priorTtmOperatingMargin ?? $r->prior_ttm_operating_margin ?? null);
         if ($bps == 0.0 && $currentMargin !== null && $priorMargin !== null && $currentMargin < 0 && $currentMargin > $priorMargin) {
             $rawBps = (int) round(($currentMargin - $priorMargin) * 10000);
+
             return '+'.number_format($rawBps).' bps (0 scored: operating loss increased)';
         }
 
@@ -390,6 +391,7 @@ class StockBuySetupScorer
         $priorMargin = $this->nullableFloat($r->priorTtmFcfMargin ?? $r->prior_ttm_fcf_margin ?? null);
         if ($bps == 0.0 && $currentMargin !== null && $priorMargin !== null && $currentMargin < 0 && $currentMargin > $priorMargin) {
             $rawBps = (int) round(($currentMargin - $priorMargin) * 10000);
+
             return '+'.number_format($rawBps).' bps (0 scored: cash burn increased)';
         }
 

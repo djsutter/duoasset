@@ -82,7 +82,7 @@ test('administrator can access admin error logs and setup run report routes', fu
 test('error logs component lists log entries and filters by category, level, and search', function () {
     $admin = User::factory()->administrator()->create();
 
-    $logContent = <<<LOG
+    $logContent = <<<'LOG'
 [2026-10-24 07:00:00] local.INFO: buy_setup.notifying_user {"alert_id":5,"email":"investor@domain.com"}
 [2026-10-24 07:01:00] local.ERROR: buy_setup.notify_failed {"alert_id":5,"error":"Connection refused"}
 [2026-10-24 07:05:00] local.INFO: buy_setup.rejected {"symbol":"TINY","reason":"market cap below setup minimum (50000000)"}
@@ -94,9 +94,12 @@ LOG;
     file_put_contents($tempLog, $logContent);
 
     // Swap LogReaderService with one targeting the temporary fixture
-    $service = new class($tempLog) extends LogReaderService {
+    $service = new class($tempLog) extends LogReaderService
+    {
         public function __construct(private string $customPath) {}
-        public function getLogs(?string $logFilePath = null, string $type = self::TYPE_ALL, string $level = self::LEVEL_ALL, string $search = '', int $limit = 100, int $maxBytes = 2097152): array {
+
+        public function getLogs(?string $logFilePath = null, string $type = self::TYPE_ALL, string $level = self::LEVEL_ALL, string $search = '', int $limit = 100, int $maxBytes = 2097152): array
+        {
             return parent::getLogs($this->customPath, $type, $level, $search, $limit, $maxBytes);
         }
     };
@@ -220,7 +223,7 @@ test('setup run report renders statistics, categorized rejection breakdown, and 
     Livewire::actingAs($admin)
         ->test(SetupRunReport::class)
         // Defaults to most recent run ($run2)
-        ->assertSee('Run #' . $run2->id)
+        ->assertSee('Run #'.$run2->id)
         ->assertSee('Latest / Most Recent')
         ->assertSee('200') // considered / scored
         ->assertSee('12')  // matched
@@ -231,7 +234,7 @@ test('setup run report renders statistics, categorized rejection breakdown, and 
         ->assertSee('BETA')
         // Can switch to previous run ($run1)
         ->call('selectRun', $run1->id)
-        ->assertSee('Run #' . $run1->id)
+        ->assertSee('Run #'.$run1->id)
         ->assertSee('ALPHA')
         ->assertSee('95'); // run1 rejected count
 });

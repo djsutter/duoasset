@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\UserRole;
 use App\Livewire\MainNavigation;
 use App\Models\Currency;
 use App\Models\User;

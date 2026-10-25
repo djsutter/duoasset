@@ -36,7 +36,7 @@ function seedStockBuySetupAlerts(int $count = 100): void
 {
     for ($i = 1; $i <= $count; $i++) {
         StockBuySetupAlert::create([
-            'symbol' => 'SETUP' . $i,
+            'symbol' => 'SETUP'.$i,
             'source' => 'test',
             'setup_type' => 'vol_spike',
             'setup_score' => 85,
@@ -51,7 +51,7 @@ function seedEarningsEvents(int $count = 100): void
 {
     for ($i = 1; $i <= $count; $i++) {
         EarningsEvent::create([
-            'symbol' => 'EARN' . $i,
+            'symbol' => 'EARN'.$i,
             'source' => 'test',
             'report_date' => now()->subDays($i),
             'detected_at' => now()->subMinutes($i),
@@ -65,7 +65,7 @@ function seedEpsRevisionAlerts(int $count = 100): void
 {
     for ($i = 1; $i <= $count; $i++) {
         EpsRevisionAlert::create([
-            'symbol' => 'REV' . $i,
+            'symbol' => 'REV'.$i,
             'source' => 'fmp',
             'previous_estimate' => 1.00,
             'latest_estimate' => 1.50,

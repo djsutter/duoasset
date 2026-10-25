@@ -74,6 +74,7 @@ class SendEarningsAlert implements ShouldQueue
                             'email' => $user->email,
                             'alert_id' => $alertId,
                         ]);
+
                         continue;
                     }
 

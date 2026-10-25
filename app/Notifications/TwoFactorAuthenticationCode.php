@@ -32,9 +32,9 @@ class TwoFactorAuthenticationCode extends Notification
     {
         return (new MailMessage)
             ->subject('Your DuoAsset Two-Factor Authentication Code')
-            ->greeting('Hello ' . ($notifiable->name ?? 'there') . ',')
+            ->greeting('Hello '.($notifiable->name ?? 'there').',')
             ->line('Your two-factor authentication security code is:')
-            ->line('**' . $this->code . '**')
+            ->line('**'.$this->code.'**')
             ->line("This verification code will expire in {$this->expiresInMinutes} minutes.")
             ->line('If you did not request this login attempt, please secure your account immediately.');
     }

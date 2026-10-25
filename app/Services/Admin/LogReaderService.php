@@ -9,14 +9,21 @@ namespace App\Services\Admin;
 class LogReaderService
 {
     public const TYPE_ALL = 'all';
+
     public const TYPE_NOTIFICATIONS = 'notifications';
+
     public const TYPE_SETUP = 'setup';
+
     public const TYPE_EPS = 'eps';
+
     public const TYPE_SYSTEM = 'system';
 
     public const LEVEL_ALL = 'all';
+
     public const LEVEL_ERROR = 'error';
+
     public const LEVEL_WARNING = 'warning';
+
     public const LEVEL_INFO = 'info';
 
     /**

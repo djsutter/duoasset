@@ -17,11 +17,11 @@ class SwipePaymentGateway implements PaymentGatewayInterface
         string $successUrl,
         string $cancelUrl
     ): CheckoutSession {
-        $sessionId = 'swipe_sess_' . Str::random(24);
-        $paymentId = 'swipe_pi_' . Str::random(24);
+        $sessionId = 'swipe_sess_'.Str::random(24);
+        $paymentId = 'swipe_pi_'.Str::random(24);
 
         $baseUrl = rtrim((string) config('services.payment.swipe.base_url', 'https://checkout.swipe.example.com'), '/');
-        $checkoutUrl = $baseUrl . '/pay/' . $sessionId;
+        $checkoutUrl = $baseUrl.'/pay/'.$sessionId;
 
         $payload = [
             'id' => $sessionId,
@@ -74,18 +74,20 @@ class SwipePaymentGateway implements PaymentGatewayInterface
             $actualHash = $sigMatches[1];
 
             // Primary: hash of timestamp . '.' . payload
-            $expectedWithTs = hash_hmac('sha256', $timestamp . '.' . $payload, $secret);
+            $expectedWithTs = hash_hmac('sha256', $timestamp.'.'.$payload, $secret);
             if (hash_equals($expectedWithTs, $actualHash)) {
                 return true;
             }
 
             // Fallback: direct payload hash
             $expectedDirect = hash_hmac('sha256', $payload, $secret);
+
             return hash_equals($expectedDirect, $actualHash);
         }
 
         // Direct raw HMAC sha256 hex signature
         $expected = hash_hmac('sha256', $payload, $secret);
+
         return hash_equals($expected, $signature);
     }
 

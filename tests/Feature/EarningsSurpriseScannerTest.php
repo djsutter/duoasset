@@ -281,7 +281,6 @@ it('scorer awards points proportional to surprise size and fundamentals', functi
     expect((new EarningsSurpriseScorer)->score($event))->toBe(120);
 });
 
-
 it('discards the malformed GPUS EPS estimate rather than creating a fake 100 percent beat', function () {
     fakeFmp(
         surprises: [[
@@ -319,7 +318,6 @@ it('discards the malformed GPUS EPS estimate rather than creating a fake 100 per
     expect(EarningsEvent::where('symbol', 'GPUS')->exists())->toBeFalse()
         ->and(EarningsAlert::where('symbol', 'GPUS')->exists())->toBeFalse();
 });
-
 
 it('can score a low-cap AMEX earnings alert when both exchange and market-cap gates explicitly permit it', function () {
     fakeFmp(

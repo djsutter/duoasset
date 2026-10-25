@@ -12,6 +12,7 @@ class AdminTestNotification extends Notification
     use Queueable;
 
     public Carbon $sentAt;
+
     public string $sender;
 
     public function __construct(?Carbon $sentAt = null, ?string $sender = null)

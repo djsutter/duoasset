@@ -2,11 +2,11 @@
 
 namespace App\Notifications;
 
+use App\Models\NotificationOptOut;
 use App\Models\Stock;
 use App\Models\WatchlistAlertEvent;
 use App\Models\WatchlistAlertRule;
 use App\Models\WatchlistItem;
-use App\Models\NotificationOptOut;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;

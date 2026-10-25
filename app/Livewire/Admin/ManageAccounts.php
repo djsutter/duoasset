@@ -15,30 +15,43 @@ class ManageAccounts extends Component
     use WithPagination;
 
     public string $search = '';
+
     public string $filterRole = '';
 
     // Create Account Modal state
     public bool $showCreateModal = false;
+
     public string $new_name = '';
+
     public string $new_email = '';
+
     public string $new_password = '';
+
     public string $new_role = 'guest';
+
     public string $new_initial_credit = '';
 
     // Role Edit Modal state
     public bool $showRoleModal = false;
+
     public ?int $selectedUserId = null;
+
     public string $selectedRole = 'guest';
 
     // Credit Modal state
     public bool $showCreditModal = false;
+
     public ?int $creditUserId = null;
+
     public string $creditAmount = '';
+
     public string $creditAction = 'add'; // 'add' or 'deduct'
+
     public string $creditDescription = '';
 
     // Credit History Modal state
     public bool $showHistoryModal = false;
+
     public ?int $historyUserId = null;
 
     protected $queryString = [
@@ -140,6 +153,7 @@ class ManageAccounts extends Component
 
         if ($user->id === Auth::id() && $this->selectedRole !== UserRole::ADMINISTRATOR->value) {
             $this->addError('selectedRole', 'You cannot remove administrator privileges from your own active account.');
+
             return;
         }
 
@@ -155,6 +169,7 @@ class ManageAccounts extends Component
 
         if ($user->id === Auth::id()) {
             session()->flash('error', 'You cannot remove administrator privileges from your own active account.');
+
             return;
         }
 
@@ -216,10 +231,10 @@ class ManageAccounts extends Component
         $query = User::query();
 
         if (trim($this->search) !== '') {
-            $term = '%' . trim($this->search) . '%';
+            $term = '%'.trim($this->search).'%';
             $query->where(function ($q) use ($term) {
                 $q->where('name', 'like', $term)
-                  ->orWhere('email', 'like', $term);
+                    ->orWhere('email', 'like', $term);
             });
         }
 

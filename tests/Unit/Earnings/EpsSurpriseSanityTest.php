@@ -29,7 +29,6 @@ it('supports ordinary high-priced shares when a plausible price is supplied', fu
         ->toBe(100.0);
 });
 
-
 it('retains the real arithmetic for very high percentages but flags them for verification', function () {
     expect(round(EpsSurpriseSanity::calculatePercent(5.11, 0.02), 2))->toBe(25450.0)
         ->and(EpsSurpriseSanity::requiresReview(5.11, 0.02))->toBeTrue()

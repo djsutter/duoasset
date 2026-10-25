@@ -98,6 +98,7 @@ trait ClampsGuestScoringPagination
     {
         if ($pageName === 'page' && $this->isGuestScoringUser()) {
             $this->setPage($this->guestClampedPage(), $pageName);
+
             return;
         }
 
@@ -111,6 +112,7 @@ trait ClampsGuestScoringPagination
     {
         if ($pageName === 'page' && $this->isGuestScoringUser()) {
             $this->setPage($this->guestClampedPage(), $pageName);
+
             return;
         }
 
@@ -124,6 +126,7 @@ trait ClampsGuestScoringPagination
     {
         if ($pageName === 'page' && $this->isGuestScoringUser()) {
             $this->setPage($this->guestClampedPage(), $pageName);
+
             return;
         }
 
@@ -137,6 +140,7 @@ trait ClampsGuestScoringPagination
     {
         if ($pageName === 'page' && $this->isGuestScoringUser()) {
             $this->setPage($this->guestClampedPage(), $pageName);
+
             return;
         }
 

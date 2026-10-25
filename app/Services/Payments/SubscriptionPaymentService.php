@@ -55,7 +55,7 @@ class SubscriptionPaymentService
                     'amount_due' => 0.00,
                     'currency' => config('services.payment.currency', 'CAD'),
                     'provider' => SubscriptionPayment::PROVIDER_INTERNAL_CREDIT,
-                    'provider_payment_id' => 'credit_' . Str::random(16),
+                    'provider_payment_id' => 'credit_'.Str::random(16),
                     'fulfilled_at' => now(),
                 ]);
 

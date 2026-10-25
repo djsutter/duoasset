@@ -76,6 +76,7 @@ class SendEpsRevisionAlert implements ShouldQueue
                             'email' => $user->email,
                             'alert_id' => $alertId,
                         ]);
+
                         continue;
                     }
 

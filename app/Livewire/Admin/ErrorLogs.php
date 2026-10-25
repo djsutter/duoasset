@@ -10,8 +10,11 @@ use Livewire\Component;
 class ErrorLogs extends Component
 {
     public string $filterType = LogReaderService::TYPE_ALL;
+
     public string $filterLevel = LogReaderService::LEVEL_ALL;
+
     public string $search = '';
+
     public int $limit = 100;
 
     public ?int $selectedEntryIndex = null;
