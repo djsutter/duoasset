@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\EarningsAlert;
 use App\Models\EarningsNotificationDelivery;
+use App\Models\NotificationOptOut;
 use App\Models\User;
 use App\Notifications\EarningsSurpriseDetected;
 use Illuminate\Bus\Queueable;
@@ -67,6 +68,15 @@ class SendEarningsAlert implements ShouldQueue
             })
             ->chunkById(100, function ($users) use ($notification, $alertType, $alertId, &$userCount) {
                 foreach ($users as $user) {
+                    if (NotificationOptOut::isOptedOut($user->email, $alertType)) {
+                        Log::info('earnings.user_opted_out_skipped', [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'alert_id' => $alertId,
+                        ]);
+                        continue;
+                    }
+
                     $userCount++;
                     try {
                         Log::info('earnings.notifying_user', [
@@ -106,7 +116,7 @@ class SendEarningsAlert implements ShouldQueue
 
         // Optional plain email recipient configured via env.
         $extra = config('market_data.earnings_scanner.notification_email');
-        if ($extra) {
+        if ($extra && ! NotificationOptOut::isOptedOut($extra, $alertType)) {
             try {
                 Log::info('earnings.notifying_extra_email', [
                     'alert_id' => $alertId,

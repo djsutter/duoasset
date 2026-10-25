@@ -3,13 +3,50 @@
 namespace App\Livewire\Subscription;
 
 use App\Enums\UserRole;
+use App\Models\SubscriptionPayment;
 use App\Models\User;
+use App\Services\Payments\SubscriptionPaymentService;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
 class Index extends Component
 {
-    public function upgradeToPlan(string $plan): void
+    public ?string $checkout = null;
+    public ?string $session_id = null;
+
+    protected $queryString = [
+        'checkout' => ['except' => ''],
+        'session_id' => ['except' => ''],
+    ];
+
+    public function mount(): void
+    {
+        $this->checkout = request()->query('checkout');
+        $this->session_id = request()->query('session_id');
+
+        if ($this->checkout === 'success') {
+            /** @var User|null $user */
+            $user = Auth::user();
+            if ($user) {
+                /** @var SubscriptionPayment|null $recentPayment */
+                $recentPayment = SubscriptionPayment::where('user_id', $user->id)
+                    ->when($this->session_id, fn ($q) => $q->where('provider_session_id', $this->session_id))
+                    ->latest()
+                    ->first();
+
+                if ($recentPayment && $recentPayment->isCompleted()) {
+                    session()->flash('message', "Your payment has been confirmed! Your account is upgraded to {$user->role->label()}.");
+                } else {
+                    session()->flash('info', "Thank you! Your payment is being verified. Your subscription will be activated automatically once confirmation completes.");
+                }
+            }
+        } elseif ($this->checkout === 'cancelled') {
+            session()->flash('error', "Checkout was cancelled. No charges were made.");
+        }
+    }
+
+    public function upgradeToPlan(string $plan, ?SubscriptionPaymentService $paymentService = null): void
     {
         /** @var User|null $user */
         $user = Auth::user();
@@ -29,40 +66,44 @@ class Index extends Component
             return;
         }
 
-        $planPrices = [
-            'equities' => 29.00,
-            'crypto' => 29.00,
-            'full_subscription' => 49.00,
-        ];
+        $paymentService = $paymentService ?? app(SubscriptionPaymentService::class);
 
-        $price = $planPrices[$plan] ?? 29.00;
-        $creditBalance = (float) ($user->credit_balance ?? 0);
+        $successUrl = route('subscription', ['checkout' => 'success']);
+        $cancelUrl = route('subscription', ['checkout' => 'cancelled']);
 
-        if ($creditBalance > 0) {
-            $deduction = min($creditBalance, $price);
-            $user->applyCredit(
-                -1 * $deduction,
-                "Applied credit toward {$targetRole->label()} upgrade",
-                null,
-                'subscription_payment'
-            );
+        $result = $paymentService->processUpgrade($user, $plan, $successUrl, $cancelUrl);
+
+        if ($result->isAlreadyActive()) {
+            session()->flash('message', $result->message);
+            return;
         }
 
-        $user->assignRole($targetRole);
+        if ($result->isCreditCompleted()) {
+            $this->dispatch('view-mode-updated', mode: $user->activeViewMode());
+            session()->flash('message', $result->message);
+            return;
+        }
 
-        $this->dispatch('view-mode-updated', mode: $user->activeViewMode());
-        session()->flash('message', "Congratulations! Your account has been upgraded to {$targetRole->label()}. You now have unrestricted access.");
+        if ($result->isCheckoutRedirect() && $result->redirectUrl) {
+            $this->redirect($result->redirectUrl);
+        }
     }
 
-    public function render()
+    public function render(): View
     {
         /** @var User|null $user */
         $user = Auth::user();
+
+        $pendingPayment = $user ? SubscriptionPayment::where('user_id', $user->id)
+            ->where('status', SubscriptionPayment::STATUS_PENDING)
+            ->latest()
+            ->first() : null;
 
         return view('livewire.subscription.index', [
             'user' => $user,
             'currentRole' => $user?->role ?? UserRole::GUEST,
             'creditBalance' => (float) ($user?->credit_balance ?? 0),
+            'pendingPayment' => $pendingPayment,
         ])->layout('components.layouts.app', ['title' => 'Subscriptions & Upgrades - DuoAsset']);
     }
 }

@@ -11,6 +11,7 @@ new class extends Component {
     public string $email = '';
     public bool $notify_eps_earnings = true;
     public bool $notify_eps_revisions = true;
+    public bool $notify_stock_buy_setup = false;
 
     /**
      * Mount the component.
@@ -22,6 +23,7 @@ new class extends Component {
         $this->email = $user->email;
         $this->notify_eps_earnings = (bool) $user->notify_eps_earnings;
         $this->notify_eps_revisions = (bool) $user->notify_eps_revisions;
+        $this->notify_stock_buy_setup = (bool) $user->notify_stock_buy_setup;
     }
 
     /**
@@ -44,6 +46,7 @@ new class extends Component {
             ],
             'notify_eps_earnings' => ['boolean'],
             'notify_eps_revisions' => ['boolean'],
+            'notify_stock_buy_setup' => ['boolean'],
         ]);
 
         $user->fill($validated);
@@ -116,6 +119,11 @@ new class extends Component {
                 <label class="flex items-center gap-2 text-sm">
                     <input type="checkbox" wire:model="notify_eps_revisions" class="rounded border-zinc-300" />
                     <span>{{ __('EPS Revision alerts (analyst Target Raised / Cut)') }}</span>
+                </label>
+
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" wire:model="notify_stock_buy_setup" class="rounded border-zinc-300" />
+                    <span>{{ __('Stock Buy Setup alerts (recognized buy setups with high setup scores)') }}</span>
                 </label>
 
                 <p class="text-xs text-zinc-500">

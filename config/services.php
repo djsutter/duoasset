@@ -46,4 +46,15 @@ return [
         ],
     ],
 
+    'payment' => [
+        'provider' => env('PAYMENT_PROVIDER', 'swipe'),
+        'currency' => env('PAYMENT_CURRENCY', 'CAD'),
+        'swipe' => [
+            'key' => env('SWIPE_KEY', 'pk_test_swipe_default'),
+            'secret' => env('SWIPE_SECRET', 'sk_test_swipe_default'),
+            'webhook_secret' => env('SWIPE_WEBHOOK_SECRET', 'whsec_swipe_test_secret'),
+            'base_url' => env('SWIPE_BASE_URL', 'https://checkout.swipe.example.com'),
+        ],
+    ],
+
 ];

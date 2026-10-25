@@ -14,9 +14,18 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->validateCsrfTokens(except: [
+            'webhooks/*',
+        ]);
+
         $middleware->alias([
             'domain' => \App\Http\Middleware\EnsureDomainAccess::class,
             'EnsureDomainAccess' => \App\Http\Middleware\EnsureDomainAccess::class,
+            '2fa' => \App\Http\Middleware\EnsureTwoFactorAuthenticated::class,
+        ]);
+
+        $middleware->web(append: [
+            \App\Http\Middleware\EnsureTwoFactorAuthenticated::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

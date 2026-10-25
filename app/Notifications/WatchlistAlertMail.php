@@ -6,6 +6,7 @@ use App\Models\Stock;
 use App\Models\WatchlistAlertEvent;
 use App\Models\WatchlistAlertRule;
 use App\Models\WatchlistItem;
+use App\Models\NotificationOptOut;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -68,6 +69,14 @@ class WatchlistAlertMail extends Notification
             __('alerts.mail.view_action'),
             url(route('watchlists.show', $this->item->watchlist_id))
         );
+
+        $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
+            ?: ($notifiable->email ?? null);
+
+        if ($recipientEmail) {
+            $optOutUrl = NotificationOptOut::urlFor($recipientEmail, NotificationOptOut::TYPE_WATCHLIST, $notifiable->id ?? null);
+            $mail->line('To unsubscribe from watchlist alerts, visit: '.$optOutUrl);
+        }
 
         return $mail;
     }

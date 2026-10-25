@@ -51,10 +51,20 @@ class EarningsSurpriseDetected extends Notification
     {
         $url = route('watchlists.earnings-surprises');
 
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->event->symbol)
             ->line($this->bodyText())
             ->action('View in DuoAsset', $url);
+
+        $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
+            ?: ($notifiable->email ?? null);
+
+        if ($recipientEmail) {
+            $optOutUrl = \App\Models\NotificationOptOut::urlFor($recipientEmail, \App\Models\NotificationOptOut::TYPE_EARNINGS, $notifiable->id ?? null);
+            $mail->line('To unsubscribe from EPS earnings notifications, visit: '.$optOutUrl);
+        }
+
+        return $mail;
     }
 
     public function toArray(object $notifiable): array

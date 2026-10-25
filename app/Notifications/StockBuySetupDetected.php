@@ -3,7 +3,9 @@
 namespace App\Notifications;
 
 use App\Models\StockBuySetupAlert;
+use App\Models\NotificationOptOut;
 use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -20,7 +22,7 @@ class StockBuySetupDetected extends Notification
 
     public function via(object $notifiable): array
     {
-        if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable) {
+        if ($notifiable instanceof AnonymousNotifiable) {
             return ['mail'];
         }
 
@@ -45,10 +47,20 @@ class StockBuySetupDetected extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->alert->symbol)
             ->line($this->bodyText())
             ->action('View in DuoAsset', route('watchlists.stock-buy-setups'));
+
+        $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
+            ?: ($notifiable->email ?? null);
+
+        if ($recipientEmail) {
+            $optOutUrl = NotificationOptOut::urlFor($recipientEmail, NotificationOptOut::TYPE_BUY_SETUP, $notifiable->id ?? null);
+            $mail->line('To unsubscribe from stock buy setup alerts, visit: '.$optOutUrl);
+        }
+
+        return $mail;
     }
 
     public function toArray(object $notifiable): array

@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\EarningsNotificationDelivery;
+use App\Models\NotificationOptOut;
 use App\Models\StockBuySetupAlert;
 use App\Models\User;
 use App\Notifications\StockBuySetupDetected;
@@ -67,6 +68,15 @@ class SendStockBuySetupAlert implements ShouldQueue
             })
             ->chunkById(100, function ($users) use ($notification, $alertType, $alertId, &$userCount) {
                 foreach ($users as $user) {
+                    if (NotificationOptOut::isOptedOut($user->email, $alertType)) {
+                        Log::info('buy_setup.user_opted_out_skipped', [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'alert_id' => $alertId,
+                        ]);
+                        continue;
+                    }
+
                     $userCount++;
                     try {
                         Log::info('buy_setup.notifying_user', [
@@ -102,7 +112,7 @@ class SendStockBuySetupAlert implements ShouldQueue
         ]);
 
         $extra = app(BuySetupConfigService::class)->getNotificationEmail();
-        if ($extra) {
+        if ($extra && ! NotificationOptOut::isOptedOut($extra, $alertType)) {
             try {
                 Log::info('buy_setup.notifying_extra_email', [
                     'alert_id' => $alertId,

@@ -40,9 +40,9 @@ test('guest user can view subscription page with plan options and credit balance
         ->assertSee('Crypto');
 });
 
-test('guest user can upgrade to equities subscription and consume available credits', function () {
+test('guest user can upgrade to equities subscription when credits fully cover plan', function () {
     $guest = User::factory()->guest()->create([
-        'credit_balance' => 20.00,
+        'credit_balance' => 30.00,
     ]);
 
     Livewire::actingAs($guest)
@@ -53,13 +53,29 @@ test('guest user can upgrade to equities subscription and consume available cred
 
     expect($guest->fresh()->role)->toBe(UserRole::EQUITIES);
     expect($guest->fresh()->view_mode)->toBe('stocks');
-    // $29 price with $20 credit leaves $0.00 credit balance
-    expect((float) $guest->fresh()->credit_balance)->toBe(0.00);
+    // $29 price deducted from $30 leaves $1.00 credit balance
+    expect((float) $guest->fresh()->credit_balance)->toBe(1.00);
     expect($guest->credits)->toHaveCount(1);
-    expect((float) $guest->credits->first()->amount)->toBe(-20.00);
+    expect((float) $guest->credits->first()->amount)->toBe(-29.00);
 });
 
-test('guest user can upgrade to full subscription', function () {
+test('guest user with insufficient credits is redirected to card checkout rather than instantly self-upgrading', function () {
+    $guest = User::factory()->guest()->create([
+        'credit_balance' => 20.00,
+    ]);
+
+    Livewire::actingAs($guest)
+        ->test(SubscriptionIndex::class)
+        ->call('upgradeToPlan', 'equities')
+        ->assertRedirect();
+
+    // User is NOT instantly upgraded! Role remains Guest
+    expect($guest->fresh()->role)->toBe(UserRole::GUEST);
+    // Credit is not consumed until checkout fulfillment
+    expect((float) $guest->fresh()->credit_balance)->toBe(20.00);
+});
+
+test('guest user can upgrade to full subscription when credits fully cover plan', function () {
     $guest = User::factory()->guest()->create([
         'credit_balance' => 60.00,
     ]);
@@ -74,8 +90,10 @@ test('guest user can upgrade to full subscription', function () {
     expect((float) $guest->fresh()->credit_balance)->toBe(11.00);
 });
 
-test('guest user can upgrade to crypto subscription', function () {
-    $guest = User::factory()->guest()->create();
+test('guest user can upgrade to crypto subscription when credits fully cover plan', function () {
+    $guest = User::factory()->guest()->create([
+        'credit_balance' => 29.00,
+    ]);
 
     Livewire::actingAs($guest)
         ->test(SubscriptionIndex::class)
@@ -84,6 +102,7 @@ test('guest user can upgrade to crypto subscription', function () {
 
     expect($guest->fresh()->role)->toBe(UserRole::CRYPTO);
     expect($guest->fresh()->view_mode)->toBe('crypto');
+    expect((float) $guest->fresh()->credit_balance)->toBe(0.00);
 });
 
 test('subscribed user sees active plan status for their current subscription tier', function () {

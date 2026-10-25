@@ -51,10 +51,20 @@ class EpsTargetRevised extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->alert->symbol)
             ->line($this->bodyText())
             ->action('View in DuoAsset', route('watchlists.eps-revisions'));
+
+        $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
+            ?: ($notifiable->email ?? null);
+
+        if ($recipientEmail) {
+            $optOutUrl = \App\Models\NotificationOptOut::urlFor($recipientEmail, \App\Models\NotificationOptOut::TYPE_REVISION, $notifiable->id ?? null);
+            $mail->line('To unsubscribe from EPS target revision alerts, visit: '.$optOutUrl);
+        }
+
+        return $mail;
     }
 
     public function toArray(object $notifiable): array

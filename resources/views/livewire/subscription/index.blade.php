@@ -20,6 +20,48 @@
         </div>
     @endif
 
+    @if (session()->has('info'))
+        <div class="rounded-lg border border-sky-300 bg-sky-50 p-4 text-sm text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-300 shadow-xs flex items-center justify-between"
+             data-testid="subscription-flash-info" role="alert">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="information-circle" variant="mini" class="size-5 text-sky-600 dark:text-sky-400" />
+                <span>{{ session('info') }}</span>
+            </div>
+        </div>
+    @endif
+
+    @if (session()->has('error'))
+        <div class="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300 shadow-xs flex items-center justify-between"
+             data-testid="subscription-flash-error" role="alert">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="exclamation-circle" variant="mini" class="size-5 text-red-600 dark:text-red-400" />
+                <span>{{ session('error') }}</span>
+            </div>
+        </div>
+    @endif
+
+    {{-- Pending Payment Banner --}}
+    @if (isset($pendingPayment) && $pendingPayment)
+        <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+             data-testid="subscription-pending-payment-alert" role="status">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="clock" variant="mini" class="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <div>
+                    <span class="font-semibold">{{ __('Payment Pending:') }}</span>
+                    <span>{{ __('Card checkout of $:amount for :plan is awaiting confirmation.', ['amount' => number_format($pendingPayment->amount_due, 2), 'plan' => ucfirst($pendingPayment->plan)]) }}</span>
+                    <span class="text-xs text-amber-700 dark:text-amber-300 block sm:inline sm:ml-1">{{ __('Your account activates automatically once confirmed.') }}</span>
+                </div>
+            </div>
+            @if ($pendingPayment->checkout_url)
+                <a href="{{ $pendingPayment->checkout_url }}"
+                   class="da-btn da-btn-secondary text-xs shrink-0"
+                   data-testid="resume-pending-checkout-btn">
+                    {{ __('Resume Checkout') }}
+                </a>
+            @endif
+        </div>
+    @endif
+
     {{-- Current Account & Credit Status Card --}}
     <div class="da-card bg-linear-to-r from-zinc-50 to-zinc-100 dark:from-zinc-900 dark:to-zinc-800/80 border border-zinc-200 dark:border-zinc-700" data-testid="user-membership-status">
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -89,12 +131,36 @@
                         {{ __('Active Plan') }}
                     </button>
                 @else
-                    <button type="button"
-                            wire:click="upgradeToPlan('equities')"
-                            class="w-full da-btn da-btn-primary bg-sky-600 hover:bg-sky-700"
-                            data-testid="plan-btn-equities">
-                        {{ $creditBalance >= 29 ? __('Apply Credit & Activate') : __('Subscribe to Equities') }}
-                    </button>
+                    @if ($creditBalance >= 29)
+                        <div class="mb-2 text-center">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                {{ __('100% Covered by Credits') }}
+                            </span>
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('equities')"
+                                class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
+                                data-testid="plan-btn-equities">
+                            {{ __('Apply Credit & Activate (Free)') }}
+                        </button>
+                    @elseif ($creditBalance > 0)
+                        <div class="mb-2 text-center text-xs text-zinc-500">
+                            {{ __('$:credit credit applied • $:due due on card', ['credit' => number_format($creditBalance, 2), 'due' => number_format(29 - $creditBalance, 2)]) }}
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('equities')"
+                                class="w-full da-btn da-btn-primary bg-sky-600 hover:bg-sky-700"
+                                data-testid="plan-btn-equities">
+                            {{ __('Pay $:due with Card', ['due' => number_format(29 - $creditBalance, 2)]) }}
+                        </button>
+                    @else
+                        <button type="button"
+                                wire:click="upgradeToPlan('equities')"
+                                class="w-full da-btn da-btn-primary bg-sky-600 hover:bg-sky-700"
+                                data-testid="plan-btn-equities">
+                            {{ __('Subscribe with Card ($29.00)') }}
+                        </button>
+                    @endif
                 @endif
             </div>
         </div>
@@ -148,12 +214,36 @@
                         {{ __('Active Plan') }}
                     </button>
                 @else
-                    <button type="button"
-                            wire:click="upgradeToPlan('full_subscription')"
-                            class="w-full da-btn da-btn-primary bg-indigo-600 hover:bg-indigo-700"
-                            data-testid="plan-btn-full">
-                        {{ $creditBalance >= 49 ? __('Apply Credit & Activate') : __('Subscribe to Full Access') }}
-                    </button>
+                    @if ($creditBalance >= 49)
+                        <div class="mb-2 text-center">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                {{ __('100% Covered by Credits') }}
+                            </span>
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('full_subscription')"
+                                class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
+                                data-testid="plan-btn-full">
+                            {{ __('Apply Credit & Activate (Free)') }}
+                        </button>
+                    @elseif ($creditBalance > 0)
+                        <div class="mb-2 text-center text-xs text-zinc-500">
+                            {{ __('$:credit credit applied • $:due due on card', ['credit' => number_format($creditBalance, 2), 'due' => number_format(49 - $creditBalance, 2)]) }}
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('full_subscription')"
+                                class="w-full da-btn da-btn-primary bg-indigo-600 hover:bg-indigo-700"
+                                data-testid="plan-btn-full">
+                            {{ __('Pay $:due with Card', ['due' => number_format(49 - $creditBalance, 2)]) }}
+                        </button>
+                    @else
+                        <button type="button"
+                                wire:click="upgradeToPlan('full_subscription')"
+                                class="w-full da-btn da-btn-primary bg-indigo-600 hover:bg-indigo-700"
+                                data-testid="plan-btn-full">
+                            {{ __('Subscribe with Card ($49.00)') }}
+                        </button>
+                    @endif
                 @endif
             </div>
         </div>
@@ -200,12 +290,36 @@
                         {{ __('Active Plan') }}
                     </button>
                 @else
-                    <button type="button"
-                            wire:click="upgradeToPlan('crypto')"
-                            class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
-                            data-testid="plan-btn-crypto">
-                        {{ $creditBalance >= 29 ? __('Apply Credit & Activate') : __('Subscribe to Crypto') }}
-                    </button>
+                    @if ($creditBalance >= 29)
+                        <div class="mb-2 text-center">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                {{ __('100% Covered by Credits') }}
+                            </span>
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('crypto')"
+                                class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
+                                data-testid="plan-btn-crypto">
+                            {{ __('Apply Credit & Activate (Free)') }}
+                        </button>
+                    @elseif ($creditBalance > 0)
+                        <div class="mb-2 text-center text-xs text-zinc-500">
+                            {{ __('$:credit credit applied • $:due due on card', ['credit' => number_format($creditBalance, 2), 'due' => number_format(29 - $creditBalance, 2)]) }}
+                        </div>
+                        <button type="button"
+                                wire:click="upgradeToPlan('crypto')"
+                                class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
+                                data-testid="plan-btn-crypto">
+                            {{ __('Pay $:due with Card', ['due' => number_format(29 - $creditBalance, 2)]) }}
+                        </button>
+                    @else
+                        <button type="button"
+                                wire:click="upgradeToPlan('crypto')"
+                                class="w-full da-btn da-btn-primary bg-emerald-600 hover:bg-emerald-700"
+                                data-testid="plan-btn-crypto">
+                            {{ __('Subscribe with Card ($29.00)') }}
+                        </button>
+                    @endif
                 @endif
             </div>
         </div>

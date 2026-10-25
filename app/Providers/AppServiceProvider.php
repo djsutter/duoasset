@@ -90,6 +90,11 @@ PHP;
             PoolLedgerStateBuilder::class
         );
 
+        $this->app->bind(
+            \App\Services\Payments\PaymentGatewayInterface::class,
+            \App\Services\Payments\SwipePaymentGateway::class
+        );
+
         // Market data provider — defaults to the Null implementation. When an
         // Alpha Vantage API key is configured, swap in the Alpha Vantage
         // provider (EOD quotes, 24h cached) instead.

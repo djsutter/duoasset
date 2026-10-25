@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -53,6 +54,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'two_factor_code',
     ];
 
 
@@ -71,6 +73,7 @@ class User extends Authenticatable
             'notify_stock_buy_setup' => 'boolean',
             'role' => UserRole::class,
             'credit_balance' => 'decimal:2',
+            'two_factor_expires_at' => 'datetime',
         ];
     }
 
@@ -89,6 +92,14 @@ class User extends Authenticatable
     public function credits(): HasMany
     {
         return $this->hasMany(UserCredit::class)->orderBy('id', 'desc');
+    }
+
+    /**
+     * Subscription and checkout payments for this user.
+     */
+    public function subscriptionPayments(): HasMany
+    {
+        return $this->hasMany(SubscriptionPayment::class)->orderBy('id', 'desc');
     }
 
     /**
@@ -255,5 +266,55 @@ class User extends Authenticatable
         }
 
         return $this;
+    }
+
+    /**
+     * Generate a new 6-digit two-factor authentication code valid for 7 minutes.
+     */
+    public function generateTwoFactorCode(int $minutes = 7): string
+    {
+        $code = sprintf('%06d', random_int(100000, 999999));
+
+        $this->forceFill([
+            'two_factor_code' => Hash::make($code),
+            'two_factor_expires_at' => now()->addMinutes($minutes),
+        ])->save();
+
+        return $code;
+    }
+
+    /**
+     * Clear and reset any active two-factor authentication code.
+     */
+    public function resetTwoFactorCode(): void
+    {
+        $this->forceFill([
+            'two_factor_code' => null,
+            'two_factor_expires_at' => null,
+        ])->save();
+    }
+
+    /**
+     * Check if the two-factor authentication code has expired.
+     */
+    public function hasTwoFactorCodeExpired(): bool
+    {
+        if (! $this->two_factor_expires_at) {
+            return true;
+        }
+
+        return now()->gt($this->two_factor_expires_at);
+    }
+
+    /**
+     * Verify whether the given two-factor code matches and is unexpired.
+     */
+    public function verifyTwoFactorCode(string $code): bool
+    {
+        if ($this->hasTwoFactorCodeExpired() || ! $this->two_factor_code) {
+            return false;
+        }
+
+        return Hash::check(trim($code), $this->two_factor_code);
     }
 }

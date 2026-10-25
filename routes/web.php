@@ -7,6 +7,12 @@ Route::get('/', function () {
     return view('welcome');
 })->name('home');
 
+Route::get('/notifications/opt-out', [\App\Http\Controllers\NotificationOptOutController::class, 'show'])->name('notifications.opt-out');
+Route::post('/notifications/opt-out', [\App\Http\Controllers\NotificationOptOutController::class, 'update'])->name('notifications.opt-out.update');
+
+Route::post('/webhooks/payment', \App\Http\Controllers\PaymentWebhookController::class)->name('webhooks.payment');
+Route::post('/webhooks/swipe', \App\Http\Controllers\PaymentWebhookController::class)->name('webhooks.swipe');
+
 Route::middleware(['auth'])->group(function () {
     Route::redirect('settings', 'settings/profile');
 

@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+use App\Notifications\TwoFactorAuthenticationCode;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -28,6 +30,31 @@ new #[Layout('components.layouts.auth')] class extends Component {
         $this->validate();
 
         $this->ensureIsNotRateLimited();
+
+        if (! Auth::validate(['email' => $this->email, 'password' => $this->password])) {
+            RateLimiter::hit($this->throttleKey());
+
+            throw ValidationException::withMessages([
+                'email' => __('auth.failed'),
+            ]);
+        }
+
+        /** @var User|null $user */
+        $user = User::where('email', $this->email)->first();
+
+        if ($user && $user->isHigherThanGuest()) {
+            RateLimiter::clear($this->throttleKey());
+
+            $code = $user->generateTwoFactorCode();
+            $user->notify(new TwoFactorAuthenticationCode($code));
+
+            Session::put('login.id', $user->id);
+            Session::put('login.remember', $this->remember);
+
+            $this->redirect(route('two-factor.challenge'), navigate: true);
+
+            return;
+        }
 
         if (! Auth::attempt(['email' => $this->email, 'password' => $this->password], $this->remember)) {
             RateLimiter::hit($this->throttleKey());
