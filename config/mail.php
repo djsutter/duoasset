@@ -47,6 +47,7 @@ return [
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url(env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+            'verify_peer' => filter_var(env('MAIL_STARTTLS_CERT_VERIFY', env('MAIL_VERIFY_PEER', false)), FILTER_VALIDATE_BOOL),
         ],
 
         'ses' => [

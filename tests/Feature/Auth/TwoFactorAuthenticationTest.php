@@ -167,3 +167,110 @@ test('two-factor middleware redirects pending 2fa users visiting login to challe
 
     $response->assertRedirect(route('two-factor.challenge'));
 });
+
+test('two-factor middleware redirects pending 2fa users visiting other guest routes to challenge', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES]);
+
+    $this->withSession(['login.id' => $user->id])
+        ->get('/')
+        ->assertRedirect(route('two-factor.challenge'));
+
+    $this->withSession(['login.id' => $user->id])
+        ->get(route('register'))
+        ->assertRedirect(route('two-factor.challenge'));
+
+    $this->withSession(['login.id' => $user->id])
+        ->get(route('password.request'))
+        ->assertRedirect(route('two-factor.challenge'));
+});
+
+test('two-factor middleware redirects non-challenge livewire updates to challenge', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES]);
+
+    // Livewire update for a different component
+    $response = $this->withSession(['login.id' => $user->id])
+        ->withHeaders(['X-Livewire' => 'true'])
+        ->postJson(route('default-livewire.update'), [
+            'components' => [
+                [
+                    'snapshot' => json_encode(['memo' => ['name' => 'admin.manage-accounts']]),
+                    'updates' => [],
+                    'calls' => [],
+                ],
+            ],
+        ]);
+
+    $response->assertRedirect(route('two-factor.challenge'));
+
+    // Livewire update with empty components
+    $emptyResponse = $this->withSession(['login.id' => $user->id])
+        ->withHeaders(['X-Livewire' => 'true'])
+        ->postJson(route('default-livewire.update'), [
+            'components' => [],
+        ]);
+
+    $emptyResponse->assertRedirect(route('two-factor.challenge'));
+
+    // Livewire update with mixed components (one challenge, one non-challenge)
+    $mixedResponse = $this->withSession(['login.id' => $user->id])
+        ->withHeaders(['X-Livewire' => 'true'])
+        ->postJson(route('default-livewire.update'), [
+            'components' => [
+                [
+                    'snapshot' => json_encode(['memo' => ['name' => 'auth.two-factor-challenge']]),
+                    'updates' => [],
+                    'calls' => [],
+                ],
+                [
+                    'snapshot' => json_encode(['memo' => ['name' => 'admin.manage-accounts']]),
+                    'updates' => [],
+                    'calls' => [],
+                ],
+            ],
+        ]);
+
+    $mixedResponse->assertRedirect(route('two-factor.challenge'));
+});
+
+test('submitting valid code via livewire update endpoint authenticates user and redirects to dashboard', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES]);
+    $code = $user->generateTwoFactorCode();
+
+    $challengeResponse = $this->withSession(['login.id' => $user->id])
+        ->get(route('two-factor.challenge'));
+
+    $challengeResponse->assertOk();
+
+    preg_match('/wire:snapshot="([^"]+)"/', $challengeResponse->getContent(), $matches);
+    expect($matches)->not->toBeEmpty();
+    $snapshot = htmlspecialchars_decode($matches[1]);
+
+    $updateResponse = $this->withSession(['login.id' => $user->id])
+        ->withHeaders([
+            'X-Livewire' => 'true',
+        ])
+        ->postJson(route('default-livewire.update'), [
+            'components' => [
+                [
+                    'snapshot' => $snapshot,
+                    'updates' => ['code' => $code],
+                    'calls' => [
+                        [
+                            'path' => '',
+                            'method' => 'verify',
+                            'params' => [],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+    $updateResponse->assertOk();
+    $data = $updateResponse->json();
+    expect($data['components'][0]['effects']['redirect'])->toBe(route('dashboard', absolute: false));
+
+    $this->assertAuthenticatedAs($user);
+    $user->refresh();
+    expect($user->two_factor_code)->toBeNull();
+    expect(session('login.id'))->toBeNull();
+});
