@@ -2,8 +2,9 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\UserRole;
+use App\Notifications\AccountActivationNotification;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
@@ -55,6 +56,7 @@ class User extends Authenticatable
         'password',
         'remember_token',
         'two_factor_code',
+        'activation_token',
     ];
 
     /**
@@ -315,5 +317,57 @@ class User extends Authenticatable
         }
 
         return Hash::check(trim($code), $this->two_factor_code);
+    }
+
+    /**
+     * Generate an activation token, hash and persist it, and dispatch the activation notification.
+     */
+    public function sendAccountActivationNotification(): string
+    {
+        $plainToken = bin2hex(random_bytes(32));
+
+        $this->forceFill([
+            'activation_token' => hash('sha256', $plainToken),
+        ])->save();
+
+        $this->notify(new AccountActivationNotification($plainToken));
+
+        return $plainToken;
+    }
+
+    /**
+     * Find a user by plaintext activation token.
+     */
+    public static function findByActivationToken(string $token): ?self
+    {
+        $trimmed = trim($token);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return static::whereNotNull('activation_token')
+            ->where('activation_token', hash('sha256', $trimmed))
+            ->first();
+    }
+
+    /**
+     * Activate the account: mark email as verified and clear the activation token.
+     */
+    public function activateAccount(): bool
+    {
+        $this->activation_token = null;
+
+        return $this->markEmailAsVerified();
+    }
+
+    /**
+     * Send the email verification notification.
+     *
+     * Overridden to suppress default Laravel verification email,
+     * as we use a custom AccountActivationNotification.
+     */
+    public function sendEmailVerificationNotification()
+    {
+        // Suppress default Laravel verification email.
     }
 }

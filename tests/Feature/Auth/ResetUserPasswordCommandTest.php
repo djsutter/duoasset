@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 
 test('command fails when email does not exist', function () {
     $this->artisan('auth:reset-password', ['email' => 'nonexistent@example.com', '--password' => 'new-secret-123'])

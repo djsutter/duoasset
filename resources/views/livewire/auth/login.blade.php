@@ -5,7 +5,6 @@ use App\Notifications\TwoFactorAuthenticationCode;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +12,8 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Validate;
 use Livewire\Volt\Component;
 
-new #[Layout('components.layouts.auth')] class extends Component {
+new #[Layout('components.layouts.auth')] class extends Component
+{
     #[Validate('required|string|email')]
     public string $email = '';
 
@@ -42,7 +42,13 @@ new #[Layout('components.layouts.auth')] class extends Component {
         /** @var User|null $user */
         $user = User::where('email', $this->email)->first();
 
-        if ($user && $user->isHigherThanGuest()) {
+        if ($user && ! $user->hasVerifiedEmail()) {
+            throw ValidationException::withMessages([
+                'email' => __('Your account has not been activated. Please check your email to activate your account before logging in.'),
+            ]);
+        }
+
+        if ($user) {
             RateLimiter::clear($this->throttleKey());
 
             $code = $user->generateTwoFactorCode();
@@ -105,6 +111,12 @@ new #[Layout('components.layouts.auth')] class extends Component {
 
     <!-- Session Status -->
     <x-auth-session-status class="text-center" :status="session('status')" />
+
+    @if (session('error'))
+        <div class="font-medium text-sm text-red-600 dark:text-red-400 text-center">
+            {{ session('error') }}
+        </div>
+    @endif
 
     <form wire:submit="login" class="flex flex-col gap-6">
         <!-- Email Address -->

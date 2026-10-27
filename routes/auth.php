@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\AccountActivationController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -20,6 +21,12 @@ Route::middleware('guest')->group(function () {
     Volt::route('two-factor-challenge', 'auth.two-factor-challenge')
         ->name('two-factor.challenge');
 });
+
+Route::get('activate/{token}', [AccountActivationController::class, 'activate'])
+    ->name('activate-account');
+
+Route::get('activate-account/{token}', [AccountActivationController::class, 'activate'])
+    ->name('account.activate');
 
 Route::middleware('auth')->group(function () {
     Volt::route('verify-email', 'auth.verify-email')

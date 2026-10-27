@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Notifications\TwoFactorAuthenticationCode;
+use Illuminate\Support\Facades\Notification;
 use Livewire\Volt\Volt as LivewireVolt;
 
 test('login screen can be rendered', function () {
@@ -9,7 +11,9 @@ test('login screen can be rendered', function () {
     $response->assertStatus(200);
 });
 
-test('users can authenticate using the login screen', function () {
+test('users initiate two-factor authentication on valid login', function () {
+    Notification::fake();
+
     $user = User::factory()->create();
 
     $response = LivewireVolt::test('auth.login')
@@ -19,9 +23,11 @@ test('users can authenticate using the login screen', function () {
 
     $response
         ->assertHasNoErrors()
-        ->assertRedirect(route('dashboard', absolute: false));
+        ->assertRedirect(route('two-factor.challenge', absolute: false));
 
-    $this->assertAuthenticated();
+    $this->assertGuest();
+    $this->assertEquals($user->id, session('login.id'));
+    Notification::assertSentTo($user, TwoFactorAuthenticationCode::class);
 });
 
 test('users can not authenticate with invalid password', function () {
@@ -35,6 +41,20 @@ test('users can not authenticate with invalid password', function () {
     $response->assertHasErrors('email');
 
     $this->assertGuest();
+});
+
+test('unactivated users can not authenticate', function () {
+    $user = User::factory()->unverified()->create();
+
+    $response = LivewireVolt::test('auth.login')
+        ->set('email', $user->email)
+        ->set('password', 'password')
+        ->call('login');
+
+    $response->assertHasErrors('email');
+
+    $this->assertGuest();
+    $this->assertNull(session('login.id'));
 });
 
 test('users can logout', function () {

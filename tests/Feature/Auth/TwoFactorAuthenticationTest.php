@@ -40,7 +40,7 @@ test('non-guest users are redirected to two-factor challenge on valid login and 
     UserRole::ADMINISTRATOR,
 ]);
 
-test('guest users bypass two-factor authentication', function () {
+test('guest users require two-factor authentication on login', function () {
     Notification::fake();
 
     $user = User::factory()->create([
@@ -55,10 +55,18 @@ test('guest users bypass two-factor authentication', function () {
 
     $response
         ->assertHasNoErrors()
-        ->assertRedirect(route('dashboard', absolute: false));
+        ->assertRedirect(route('two-factor.challenge', absolute: false));
 
-    $this->assertAuthenticatedAs($user);
-    Notification::assertNothingSent();
+    $this->assertGuest();
+    $this->assertEquals($user->id, session('login.id'));
+
+    $user->refresh();
+    expect($user->two_factor_code)->not->toBeNull();
+    expect($user->two_factor_expires_at)->not->toBeNull();
+
+    Notification::assertSentTo($user, TwoFactorAuthenticationCode::class, function ($notification) {
+        return strlen($notification->code) === 6;
+    });
 });
 
 test('two-factor challenge screen redirects to login if no login session exists', function () {
