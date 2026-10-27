@@ -479,6 +479,12 @@ see [Scripts](#scripts).
 - **Widget** — `App\Livewire\MoneyFlows\Widget`, embed with
   `<livewire:money-flows.widget />`.
 
+## Troubleshooting
+
+If your mail isn't going out, reset password will not work via email, you will want this:
+
+`php artisan auth:reset-password <email> --password=<pass>`
+
 ## Scripts
 
 The `scripts/` folder holds the standalone shell wrappers that drive the daily
