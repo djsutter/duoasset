@@ -100,7 +100,9 @@
             <tbody>
                 @forelse ($stocks as $stock)
                     <tr>
-                        <td class="font-mono font-semibold">{{ $stock->symbol }}</td>
+                        <td class="font-mono font-semibold">
+                            <x-ticker-link :symbol="$stock->symbol" />
+                        </td>
                         <td>{{ $stock->company_name }}</td>
                         <td>{{ $stock->exchange->value }}</td>
                         <td>{{ $stock->currency->value }}</td>

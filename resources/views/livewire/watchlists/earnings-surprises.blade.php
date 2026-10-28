@@ -124,7 +124,9 @@
                         <td class="whitespace-nowrap text-xs">
                             {{ optional($event->detected_at)->format('Y-m-d H:i') ?? '—' }}
                         </td>
-                        <td class="font-semibold">{{ $event->symbol }}</td>
+                        <td class="font-semibold">
+                            <x-ticker-link :symbol="$event->symbol" />
+                        </td>
                         <td>{{ $event->company_name ?? '—' }}</td>
                         <td>{{ $event->exchange ?? '—' }}</td>
                         <td class="text-right">

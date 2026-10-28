@@ -273,7 +273,9 @@
                     <tr class="cursor-pointer {{ $hasIgnitionBonus ? 'text-zinc-950 dark:text-zinc-950 hover:opacity-90' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50' }}"
                         {!! $rowStyleAttr !!}
                         x-on:click="selected = @js($modalData); modalOpen = true">
-                        <td class="font-semibold">{{ $alert->symbol }}</td>
+                        <td class="font-semibold">
+                            <x-ticker-link :symbol="$alert->symbol" />
+                        </td>
                         <td class="whitespace-nowrap text-xs">{{ $setupTypes[$alert->setup_type] ?? $alert->setup_type }}</td>
                         <td class="text-right font-semibold text-sky-600 dark:text-sky-400">{{ $alert->setup_score }}</td>
                         <td>{{ $alert->company_name ?? '—' }}</td>
@@ -341,10 +343,20 @@
                         </div>
                         <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400" x-text="selected?.company ?? '—'"></p>
                     </div>
-                    <button type="button" class="rounded-full p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-white" x-on:click="modalOpen = false">
-                        <span class="sr-only">{{ __('Close') }}</span>
-                        ✕
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <template x-if="selected?.symbol">
+                            <a :href="'/stocks/' + encodeURIComponent(selected.symbol)"
+                               class="da-btn da-btn-secondary text-xs gap-1 py-1.5 px-3"
+                               wire:navigate>
+                                <flux:icon icon="chart-bar" variant="mini" class="size-3.5" />
+                                <span>{{ __('Open Stock Page') }}</span>
+                            </a>
+                        </template>
+                        <button type="button" class="rounded-full p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-white" x-on:click="modalOpen = false">
+                            <span class="sr-only">{{ __('Close') }}</span>
+                            ✕
+                        </button>
+                    </div>
                 </div>
 
                 <div class="max-h-[78vh] overflow-y-auto px-6 py-5">

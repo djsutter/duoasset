@@ -259,7 +259,13 @@
                             <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
                                 @foreach ($run->top_matches as $m)
                                     <tr>
-                                        <td class="py-2 font-bold text-sky-600 dark:text-sky-400">{{ $m['symbol'] ?? '—' }}</td>
+                                        <td class="py-2 font-bold text-sky-600 dark:text-sky-400">
+                                            @if (! empty($m['symbol']))
+                                                <x-ticker-link :symbol="$m['symbol']" />
+                                            @else
+                                                —
+                                            @endif
+                                        </td>
                                         <td class="py-2 text-zinc-600 dark:text-zinc-300">{{ $m['setup_type'] ?? '—' }}</td>
                                         <td class="py-2 text-center">
                                             <span class="px-1.5 py-0.5 rounded text-[11px] font-bold {{ ($m['score'] ?? 0) >= 70 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200' }}">

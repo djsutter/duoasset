@@ -74,6 +74,12 @@ Route::middleware([
 
     Route::middleware(['domain:stocks'])->group(function () {
         Route::get('/stocks', \App\Livewire\Stocks\Index::class)->name('stocks.index');
+        Route::get('/stocks/{symbol}/candles', [\App\Http\Controllers\StockCandlesController::class, 'candles'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stocks.candles');
+        Route::get('/stocks/{symbol}', \App\Livewire\Stocks\Show::class)
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stocks.show');
 
         Route::get('/money-flows', \App\Livewire\MoneyFlows\Index::class)->name('money-flows.index');
 

@@ -85,7 +85,9 @@
                         <td class="whitespace-nowrap text-xs">
                             {{ optional($alert->detected_at)->format('Y-m-d H:i') ?? '—' }}
                         </td>
-                        <td class="font-semibold">{{ $alert->symbol }}</td>
+                        <td class="font-semibold">
+                            <x-ticker-link :symbol="$alert->symbol" />
+                        </td>
                         <td>{{ $alert->company_name ?? '—' }}</td>
                         <td>{{ $alert->exchange ?? '—' }}</td>
                         <td>{{ optional($alert->next_quarter_end_date)->toDateString() ?? '—' }}</td>

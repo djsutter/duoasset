@@ -282,7 +282,9 @@
             <tbody>
             @forelse ($items as $item)
                 <tr>
-                    <td class="font-mono font-semibold">{{ $item->stock->symbol }}</td>
+                    <td class="font-mono font-semibold">
+                        <x-ticker-link :symbol="$item->stock->symbol" />
+                    </td>
                     <td>{{ $item->stock->exchange->value }}</td>
                     <td>{{ $item->stock->currency->value }}</td>
                     <td>{{ $item->stock->company_name }}</td>
