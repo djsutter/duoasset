@@ -13,14 +13,23 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        User::query()->updateOrCreate(
-            ['email' => 'demo@crypto.x'],
-            [
-                'name' => 'Admin',
-                'password' => 'admin1111',
-                'role' => UserRole::ADMINISTRATOR,
-                'view_mode' => 'stocks',
-            ]
-        );
+        $user = User::query()->firstOrNew(['email' => 'dsutter@qualivera.com']);
+        $user->forceFill([
+            'name' => 'Admin1',
+            'password' => 'admin1111',
+            'role' => UserRole::ADMINISTRATOR,
+            'view_mode' => 'stocks',
+            'email_verified_at' => $user->email_verified_at ?? now(),
+            'activation_token' => null,
+        ])->save();
+        $user = User::query()->firstOrNew(['email' => 'joe@7pro.ca']);
+        $user->forceFill([
+            'name' => 'Admin2',
+            'password' => 'admin1111',
+            'role' => UserRole::ADMINISTRATOR,
+            'view_mode' => 'stocks',
+            'email_verified_at' => $user->email_verified_at ?? now(),
+            'activation_token' => null,
+        ])->save();
     }
 }

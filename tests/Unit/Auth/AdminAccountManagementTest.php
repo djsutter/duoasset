@@ -12,14 +12,38 @@ uses(Tests\TestCase::class, RefreshDatabase::class);
 test('user seeder seeds administrator user with administrator role', function () {
     $this->seed(UserSeeder::class);
 
-    $admin = User::where('email', 'demo@crypto.x')->first();
+    $admin = User::where('email', 'joe@7pro.ca')->first();
 
     expect($admin)->not->toBeNull();
-    expect($admin->name)->toBe('Admin');
+    expect($admin->name)->toBe('Admin2');
     expect($admin->role)->toBe(UserRole::ADMINISTRATOR);
     expect($admin->isAdministrator())->toBeTrue();
     expect($admin->isAdmin())->toBeTrue();
     expect($admin->canToggleViewMode())->toBeTrue();
+    expect($admin->hasVerifiedEmail())->toBeTrue();
+    expect($admin->activation_token)->toBeNull();
+});
+
+test('user seeder activates and clears token on existing unverified admin user', function () {
+    DB::table('users')->insert([
+        'name' => 'Admin',
+        'email' => 'joe@7pro.ca',
+        'password' => bcrypt('admin1111'),
+        'role' => 'administrator',
+        'view_mode' => 'stocks',
+        'credit_balance' => 0.00,
+        'email_verified_at' => null,
+        'activation_token' => 'stale-token-123',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $this->seed(UserSeeder::class);
+
+    $admin = User::where('email', 'joe@7pro.ca')->first();
+
+    expect($admin->hasVerifiedEmail())->toBeTrue();
+    expect($admin->activation_token)->toBeNull();
 });
 
 test('user named Admin does not auto-escalate to administrator on model retrieval', function () {
@@ -48,7 +72,7 @@ test('user named Admin does not auto-escalate to administrator on model retrieva
 test('legacy admin migration backfill promotes pre-existing admin rows', function () {
     $legacyId = DB::table('users')->insertGetId([
         'name' => 'Admin',
-        'email' => 'demo@crypto.x',
+        'email' => 'joe@7pro.ca',
         'password' => bcrypt('secret123'),
         'role' => 'guest',
         'view_mode' => 'stocks',
@@ -63,6 +87,46 @@ test('legacy admin migration backfill promotes pre-existing admin rows', functio
     $promoted = DB::table('users')->where('id', $legacyId)->first();
     expect($promoted->role)->toBe(UserRole::ADMINISTRATOR->value);
     expect($promoted->view_mode)->toBe('stocks');
+});
+
+test('seeded admin activation migration backfill verifies and activates pre-existing admin rows', function () {
+    $unverifiedAdminId = DB::table('users')->insertGetId([
+        'name' => 'Admin',
+        'email' => 'joe@7pro.ca',
+        'password' => bcrypt('secret123'),
+        'role' => 'administrator',
+        'view_mode' => 'stocks',
+        'credit_balance' => 0.00,
+        'email_verified_at' => null,
+        'activation_token' => 'old-activation-token',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $otherUnverifiedId = DB::table('users')->insertGetId([
+        'name' => 'Regular User',
+        'email' => 'regular@example.com',
+        'password' => bcrypt('secret123'),
+        'role' => 'guest',
+        'view_mode' => 'stocks',
+        'credit_balance' => 0.00,
+        'email_verified_at' => null,
+        'activation_token' => 'keep-this-token',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $migration = require database_path('migrations/2026_10_27_233000_backfill_seeded_admin_users_activation.php');
+    $migration->up();
+
+    $repairedAdmin = DB::table('users')->where('id', $unverifiedAdminId)->first();
+    expect($repairedAdmin->email_verified_at)->not->toBeNull();
+    expect($repairedAdmin->activation_token)->toBeNull();
+
+    // Verify non-seeded user was untouched
+    $unaffected = DB::table('users')->where('id', $otherUnverifiedId)->first();
+    expect($unaffected->email_verified_at)->toBeNull();
+    expect($unaffected->activation_token)->toBe('keep-this-token');
 });
 
 test('apply credit adjusts user credit balance and creates user credit record', function () {
