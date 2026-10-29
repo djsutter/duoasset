@@ -109,7 +109,7 @@
     </div>
 
     {{-- Main Chart Section --}}
-    <div class="da-card p-0 overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs"
+    <div wire:ignore class="da-card p-0 overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs"
          x-data="{
              symbol: @js($symbol),
              userId: @js((string)(auth()->id() ?? 'guest')),
@@ -501,6 +501,9 @@
     </div>
 
     {{-- DuoAsset Setup Score Panel --}}
+    @php
+        $activeAlert = $activeSetupAlert ?? $latestSetupAlert;
+    @endphp
     <div class="da-card bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs" data-testid="setup-score-panel">
         <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
             <div class="flex items-center gap-3">
@@ -517,11 +520,11 @@
                 </div>
             </div>
 
-            @if ($latestSetupAlert)
+            @if ($activeAlert)
                 <div class="flex items-center gap-3">
                     <div class="text-right">
                         <div class="text-2xl font-black font-mono text-sky-600 dark:text-sky-400" data-testid="overall-setup-score">
-                            {{ $latestSetupAlert->setup_score }}
+                            {{ $activeAlert->setup_score }}
                         </div>
                         <div class="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                             {{ __('Score (0-100)') }}
@@ -531,19 +534,35 @@
             @endif
         </div>
 
-        @if ($latestSetupAlert)
+        @if ($activeAlert)
             <div class="mt-6 space-y-6">
                 @if ($setupAlertsByType && $setupAlertsByType->count() > 1)
                     <div class="space-y-2" data-testid="multi-setup-types">
-                        <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                            {{ __('Detected Setup Types for Symbol') }}
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                {{ __('Detected Setup Types for Symbol') }}
+                            </div>
+                            <div class="text-[11px] text-zinc-400 dark:text-zinc-500">
+                                {{ __('Click to switch active setup score & breakdown') }}
+                            </div>
                         </div>
-                        <div class="flex flex-wrap gap-2">
+                        <div class="flex flex-wrap gap-2" role="tablist" aria-label="{{ __('Setup Types') }}">
                             @foreach ($setupAlertsByType as $alertItem)
-                                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono {{ $alertItem->id === $latestSetupAlert->id ? 'border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300 font-bold' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300' }}">
+                                @php
+                                    $isSelected = ($alertItem->setup_type === ($selectedSetupType ?? $activeAlert->setup_type));
+                                @endphp
+                                <button type="button"
+                                        wire:click="selectSetupType('{{ $alertItem->setup_type }}')"
+                                        role="tab"
+                                        aria-selected="{{ $isSelected ? 'true' : 'false' }}"
+                                        data-testid="setup-type-toggle-{{ $alertItem->setup_type }}"
+                                        class="group inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all duration-150 cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-sky-500/50 {{ $isSelected ? 'border-sky-500 dark:border-sky-500 bg-sky-50 dark:bg-sky-950/70 text-sky-900 dark:text-sky-200 font-bold shadow-xs ring-1 ring-sky-400 dark:ring-sky-600' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700' }}">
+                                    @if ($isSelected)
+                                        <flux:icon icon="check" variant="micro" class="size-3 text-sky-600 dark:text-sky-400" />
+                                    @endif
                                     <span>{{ $alertItem->setup_type }}</span>
-                                    <span class="rounded bg-sky-100 dark:bg-sky-900 px-1.5 py-0.2 text-[10px] font-bold text-sky-700 dark:text-sky-300">{{ $alertItem->setup_score }}/100</span>
-                                </div>
+                                    <span class="rounded px-1.5 py-0.2 text-[10px] font-bold {{ $isSelected ? 'bg-sky-200/80 dark:bg-sky-900 text-sky-900 dark:text-sky-200' : 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 group-hover:bg-sky-200/60 dark:group-hover:bg-sky-900/60' }}">{{ $alertItem->setup_score }}/100</span>
+                                </button>
                             @endforeach
                         </div>
                     </div>
@@ -554,42 +573,42 @@
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Setup Classification') }}</div>
                         <div class="mt-1 font-semibold text-sm text-zinc-900 dark:text-white" data-testid="setup-type">
-                            {{ $latestSetupAlert->setup_type }}
+                            {{ $activeAlert->setup_type }}
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Raw Score') }}</div>
-                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white">
-                            {{ $latestSetupAlert->raw_setup_score ?? '—' }}
+                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white" data-testid="raw-setup-score">
+                            {{ $activeAlert->raw_setup_score ?? '—' }}
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Heartbeat') }}</div>
-                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white">
-                            {{ $latestSetupAlert->heartbeat_score ?? '—' }}
+                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white" data-testid="heartbeat-score">
+                            {{ $activeAlert->heartbeat_score ?? '—' }}
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Base Duration') }}</div>
-                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white">
-                            {{ $latestSetupAlert->base_duration_days ? $latestSetupAlert->base_duration_days . ' days' : '—' }}
+                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white" data-testid="base-duration">
+                            {{ $activeAlert->base_duration_days ? $activeAlert->base_duration_days . ' days' : '—' }}
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Range Compression') }}</div>
-                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white">
-                            {{ $latestSetupAlert->range_compression_pct !== null ? number_format((float) $latestSetupAlert->range_compression_pct, 1) . '%' : '—' }}
+                        <div class="mt-1 font-mono font-semibold text-sm text-zinc-900 dark:text-white" data-testid="range-compression">
+                            {{ $activeAlert->range_compression_pct !== null ? number_format((float) $activeAlert->range_compression_pct, 1) . '%' : '—' }}
                         </div>
                     </div>
 
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">
                         <div class="text-xs text-zinc-500 dark:text-zinc-400">{{ __('Calculated At') }}</div>
-                        <div class="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
-                            {{ $latestSetupAlert->detected_at ? \Carbon\Carbon::parse($latestSetupAlert->detected_at)->toFormattedDateString() : '—' }}
+                        <div class="mt-1 text-xs text-zinc-700 dark:text-zinc-300" data-testid="calculated-at">
+                            {{ $activeAlert->detected_at ? \Carbon\Carbon::parse($activeAlert->detected_at)->toFormattedDateString() : '—' }}
                         </div>
                     </div>
                 </div>
@@ -601,9 +620,10 @@
                             {{ __('Scoring Component Breakdown') }}
                         </h3>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="setup-score-breakdown-grid">
                             @foreach ($setupScoreBreakdown as $key => $component)
-                                <div class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/60 flex items-center justify-between">
+                                <div class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/60 flex items-center justify-between"
+                                     data-testid="breakdown-{{ $key }}">
                                     <div class="space-y-0.5">
                                         <div class="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                                             {{ $component['label'] ?? ucfirst(str_replace('_', ' ', $key)) }}
@@ -629,10 +649,10 @@
                     </div>
                 @endif
 
-                @if (! empty($latestSetupAlert->reason_summary))
-                    <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400">
+                @if (! empty($activeAlert->reason_summary))
+                    <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400" data-testid="setup-reason-summary">
                         <span class="font-semibold text-zinc-800 dark:text-zinc-200">{{ __('Scoring Summary') }}:</span>
-                        {{ $latestSetupAlert->reason_summary }}
+                        {{ $activeAlert->reason_summary }}
                     </div>
                 @endif
             </div>

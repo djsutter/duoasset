@@ -23,6 +23,10 @@ class Show extends Component
 
     public ?StockBuySetupAlert $latestSetupAlert = null;
 
+    public ?StockBuySetupAlert $activeSetupAlert = null;
+
+    public ?string $selectedSetupType = null;
+
     /**
      * @var \Illuminate\Support\Collection<int, StockBuySetupAlert>
      */
@@ -69,25 +73,7 @@ class Show extends Component
         }
 
         // 3. Retrieve latest persisted setup alert and alerts by setup type
-        $this->latestSetupAlert = StockBuySetupAlert::where('symbol', $this->symbol)
-            ->orderByDesc('spike_date')
-            ->orderByDesc('id')
-            ->first();
-
-        $this->setupAlertsByType = StockBuySetupAlert::where('symbol', $this->symbol)
-            ->orderByDesc('spike_date')
-            ->orderByDesc('id')
-            ->get()
-            ->unique('setup_type')
-            ->values();
-
-        if ($this->latestSetupAlert) {
-            try {
-                $this->setupScoreBreakdown = $scorer->breakdown($this->latestSetupAlert);
-            } catch (\Throwable) {
-                $this->setupScoreBreakdown = [];
-            }
-        }
+        $this->loadSetupAlerts($scorer);
 
         // 4. Retrieve approximately 1 year of daily candlestick history
         try {
@@ -140,8 +126,9 @@ class Show extends Component
             return $this->stock->company_name;
         }
 
-        if ($this->latestSetupAlert && ! empty($this->latestSetupAlert->company_name)) {
-            return $this->latestSetupAlert->company_name;
+        $alert = $this->activeSetupAlert ?? $this->latestSetupAlert;
+        if ($alert && ! empty($alert->company_name)) {
+            return $alert->company_name;
         }
 
         return null;
@@ -163,8 +150,9 @@ class Show extends Component
             return $this->stock->exchange->value;
         }
 
-        if ($this->latestSetupAlert && ! empty($this->latestSetupAlert->exchange)) {
-            return $this->latestSetupAlert->exchange;
+        $alert = $this->activeSetupAlert ?? $this->latestSetupAlert;
+        if ($alert && ! empty($alert->exchange)) {
+            return $alert->exchange;
         }
 
         return null;
@@ -244,8 +232,9 @@ class Show extends Component
             return (float) $this->profile['market_cap'];
         }
 
-        if ($this->latestSetupAlert && $this->latestSetupAlert->market_cap !== null) {
-            return (float) $this->latestSetupAlert->market_cap;
+        $alert = $this->activeSetupAlert ?? $this->latestSetupAlert;
+        if ($alert && $alert->market_cap !== null) {
+            return (float) $alert->market_cap;
         }
 
         return null;
@@ -266,6 +255,69 @@ class Show extends Component
         }
 
         return null;
+    }
+
+    public function loadSetupAlerts(?StockBuySetupScorer $scorer = null): void
+    {
+        $alerts = StockBuySetupAlert::where('symbol', $this->symbol)
+            ->orderByDesc('spike_date')
+            ->orderByDesc('id')
+            ->get();
+
+        $this->setupAlertsByType = $alerts->unique('setup_type')->values();
+
+        $overallLatest = $this->setupAlertsByType->first();
+
+        if ($this->selectedSetupType !== null) {
+            $this->activeSetupAlert = $this->setupAlertsByType
+                ->first(fn ($alert) => strtolower((string) $alert->setup_type) === strtolower((string) $this->selectedSetupType));
+        }
+
+        if (! $this->activeSetupAlert) {
+            $this->activeSetupAlert = $overallLatest;
+            $this->selectedSetupType = $overallLatest?->setup_type;
+        }
+
+        $this->latestSetupAlert = $this->activeSetupAlert;
+
+        $this->updateBreakdown($scorer);
+    }
+
+    public function selectSetupType(string $type, ?StockBuySetupScorer $scorer = null): void
+    {
+        $this->selectedSetupType = trim($type);
+        $this->loadSetupAlerts($scorer);
+    }
+
+    public function toggleSetupType(string $type, ?StockBuySetupScorer $scorer = null): void
+    {
+        $this->selectSetupType($type, $scorer);
+    }
+
+    public function setSetupType(string $type, ?StockBuySetupScorer $scorer = null): void
+    {
+        $this->selectSetupType($type, $scorer);
+    }
+
+    public function updatedSelectedSetupType(string $value): void
+    {
+        $this->selectSetupType($value);
+    }
+
+    public function updateBreakdown(?StockBuySetupScorer $scorer = null): void
+    {
+        if (! $this->activeSetupAlert) {
+            $this->setupScoreBreakdown = [];
+
+            return;
+        }
+
+        $scorer = $scorer ?? app(StockBuySetupScorer::class);
+        try {
+            $this->setupScoreBreakdown = $scorer->breakdown($this->activeSetupAlert);
+        } catch (\Throwable) {
+            $this->setupScoreBreakdown = [];
+        }
     }
 
     public function render(): \Illuminate\Contracts\View\View

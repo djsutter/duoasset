@@ -479,7 +479,234 @@ test('setup score panel exposes results for multiple setup types when available'
         ->assertSee('vcp_breakout')
         ->assertSee('heartbeat_spike')
         ->assertSee('88/100')
-        ->assertSee('74/100');
+        ->assertSee('74/100')
+        ->assertSeeHtml('data-testid="setup-type-toggle-vcp_breakout"')
+        ->assertSeeHtml('data-testid="setup-type-toggle-heartbeat_spike"');
+});
+
+test('user can interactively toggle active setup type and update setup score panel fields and breakdown', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    // Create 3 active setup types (mirroring production scenario with 3 setup types)
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'vcp_breakout',
+        'setup_score' => 88,
+        'raw_setup_score' => 93,
+        'heartbeat_score' => 84.0,
+        'base_duration_days' => 21,
+        'range_compression_pct' => 4.2,
+        'spike_date' => '2026-10-25',
+        'status' => 'active',
+        'detected_at' => '2026-10-25 14:00:00',
+        'reason_summary' => 'VCP contraction breakout with high volume expansion',
+    ]);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'heartbeat_spike',
+        'setup_score' => 74,
+        'raw_setup_score' => 78,
+        'heartbeat_score' => 72.0,
+        'base_duration_days' => 35,
+        'range_compression_pct' => 8.5,
+        'spike_date' => '2026-10-20',
+        'status' => 'active',
+        'detected_at' => '2026-10-20 11:30:00',
+        'reason_summary' => 'High volume heartbeat spike following base consolidation',
+    ]);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'range_compression',
+        'setup_score' => 62,
+        'raw_setup_score' => 65,
+        'heartbeat_score' => 60.0,
+        'base_duration_days' => 45,
+        'range_compression_pct' => 2.1,
+        'spike_date' => '2026-10-18',
+        'status' => 'active',
+        'detected_at' => '2026-10-18 09:45:00',
+        'reason_summary' => 'Tight multi-week range compression',
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'ARVN']);
+
+    // 1. Initial state defaults to the latest alert (vcp_breakout)
+    $component
+        ->assertSet('selectedSetupType', 'vcp_breakout')
+        ->assertSeeHtml('data-testid="overall-setup-score"')
+        ->assertSee('88')
+        ->assertSee('vcp_breakout')
+        ->assertSee('93')
+        ->assertSee('84')
+        ->assertSee('21 days')
+        ->assertSee('4.2%')
+        ->assertSee('VCP contraction breakout with high volume expansion')
+        ->assertSeeHtml('aria-selected="true"')
+        ->assertSeeHtml('data-testid="setup-type-toggle-vcp_breakout"');
+
+    // 2. Toggle to heartbeat_spike
+    $component->call('selectSetupType', 'heartbeat_spike')
+        ->assertSet('selectedSetupType', 'heartbeat_spike')
+        ->assertSeeHtml('data-testid="overall-setup-score"')
+        ->assertSee('74')
+        ->assertSee('heartbeat_spike')
+        ->assertSee('78')
+        ->assertSee('72')
+        ->assertSee('35 days')
+        ->assertSee('8.5%')
+        ->assertSee('High volume heartbeat spike following base consolidation');
+
+    expect($component->get('activeSetupAlert')->setup_type)->toBe('heartbeat_spike');
+    expect($component->get('activeSetupAlert')->setup_score)->toBe(74);
+
+    // 3. Toggle to range_compression
+    $component->call('selectSetupType', 'range_compression')
+        ->assertSet('selectedSetupType', 'range_compression')
+        ->assertSeeHtml('data-testid="overall-setup-score"')
+        ->assertSee('62')
+        ->assertSee('range_compression')
+        ->assertSee('65')
+        ->assertSee('60')
+        ->assertSee('45 days')
+        ->assertSee('2.1%')
+        ->assertSee('Tight multi-week range compression');
+
+    expect($component->get('activeSetupAlert')->setup_type)->toBe('range_compression');
+    expect($component->get('activeSetupAlert')->setup_score)->toBe(62);
+
+    // 4. Toggle back to vcp_breakout
+    $component->call('selectSetupType', 'vcp_breakout')
+        ->assertSet('selectedSetupType', 'vcp_breakout')
+        ->assertSee('88')
+        ->assertSee('vcp_breakout')
+        ->assertSee('93')
+        ->assertSee('21 days')
+        ->assertSee('4.2%');
+
+    expect($component->get('activeSetupAlert')->setup_type)->toBe('vcp_breakout');
+    expect($component->get('activeSetupAlert')->setup_score)->toBe(88);
+});
+
+test('selecting setup type picks the latest alert when multiple historical alerts exist for the same type', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    // Two alerts for heartbeat_spike (older and newer)
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'heartbeat_spike',
+        'setup_score' => 50,
+        'spike_date' => '2026-09-01',
+        'status' => 'active',
+        'detected_at' => '2026-09-01 10:00:00',
+    ]);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'heartbeat_spike',
+        'setup_score' => 82,
+        'spike_date' => '2026-10-20',
+        'status' => 'active',
+        'detected_at' => '2026-10-20 10:00:00',
+    ]);
+
+    // One alert for vcp_breakout (latest overall)
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'vcp_breakout',
+        'setup_score' => 90,
+        'spike_date' => '2026-10-22',
+        'status' => 'active',
+        'detected_at' => '2026-10-22 10:00:00',
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'ARVN']);
+
+    // Defaults to vcp_breakout (90)
+    $component->assertSet('selectedSetupType', 'vcp_breakout')
+        ->assertSee('90');
+
+    // Switching to heartbeat_spike should pick the newer 82 score, not the 50 score
+    $component->call('selectSetupType', 'heartbeat_spike')
+        ->assertSet('selectedSetupType', 'heartbeat_spike')
+        ->assertSee('82')
+        ->assertDontSee('50/100');
+
+    expect($component->get('activeSetupAlert')->setup_score)->toBe(82);
+    expect($component->get('activeSetupAlert')->spike_date->toDateString())->toBe('2026-10-20');
+});
+
+test('selecting invalid setup type safely falls back to sensible active alert', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'vcp_breakout',
+        'setup_score' => 88,
+        'spike_date' => '2026-10-15',
+        'status' => 'active',
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'ARVN']);
+
+    $component->call('selectSetupType', 'non_existent_setup')
+        ->assertSet('selectedSetupType', 'vcp_breakout')
+        ->assertSee('88');
+
+    expect($component->get('activeSetupAlert')->setup_type)->toBe('vcp_breakout');
+});
+
+test('property update hook and toggle alias update selected setup type', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'vcp_breakout',
+        'setup_score' => 88,
+        'spike_date' => '2026-10-15',
+        'status' => 'active',
+    ]);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'heartbeat_spike',
+        'setup_score' => 74,
+        'spike_date' => '2026-10-10',
+        'status' => 'active',
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'ARVN']);
+
+    // Test toggleSetupType alias
+    $component->call('toggleSetupType', 'heartbeat_spike')
+        ->assertSet('selectedSetupType', 'heartbeat_spike')
+        ->assertSee('74');
+
+    // Test set('selectedSetupType', ...) hook
+    $component->set('selectedSetupType', 'vcp_breakout')
+        ->assertSet('selectedSetupType', 'vcp_breakout')
+        ->assertSee('88');
 });
 
 test('candles json endpoint distinguishes provider rate limit failure from empty bars and returns 429', function () {
