@@ -337,3 +337,26 @@ test('candles json endpoint enforces sensible upper bounds on intraday intervals
     $toDate = \Carbon\Carbon::parse($data['to']);
     expect($toDate->diffInDays($fromDate))->toBeLessThanOrEqual(30);
 });
+
+test('stock analysis page renders chart container and loads stock-chart script for indicators and chart interactivity', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    $fake->dailyBars['ARVN'] = [
+        ['date' => '2026-10-24', 'open' => 26.50, 'high' => 27.50, 'low' => 26.10, 'close' => 27.25, 'volume' => 700000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN');
+    $response->assertOk();
+
+    // Verify stock chart script asset is loaded
+    $response->assertSee('stock-chart');
+
+    // Verify chart container DOM and Alpine persistence context
+    $response->assertSeeHtml('x-ref="chartContainer"');
+    $response->assertSeeHtml('data-testid="vela-chart-container"');
+    $response->assertSee('duoasset_vela_');
+    $response->assertSee('duoasset_chart_prefs_');
+});
