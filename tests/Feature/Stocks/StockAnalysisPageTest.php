@@ -773,3 +773,37 @@ test('stock analysis page surfaces provider failure message when initial candle 
     $response->assertOk();
     $response->assertSee('Market data rate limit reached');
 });
+
+test('stock analysis page registers cleanup hook for vela styles and stock chart JS provides cleanupVelaStyles', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN');
+    $response->assertOk();
+
+    // Verify Alpine cleanup hook references cleanupVelaStyles
+    $response->assertSee('cleanupVelaStyles');
+
+    // Verify stock-chart.js contains cleanupVelaStyles implementation
+    $jsPath = resource_path('js/stock-chart.js');
+    expect(file_exists($jsPath))->toBeTrue();
+    $jsContent = file_get_contents($jsPath);
+    expect($jsContent)->toContain('export function cleanupVelaStyles');
+    expect($jsContent)->toContain('style[id^="vela-"]');
+    expect($jsContent)->toContain('window.cleanupVelaStyles = cleanupVelaStyles');
+});
+
+test('non-stock pages do not load stock chart JS entrypoint', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $dashboardResponse = $this->actingAs($user)->get('/dashboard');
+    $dashboardResponse->assertOk();
+    $dashboardResponse->assertDontSee('resources/js/stock-chart.js');
+
+    $moneyFlowsResponse = $this->actingAs($user)->get('/money-flows');
+    $moneyFlowsResponse->assertOk();
+    $moneyFlowsResponse->assertDontSee('resources/js/stock-chart.js');
+
+    $watchlistsResponse = $this->actingAs($user)->get('/watchlists');
+    $watchlistsResponse->assertOk();
+    $watchlistsResponse->assertDontSee('resources/js/stock-chart.js');
+});

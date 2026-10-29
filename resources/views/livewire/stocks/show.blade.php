@@ -348,6 +348,9 @@
                          try { workspace.destroy(); } catch (e) {}
                          workspace = null;
                      }
+                     if (typeof window.cleanupVelaStyles === 'function') {
+                         try { window.cleanupVelaStyles(); } catch (e) {}
+                     }
                  });
              }
          "
