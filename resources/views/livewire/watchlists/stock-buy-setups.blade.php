@@ -345,7 +345,7 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <template x-if="selected?.symbol">
-                            <a :href="'/stocks/' + encodeURIComponent(selected.symbol)"
+                            <a :href="'{{ route('stocks.show', ['symbol' => '__SYMBOL__']) }}'.replace('__SYMBOL__', encodeURIComponent(selected.symbol))"
                                class="da-btn da-btn-secondary text-xs gap-1 py-1.5 px-3"
                                wire:navigate>
                                 <flux:icon icon="chart-bar" variant="mini" class="size-3.5" />

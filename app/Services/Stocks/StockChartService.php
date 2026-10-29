@@ -2,6 +2,7 @@
 
 namespace App\Services\Stocks;
 
+use App\Exceptions\MarketDataProviderException;
 use App\Services\MarketData\MarketDataProvider;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -78,15 +79,44 @@ class StockChartService
             $from = $to->copy()->subDays($maxIntradayDays);
         }
 
-        // Cache daily/intraday candle responses
+        // Cache normalized candle responses:
+        // Daily/weekly/monthly charts are cached for 1 hour (backed by provider's 12-hour raw cache);
+        // Intraday charts are cached for 5 minutes (backed by provider's 15-minute raw cache).
+        // This ensures snappy repeat rendering while preserving low FMP API budget consumption.
         $fromStr = $from->toDateString();
         $toStr = $to->toDateString();
         $cacheTtl = in_array($canonicalInterval, ['1day', '1week', '1month'], true) ? 3600 : 300;
         $cacheKey = "stock_chart.candles.{$symbol}.{$canonicalInterval}.{$fromStr}.{$toStr}";
 
-        $candles = Cache::remember($cacheKey, $cacheTtl, function () use ($symbol, $canonicalInterval, $from, $to) {
-            return $this->fetchAndProcessCandles($symbol, $canonicalInterval, $from, $to);
-        });
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return [
+                'symbol' => $symbol,
+                'interval' => $canonicalInterval,
+                'from' => $fromStr,
+                'to' => $toStr,
+                'count' => count($cached),
+                'candles' => $cached,
+            ];
+        }
+
+        $candles = $this->fetchAndProcessCandles($symbol, $canonicalInterval, $from, $to);
+
+        $providerErrors = method_exists($this->provider, 'lastErrors') ? ($this->provider->lastErrors() ?? []) : [];
+        if (! empty($providerErrors) && empty($candles)) {
+            $lastErr = end($providerErrors);
+            $statusCode = isset($lastErr['status']) ? (int) $lastErr['status'] : 0;
+            $body = isset($lastErr['body']) ? (string) $lastErr['body'] : '';
+            $errorMsg = match ($statusCode) {
+                429 => 'Market data provider rate limit exceeded.',
+                401, 403 => 'Market data provider access denied or restricted.',
+                default => ($body !== '' ? "Market data provider failure: {$body}" : 'Market data provider communication failure.'),
+            };
+
+            throw new MarketDataProviderException($errorMsg, $statusCode, $lastErr);
+        }
+
+        Cache::put($cacheKey, $candles, $cacheTtl);
 
         return [
             'symbol' => $symbol,
@@ -111,7 +141,8 @@ class StockChartService
     ): array {
         if ($interval === '1week' || $interval === '1month') {
             $dailyBars = $this->provider->historicalDailyBars($symbol, $from, $to);
-            $normalizedDaily = $this->normalizeRawBars($dailyBars);
+            $normalizedDaily = $this->normalizeRawBars($dailyBars, isIntraday: false, from: $from, to: $to);
+
             return $interval === '1week'
                 ? $this->aggregateToWeekly($normalizedDaily)
                 : $this->aggregateToMonthly($normalizedDaily);
@@ -119,23 +150,38 @@ class StockChartService
 
         if (in_array($interval, ['1min', '5min', '15min', '30min', '1hour'], true)) {
             $rawBars = $this->provider->historicalIntradayBars($symbol, $interval, $from, $to);
-            return $this->normalizeRawBars($rawBars, isIntraday: true);
+
+            return $this->normalizeRawBars($rawBars, isIntraday: true, from: $from, to: $to);
         }
 
         // Default '1day'
         $dailyBars = $this->provider->historicalDailyBars($symbol, $from, $to);
-        return $this->normalizeRawBars($dailyBars, isIntraday: false);
+
+        return $this->normalizeRawBars($dailyBars, isIntraday: false, from: $from, to: $to);
     }
 
     /**
      * Normalize, validate, deduplicate, and sort raw bars.
      *
-     * @param array<int, array<string, mixed>> $rawBars
+     * Price adjustment policy:
+     * Daily bars retrieved from FMP EOD historical endpoint contain unadjusted OHLC along with adjClose.
+     * For candlestick charting, unadjusted OHLC is preserved to reflect actual traded execution ranges
+     * during each historical session, while corporate action / dividend adjustments are noted.
+     *
+     * @param  array<int, array<string, mixed>>  $rawBars
      * @return array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>
      */
-    protected function normalizeRawBars(array $rawBars, bool $isIntraday = false): array
-    {
-        $nowTimestamp = Carbon::now('UTC')->endOfDay()->timestamp + 86400; // max reasonable cutoff
+    protected function normalizeRawBars(
+        array $rawBars,
+        bool $isIntraday = false,
+        ?CarbonInterface $from = null,
+        ?CarbonInterface $to = null
+    ): array {
+        $now = Carbon::now('UTC');
+        $maxTimestamp = $to
+            ? min($now->endOfDay()->timestamp, Carbon::instance($to)->endOfDay()->timestamp)
+            : $now->endOfDay()->timestamp;
+        $minTimestamp = $from ? Carbon::instance($from)->startOfDay()->timestamp : 0;
         $byTimestamp = [];
 
         foreach ($rawBars as $bar) {
@@ -149,14 +195,23 @@ class StockChartService
             }
 
             try {
-                $c = Carbon::parse($dateRaw, 'UTC');
-                $timestamp = $c->timestamp;
+                if ($isIntraday) {
+                    // FMP intraday market timestamps are reported in US Eastern time (America/New_York).
+                    // If timestamp includes explicit offset/UTC flag, parse directly; otherwise interpret in America/New_York
+                    $c = preg_match('/[Z+\-]\d{2}/', $dateRaw)
+                        ? Carbon::parse($dateRaw)
+                        : Carbon::parse($dateRaw, 'America/New_York');
+                    $timestamp = $c->utc()->timestamp;
+                } else {
+                    $c = Carbon::parse($dateRaw, 'UTC');
+                    $timestamp = $c->startOfDay()->timestamp;
+                }
             } catch (\Throwable) {
                 continue;
             }
 
-            // Prevent future data
-            if ($timestamp > $nowTimestamp) {
+            // Enforce requested bounds and prevent future data
+            if ($timestamp > $maxTimestamp || ($minTimestamp > 0 && $timestamp < $minTimestamp)) {
                 continue;
             }
 
@@ -164,14 +219,25 @@ class StockChartService
             $high = isset($bar['high']) && is_numeric($bar['high']) ? (float) $bar['high'] : null;
             $low = isset($bar['low']) && is_numeric($bar['low']) ? (float) $bar['low'] : null;
             $close = isset($bar['close']) && is_numeric($bar['close']) ? (float) $bar['close'] : null;
-            $volume = isset($bar['volume']) && is_numeric($bar['volume']) ? max(0.0, (float) $bar['volume']) : 0.0;
+            $volume = isset($bar['volume']) && is_numeric($bar['volume']) ? (float) $bar['volume'] : 0.0;
 
+            // Reject missing/nonpositive OHLC or negative volume
             if ($open === null || $close === null || $open <= 0 || $close <= 0) {
                 continue;
             }
+            if ($high !== null && $high <= 0) {
+                continue;
+            }
+            if ($low !== null && $low <= 0) {
+                continue;
+            }
+            if ($volume < 0) {
+                continue;
+            }
 
-            $high = $high !== null && $high > 0 ? max($high, $open, $close) : max($open, $close);
-            $low = $low !== null && $low > 0 ? min($low, $open, $close) : min($open, $close);
+            // Maintain valid OHLC geometry: high >= max(open, close), low <= min(open, close)
+            $high = $high !== null ? max($high, $open, $close) : max($open, $close);
+            $low = $low !== null ? min($low, $open, $close) : min($open, $close);
 
             $byTimestamp[$timestamp] = [
                 'time' => (int) $timestamp,
@@ -192,7 +258,7 @@ class StockChartService
     /**
      * Aggregate daily OHLCV bars into weekly bars (starting Monday).
      *
-     * @param array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}> $dailyBars
+     * @param  array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>  $dailyBars
      * @return array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>
      */
     protected function aggregateToWeekly(array $dailyBars): array
@@ -227,7 +293,7 @@ class StockChartService
     /**
      * Aggregate daily OHLCV bars into monthly bars (starting 1st of month).
      *
-     * @param array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}> $dailyBars
+     * @param  array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>  $dailyBars
      * @return array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>
      */
     protected function aggregateToMonthly(array $dailyBars): array

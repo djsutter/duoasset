@@ -117,7 +117,9 @@
              workspace: null,
              isFullscreen: false,
              isLoading: false,
-             errorMessage: null,
+             errorMessage: @js($candleError ?? null),
+             fetchRequestId: 0,
+             activeAbortController: null,
              selectedInterval: '1D',
              selectedRange: '1Y',
              intervals: [
@@ -146,6 +148,8 @@
                      // ignore storage errors
                  }
 
+                 let attempts = 0;
+                 const maxAttempts = 25; // 25 * 200ms = 5s timeout
                  const attempt = () => {
                      if (window.initStockChart) {
                          if (this.selectedInterval === '1D' && this.selectedRange === '1Y') {
@@ -153,23 +157,40 @@
                          } else {
                              this.fetchCandles();
                          }
-                     } else {
+                     } else if (attempts < maxAttempts) {
+                         attempts++;
                          setTimeout(attempt, 200);
+                     } else {
+                         this.isLoading = false;
+                         this.errorMessage = '{{ __('Chart engine failed to load. Please refresh the page.') }}';
                      }
                  };
                  this.$nextTick(attempt);
              },
              renderChart() {
-                 if (!window.initStockChart) return;
+                 if (!window.initStockChart) {
+                     this.errorMessage = '{{ __('Chart engine is not available.') }}';
+                     return;
+                 }
+                 this.errorMessage = null;
                  const activeItem = this.intervals.find(i => i.id === this.selectedInterval) || { vela: '1D' };
                  const persistKey = 'duoasset_vela_' + this.userId + '_' + this.symbol;
-                 this.workspace = window.initStockChart(this.$refs.chartContainer, {
-                     symbol: this.symbol,
-                     candles: this.candles,
-                     timeframe: activeItem.vela,
-                     persistKey: persistKey,
-                     previousWorkspace: this.workspace,
-                 });
+                 try {
+                     const mountTarget = this.$refs.velaMount || this.$refs.chartContainer;
+                     this.workspace = window.initStockChart(mountTarget, {
+                         symbol: this.symbol,
+                         candles: this.candles,
+                         timeframe: activeItem.vela,
+                         persistKey: persistKey,
+                         previousWorkspace: this.workspace,
+                     });
+                     if (this.candles.length > 0 && !this.workspace) {
+                         this.errorMessage = '{{ __('Unable to initialize financial chart display.') }}';
+                     }
+                 } catch (e) {
+                     console.error('Failed to render chart:', e);
+                     this.errorMessage = '{{ __('Chart initialization error. Please select another interval or retry.') }}';
+                 }
              },
              savePreferences() {
                  try {
@@ -221,6 +242,12 @@
                  this.fetchCandles();
              },
              async fetchCandles() {
+                 if (this.activeAbortController) {
+                     try { this.activeAbortController.abort(); } catch (e) {}
+                 }
+                 this.activeAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                 const currentRequestId = ++this.fetchRequestId;
+
                  this.isLoading = true;
                  this.errorMessage = null;
 
@@ -258,32 +285,49 @@
 
                  try {
                      const response = await fetch(url, {
+                         signal: this.activeAbortController?.signal,
                          headers: {
                              'Accept': 'application/json',
                              'X-Requested-With': 'XMLHttpRequest',
                          }
                      });
 
+                     if (currentRequestId !== this.fetchRequestId) return;
+
                      if (!response.ok) {
-                         throw new Error(`HTTP ${response.status}`);
+                         let errMsg = `HTTP ${response.status}`;
+                         try {
+                             const errJson = await response.json();
+                             if (errJson && errJson.message) {
+                                 errMsg = errJson.message;
+                             }
+                         } catch (e) {}
+                         throw new Error(errMsg);
                      }
 
                      const data = await response.json();
+                     if (currentRequestId !== this.fetchRequestId) return;
+
                      this.candles = Array.isArray(data.candles) ? data.candles : [];
                      this.renderChart();
                  } catch (err) {
+                     if (err.name === 'AbortError') return;
+                     if (currentRequestId !== this.fetchRequestId) return;
+
                      console.error('Error fetching candles:', err);
-                     this.errorMessage = '{{ __('Unable to load historical candles. Please select another interval or retry.') }}';
+                     this.errorMessage = err?.message || '{{ __('Unable to load historical candles. Please select another interval or retry.') }}';
                      this.candles = [];
                      if (this.workspace && typeof this.workspace.destroy === 'function') {
                          try { this.workspace.destroy(); } catch (e) {}
                          this.workspace = null;
                      }
-                     if (this.$refs.chartContainer) {
-                         this.$refs.chartContainer.innerHTML = '';
+                     if (this.$refs.velaMount) {
+                         this.$refs.velaMount.innerHTML = '';
                      }
                  } finally {
-                     this.isLoading = false;
+                     if (currentRequestId === this.fetchRequestId) {
+                         this.isLoading = false;
+                     }
                  }
              },
              toggleFullscreen() {
@@ -296,7 +340,17 @@
                  setTimeout(() => this.workspace?.resize?.(), 100);
              }
          }"
-         x-init="initChart()"
+         x-init="
+             initChart();
+             if (typeof $cleanup === 'function') {
+                 $cleanup(() => {
+                     if (workspace && typeof workspace.destroy === 'function') {
+                         try { workspace.destroy(); } catch (e) {}
+                         workspace = null;
+                     }
+                 });
+             }
+         "
          x-ref="chartWrapper"
          :class="{ 'fixed inset-0 z-50 bg-zinc-950 p-4': isFullscreen }"
          data-testid="main-chart-wrapper">
@@ -406,6 +460,9 @@
 
         {{-- Vela Chart Container --}}
         <div class="relative w-full" style="min-height: 540px; height: 580px;" x-ref="chartContainer" data-testid="vela-chart-container">
+            {{-- Dedicated Vela mount surface separated from overlay states --}}
+            <div x-ref="velaMount" data-vela-mount class="w-full h-full"></div>
+
             {{-- Loading Overlay --}}
             <div x-show="isLoading"
                  x-cloak
@@ -430,6 +487,7 @@
 
             {{-- Empty State --}}
             <div x-show="candles.length === 0 && !isLoading && !errorMessage"
+                 x-cloak
                  class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-zinc-500 dark:text-zinc-400"
                  data-testid="chart-empty-state">
                 <flux:icon icon="chart-bar" variant="mini" class="size-10 mb-2 opacity-40" />
@@ -475,6 +533,22 @@
 
         @if ($latestSetupAlert)
             <div class="mt-6 space-y-6">
+                @if ($setupAlertsByType && $setupAlertsByType->count() > 1)
+                    <div class="space-y-2" data-testid="multi-setup-types">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                            {{ __('Detected Setup Types for Symbol') }}
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ($setupAlertsByType as $alertItem)
+                                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono {{ $alertItem->id === $latestSetupAlert->id ? 'border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300 font-bold' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300' }}">
+                                    <span>{{ $alertItem->setup_type }}</span>
+                                    <span class="rounded bg-sky-100 dark:bg-sky-900 px-1.5 py-0.2 text-[10px] font-bold text-sky-700 dark:text-sky-300">{{ $alertItem->setup_score }}/100</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 {{-- Setup Summary Row --}}
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <div class="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800">

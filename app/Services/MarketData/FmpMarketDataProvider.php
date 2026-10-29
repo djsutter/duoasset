@@ -419,37 +419,43 @@ class FmpMarketDataProvider implements MarketDataProvider
         $toStr = $to->toDateString();
         $cacheKey = "fmp.bars.$symbol.$fromStr.$toStr";
 
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $fromStr, $toStr) {
-            // FMP stable endpoint: /historical-price-eod/full?symbol=AAPL&from=...&to=...
-            // Response shape varies: either {symbol, historical: [...]} or [...].
-            $payload = $this->get('historical-price-eod/full', [
-                'symbol' => $symbol,
-                'from' => $fromStr,
-                'to' => $toStr,
-            ]);
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-            if (! is_array($payload)) {
-                return [];
+        // FMP stable endpoint: /historical-price-eod/full?symbol=AAPL&from=...&to=...
+        // Response shape varies: either {symbol, historical: [...]} or [...].
+        $payload = $this->get('historical-price-eod/full', [
+            'symbol' => $symbol,
+            'from' => $fromStr,
+            'to' => $toStr,
+        ]);
+
+        if (! is_array($payload)) {
+            // Do not cache provider errors as empty bars.
+            return [];
+        }
+
+        $rows = $payload['historical'] ?? $payload;
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $norm = $this->normalizeBarRow($row);
+            if ($norm !== null) {
+                $out[] = $norm;
             }
+        }
 
-            $rows = $payload['historical'] ?? $payload;
-            if (! is_array($rows)) {
-                return [];
-            }
+        // FMP returns most-recent first; the scanner expects ascending order.
+        usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
 
-            $out = [];
-            foreach ($rows as $row) {
-                $norm = $this->normalizeBarRow($row);
-                if ($norm !== null) {
-                    $out[] = $norm;
-                }
-            }
+        Cache::put($cacheKey, $out, now()->addHours(12));
 
-            // FMP returns most-recent first; the scanner expects ascending order.
-            usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
-
-            return $out;
-        });
+        return $out;
     }
 
     public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array
@@ -464,38 +470,43 @@ class FmpMarketDataProvider implements MarketDataProvider
         $toStr = $to->toDateString();
         $cacheKey = "fmp.intraday.$interval.$symbol.$fromStr.$toStr";
 
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         // Intraday bars move during the session; keep the cache short so
         // hourly captures see fresh data but repeated symbols in one run hit.
-        return Cache::remember($cacheKey, now()->addMinutes(15), function () use ($symbol, $interval, $fromStr, $toStr) {
-            // FMP stable endpoint: /historical-chart/1hour?symbol=AAPL&from=...&to=...
-            $payload = $this->get("historical-chart/$interval", [
-                'symbol' => $symbol,
-                'from' => $fromStr,
-                'to' => $toStr,
-            ]);
+        $payload = $this->get("historical-chart/$interval", [
+            'symbol' => $symbol,
+            'from' => $fromStr,
+            'to' => $toStr,
+        ]);
 
-            if (! is_array($payload)) {
-                return [];
+        if (! is_array($payload)) {
+            // Do not cache provider errors as empty bars.
+            return [];
+        }
+
+        $rows = $payload['historical'] ?? $payload;
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $norm = $this->normalizeIntradayRow($row);
+            if ($norm !== null) {
+                $out[] = $norm;
             }
+        }
 
-            $rows = $payload['historical'] ?? $payload;
-            if (! is_array($rows)) {
-                return [];
-            }
+        // FMP returns most-recent first; callers expect ascending order.
+        usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
 
-            $out = [];
-            foreach ($rows as $row) {
-                $norm = $this->normalizeIntradayRow($row);
-                if ($norm !== null) {
-                    $out[] = $norm;
-                }
-            }
+        Cache::put($cacheKey, $out, now()->addMinutes(15));
 
-            // FMP returns most-recent first; callers expect ascending order.
-            usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
-
-            return $out;
-        });
+        return $out;
     }
 
     private function normalizeIntradayRow(mixed $row): ?array
@@ -584,6 +595,12 @@ class FmpMarketDataProvider implements MarketDataProvider
     protected function get(string $path, array $query = []): ?array
     {
         if (! $this->apiKey) {
+            $err = [
+                'path' => $path,
+                'status' => 401,
+                'body' => 'Missing FMP API key',
+            ];
+            $this->errors[] = $err;
             Log::warning('fmp.missing_api_key', ['path' => $path]);
 
             return null;
@@ -612,8 +629,27 @@ class FmpMarketDataProvider implements MarketDataProvider
 
             $json = $response->json();
 
+            // Detect FMP-specific error payloads returned with HTTP 200 (e.g. rate limit notes or entitlement messages)
+            if (is_array($json) && (isset($json['Error Message']) || isset($json['error']))) {
+                $err = [
+                    'path' => $path,
+                    'status' => 429,
+                    'body' => (string) ($json['Error Message'] ?? $json['error'] ?? 'FMP error payload'),
+                ];
+                $this->errors[] = $err;
+                Log::warning('fmp.api_error_payload', $err);
+
+                return null;
+            }
+
             return is_array($json) ? $json : null;
         } catch (Throwable $e) {
+            $err = [
+                'path' => $path,
+                'status' => 0,
+                'body' => $e->getMessage(),
+            ];
+            $this->errors[] = $err;
             Log::error('fmp.api_exception', [
                 'path' => $path,
                 'message' => $e->getMessage(),

@@ -105,30 +105,42 @@ built and a functioning FMP configuration. Verify 1D, intraday and weekly/monthl
 intervals; range switching; volume/indicators; page navigation; theme/fullscreen;
 mobile widths; persistence after reload; and no browser console/network errors.
 
-### Outstanding validation and improvements
+### Completed improvements (October 28, 2026 pass)
 
-1. **Correct the chart-container lifecycle:** `initStockChart()` currently clears the
-   entire `chartContainer` with `innerHTML = ''`, but the loading, error and empty-state
-   overlays are nested inside that same element. Mount Vela into a dedicated child
-   and preserve Alpine/Livewire-owned markup; add browser tests for those states.
-2. **Prove the real Vela integration works:** the full Vite build passes. Run browser
-   smoke tests against the installed package, including volume, native indicators,
-   state restore, and Livewire `wire:navigate` entry/exit cleanup. `statusLine` is
-   not a Vela 0.9.0 workspace option (the documented `statusline` toggle is boolean).
-   Remove or replace that ineffective configuration. Avoid polling
-   indefinitely when the chart module fails to load.
-3. **Fix market-data semantics:** validate quote freshness and timestamps separately
-   from EOD candle dates; use actual exchange-session timezones for intraday bars,
-   account for split adjustments, reject/handle malformed OHLCV, and reconcile the
-   chart-service TTL with the FMP provider's longer underlying caches.
-4. **Harden request handling:** validate dates, ranges, and intervals explicitly,
-   distinguish provider failures from genuinely empty history, handle concurrent
-   timeframe requests, and test malformed/duplicate/future bars and zero volume.
-5. **Complete acceptance coverage:** browser tests for intervals, indicator enable/
-   disable, persistence, fullscreen, smaller viewports and ticker navigation without
-   breaking sorting, filtering or pagination. Add regression coverage for the
-   multi-setup-score situation and review whether each active setup type needs a
-   separate score card.
+1. **Separated chart-container lifecycle from overlay states:** Mounted Vela into a
+   dedicated child node (`data-vela-mount` / `x-ref="velaMount"`) while keeping loading,
+   error, and empty-state overlays on the parent container. Neither `stock-chart.js`
+   nor Alpine error handling clears the overlay markup.
+2. **Bounded initialization polling and failure surfacing:** `initChart()` now bounds
+   script polling to a 5-second window and displays an actionable UI error if the
+   chart bundle fails to load or constructor throws, rather than spinning indefinitely.
+   Added teardown cleanup on component unmount and `wire:navigate`.
+3. **Supported Vela 0.9.0 configuration:** Replaced unsupported `statusLine` object
+   with the supported `statusline: true` boolean toggle.
+4. **Asynchronous request race protection:** `fetchCandles()` uses an `AbortController`
+   and request-sequence counter so rapid interval or range switching cancels in-flight
+   requests and prevents stale responses from overwriting newer chart selections.
+5. **Strict input validation:** `StockCandlesController` validates `interval`, `range`,
+   `from`, and `to` formats, returning explicit HTTP 422 responses on malformed inputs
+   or when `from > to`, rather than silently defaulting.
+6. **Data bounds, timezone, and OHLC integrity:** `StockChartService` enforces exact
+   requested `from`/`to` bounds, rejects future bars against actual current time, parses
+   intraday session timestamps in exchange Eastern Time (`America/New_York`) for proper
+   DST alignment, rejects negative volume while preserving legitimate zero-volume bars,
+   and normalizes geometric OHLC invariants.
+7. **Multi-setup algorithm support:** The setup score panel now exposes all detected
+   setup types for the symbol (`setupAlertsByType`), displaying setup badges and scores
+   alongside the primary overall setup alert.
+
+### Outstanding validation and notes
+
+1. **Browser visual smoke test:** Run manual or browser-level checks for `ARVN`, `RARE`,
+   `GPUS`, and `FEO.V` with live FMP credentials to verify visual candlestick rendering,
+   interactive drawing tools, indicator library settings persistence across page reloads,
+   and responsive mobile breakpoints.
+2. **Provider caching hierarchy:** Documented that `StockChartService` caches normalized
+   daily candles for 1 hour and intraday candles for 5 minutes, backed by FMP provider
+   caches (12 hours daily, 15 minutes intraday).
 
 **Deferred by the original specification:** Pine Script execution/editor, strategy
 backtesting, full historical scanner annotations, multi-chart workspaces, streaming,

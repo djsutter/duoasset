@@ -21,14 +21,17 @@ import { VelaWorkspace } from '@luxalgo/vela/workspace';
 const containerRegistry = new WeakMap();
 
 export function initStockChart(containerIdOrEl, options = {}) {
-    const container = typeof containerIdOrEl === 'string'
+    const rawContainer = typeof containerIdOrEl === 'string'
         ? document.getElementById(containerIdOrEl)
         : containerIdOrEl;
 
-    if (!container) {
+    if (!rawContainer) {
         console.warn('Vela container not found:', containerIdOrEl);
         return null;
     }
+
+    // Mount inside dedicated child mount node if available to protect Alpine/Livewire overlay elements
+    const container = rawContainer.querySelector?.('[data-vela-mount]') || rawContainer;
 
     const {
         symbol = 'STOCK',
@@ -129,11 +132,8 @@ export function initStockChart(containerIdOrEl, options = {}) {
                 right: ['screenshot'],
             },
             drawingToolbar: true,
-            statusLine: {
-                ohlc: true,
-                change: true,
-                volume: true,
-            },
+            // Vela 0.9.0 uses statusline boolean option
+            statusline: true,
             // Note: We intentionally omit workspaceOptions.persist (or set to false) because
             // Vela's built-in boot pool does not serialize offline candle data, which would
             // cause cell initialization to mount with empty data on page refresh.
@@ -143,6 +143,9 @@ export function initStockChart(containerIdOrEl, options = {}) {
 
         const ws = new VelaWorkspace(container, workspaceOptions);
         container.__vela_ws = ws;
+        if (rawContainer) {
+            rawContainer.__vela_ws = ws;
+        }
 
         // Restore previous chart state (indicators, drawings, settings) if available
         if (savedState) {
@@ -224,6 +227,13 @@ export function initStockChart(containerIdOrEl, options = {}) {
                 try { unsubState(); } catch (e) {}
             }
             window.removeEventListener('beforeunload', unloadHandler);
+            window.removeEventListener('resize', resizeHandler);
+            try { observer.disconnect(); } catch (e) {}
+            containerRegistry.delete(container);
+            container.__vela_ws = null;
+            if (rawContainer) {
+                rawContainer.__vela_ws = null;
+            }
             return originalDestroy();
         };
 
@@ -232,6 +242,9 @@ export function initStockChart(containerIdOrEl, options = {}) {
         return ws;
     } catch (e) {
         console.error('Error initializing VelaWorkspace:', e);
+        if (typeof options.onError === 'function') {
+            options.onError(e);
+        }
         return null;
     }
 }

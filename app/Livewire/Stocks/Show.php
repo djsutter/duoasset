@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Stocks;
 
+use App\Exceptions\MarketDataProviderException;
 use App\Models\Stock;
 use App\Models\StockBuySetupAlert;
 use App\Services\MarketData\MarketDataProvider;
@@ -22,12 +23,19 @@ class Show extends Component
 
     public ?StockBuySetupAlert $latestSetupAlert = null;
 
+    /**
+     * @var \Illuminate\Support\Collection<int, StockBuySetupAlert>
+     */
+    public $setupAlertsByType;
+
     public array $setupScoreBreakdown = [];
 
     /**
      * @var array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>
      */
     public array $candles = [];
+
+    public ?string $candleError = null;
 
     public ?string $priceType = null;
 
@@ -60,11 +68,18 @@ class Show extends Component
             $this->quote = null;
         }
 
-        // 3. Retrieve latest persisted setup alert
+        // 3. Retrieve latest persisted setup alert and alerts by setup type
         $this->latestSetupAlert = StockBuySetupAlert::where('symbol', $this->symbol)
             ->orderByDesc('spike_date')
             ->orderByDesc('id')
             ->first();
+
+        $this->setupAlertsByType = StockBuySetupAlert::where('symbol', $this->symbol)
+            ->orderByDesc('spike_date')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('setup_type')
+            ->values();
 
         if ($this->latestSetupAlert) {
             try {
@@ -78,13 +93,20 @@ class Show extends Component
         try {
             $candleResponse = $chartService->getCandles($this->symbol, '1day');
             $this->candles = $candleResponse['candles'] ?? [];
+        } catch (MarketDataProviderException $e) {
+            $this->candles = [];
+            $this->candleError = $e->getCode() === 429
+                ? 'Market data rate limit reached. Please retry in a moment.'
+                : 'Market data provider is currently unavailable. Please retry shortly.';
         } catch (\Throwable) {
             $this->candles = [];
+            $this->candleError = 'Failed to load chart data.';
         }
 
         // Determine price type indicator
         if ($this->quote && isset($this->quote['price']) && is_numeric($this->quote['price'])) {
-            $this->priceType = 'Delayed / Intraday';
+            $currency = $this->currencyCode;
+            $this->priceType = "Market Quote ({$currency})";
         } elseif ($this->stock && $this->stock->last_price) {
             $this->priceType = 'Previous Close';
         } elseif (! empty($this->candles)) {
@@ -92,6 +114,14 @@ class Show extends Component
         } else {
             $this->priceType = null;
         }
+    }
+
+    public function getCurrencyCodeProperty(): string
+    {
+        return (string) ($this->profile['currency']
+            ?? $this->quote['currency']
+            ?? $this->stock?->currency?->currency_code
+            ?? 'USD');
     }
 
     public function getCompanyNameProperty(): ?string
@@ -147,11 +177,12 @@ class Show extends Component
         }
 
         if ($this->stock && $this->stock->last_price) {
-            return $this->stock->last_price->toFloat();
+            return (float) $this->stock->last_price->toDecimal();
         }
 
         if (! empty($this->candles)) {
             $lastCandle = end($this->candles);
+
             return (float) $lastCandle['close'];
         }
 
@@ -165,7 +196,7 @@ class Show extends Component
         }
 
         if ($this->stock && $this->stock->daily_change) {
-            return $this->stock->daily_change->toFloat();
+            return (float) $this->stock->daily_change->toDecimal();
         }
 
         return null;
@@ -196,6 +227,7 @@ class Show extends Component
 
         if (! empty($this->candles)) {
             $lastCandle = end($this->candles);
+
             return (float) $lastCandle['volume'];
         }
 
@@ -224,6 +256,7 @@ class Show extends Component
         // Try to derive timestamp from candle data if available
         if (! empty($this->candles)) {
             $lastCandle = end($this->candles);
+
             return Carbon::createFromTimestamp($lastCandle['time'])->toDateString();
         }
 
@@ -235,7 +268,7 @@ class Show extends Component
         return null;
     }
 
-    public function render()
+    public function render(): \Illuminate\Contracts\View\View
     {
         return view('livewire.stocks.show');
     }

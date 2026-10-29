@@ -129,4 +129,16 @@ interface MarketDataProvider
      * @return array<int, array<string, mixed>>
      */
     public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array;
+
+    /**
+     * Return structured errors recorded during recent provider operations, if any.
+     *
+     * @return array<int, array{path:string,status:int,body:string}>
+     */
+    public function lastErrors(): array;
+
+    /**
+     * Clear recorded provider errors.
+     */
+    public function clearErrors(): void;
 }

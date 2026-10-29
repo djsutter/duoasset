@@ -2,7 +2,6 @@
 
 use App\Livewire\Stocks\Show as StockShow;
 use App\Models\Currency;
-use App\Models\Stock;
 use App\Models\StockBuySetupAlert;
 use App\Models\User;
 use App\Services\MarketData\FakeMarketDataProvider;
@@ -13,6 +12,8 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    \Illuminate\Support\Facades\Cache::flush();
+
     // Seed CAD currency which layout/widgets depend on
     Currency::factory()->create([
         'currency_code' => 'CAD',
@@ -359,4 +360,189 @@ test('stock analysis page renders chart container and loads stock-chart script f
     $response->assertSeeHtml('data-testid="vela-chart-container"');
     $response->assertSee('duoasset_vela_');
     $response->assertSee('duoasset_chart_prefs_');
+});
+
+test('candles json endpoint validates input parameters and returns 422 for malformed requests', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    app()->instance(MarketDataProvider::class, $fake);
+
+    // Invalid interval
+    $this->actingAs($user)->get('/stocks/ARVN/candles?interval=unknown_interval')
+        ->assertStatus(422);
+
+    // Invalid range
+    $this->actingAs($user)->get('/stocks/ARVN/candles?range=10Y')
+        ->assertStatus(422);
+
+    // Malformed from date
+    $this->actingAs($user)->get('/stocks/ARVN/candles?from=not-a-date')
+        ->assertStatus(422);
+
+    // Malformed to date
+    $this->actingAs($user)->get('/stocks/ARVN/candles?to=not-a-date')
+        ->assertStatus(422);
+
+    // from date after to date
+    $this->actingAs($user)->get('/stocks/ARVN/candles?from=2026-10-25&to=2026-10-20')
+        ->assertStatus(422);
+});
+
+test('candles normalization retains legitimate zero-volume bars and rejects negative volume', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->dailyBars['ARVN'] = [
+        ['date' => '2026-10-20', 'open' => 20.0, 'high' => 21.0, 'low' => 19.5, 'close' => 20.5, 'volume' => 0],
+        ['date' => '2026-10-21', 'open' => 20.5, 'high' => 21.5, 'low' => 20.0, 'close' => 21.0, 'volume' => -100],
+        ['date' => '2026-10-22', 'open' => 21.0, 'high' => 22.0, 'low' => 20.5, 'close' => 21.5, 'volume' => 50000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN/candles?interval=1day');
+    $response->assertOk();
+    $data = $response->json();
+
+    expect($data['candles'])->toHaveCount(2);
+    expect($data['candles'][0]['volume'])->toEqual(0.0);
+    expect($data['candles'][1]['volume'])->toEqual(50000.0);
+});
+
+test('candles normalization enforces date bounds and excludes future candles', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->dailyBars['ARVN'] = [
+        ['date' => '2026-09-01', 'open' => 18.0, 'high' => 19.0, 'low' => 17.5, 'close' => 18.5, 'volume' => 10000],
+        ['date' => '2026-10-15', 'open' => 20.0, 'high' => 21.0, 'low' => 19.5, 'close' => 20.5, 'volume' => 20000],
+        ['date' => '2026-10-20', 'open' => 21.0, 'high' => 22.0, 'low' => 20.5, 'close' => 21.5, 'volume' => 30000],
+        ['date' => '2026-11-01', 'open' => 22.0, 'high' => 23.0, 'low' => 21.5, 'close' => 22.5, 'volume' => 40000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN/candles?interval=1day&from=2026-10-01&to=2026-10-25');
+    $response->assertOk();
+    $data = $response->json();
+
+    expect($data['candles'])->toHaveCount(2);
+    expect($data['candles'][0]['open'])->toEqual(20.0);
+    expect($data['candles'][1]['open'])->toEqual(21.0);
+});
+
+test('stock analysis page renders dedicated vela-mount child element separated from overlays', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN');
+    $response->assertOk();
+
+    // Verify dedicated mount node exists inside chart container
+    $response->assertSeeHtml('data-vela-mount');
+    $response->assertSeeHtml('x-ref="velaMount"');
+    $response->assertSeeHtml('data-testid="vela-chart-container"');
+    $response->assertSeeHtml('data-testid="chart-error-state"');
+    $response->assertSeeHtml('data-testid="chart-empty-state"');
+});
+
+test('setup score panel exposes results for multiple setup types when available', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'vcp_breakout',
+        'setup_score' => 88,
+        'spike_date' => '2026-10-15',
+        'status' => 'active',
+        'detected_at' => now()->subDay(),
+    ]);
+
+    StockBuySetupAlert::create([
+        'symbol' => 'ARVN',
+        'setup_type' => 'heartbeat_spike',
+        'setup_score' => 74,
+        'spike_date' => '2026-10-10',
+        'status' => 'active',
+        'detected_at' => now()->subDays(2),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'ARVN'])
+        ->assertSeeHtml('data-testid="multi-setup-types"')
+        ->assertSee('vcp_breakout')
+        ->assertSee('heartbeat_spike')
+        ->assertSee('88/100')
+        ->assertSee('74/100');
+});
+
+test('candles json endpoint distinguishes provider rate limit failure from empty bars and returns 429', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->errors = [
+        ['path' => 'historical-price-eod/full', 'status' => 429, 'body' => 'Rate limit exceeded'],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN/candles?interval=1day');
+    $response->assertStatus(429);
+    $data = $response->json();
+
+    expect($data)->toHaveKeys(['message', 'provider_status', 'error']);
+    expect($data['provider_status'])->toBe(429);
+    expect($data['message'])->toContain('rate limit');
+});
+
+test('candles json endpoint distinguishes provider error from empty bars and returns 502', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->errors = [
+        ['path' => 'historical-price-eod/full', 'status' => 500, 'body' => 'Internal server error'],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN/candles?interval=1day');
+    $response->assertStatus(502);
+    $data = $response->json();
+
+    expect($data)->toHaveKeys(['message', 'provider_status', 'error']);
+    expect($data['provider_status'])->toBe(500);
+    expect($data['message'])->toContain('currently unavailable');
+});
+
+test('candles json endpoint returns 200 with empty candles when provider has no bars and no errors', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN/candles?interval=1day');
+    $response->assertOk();
+    $data = $response->json();
+
+    expect($data['count'])->toBe(0);
+    expect($data['candles'])->toBe([]);
+});
+
+test('stock analysis page surfaces provider failure message when initial candle load fails', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    $fake->errors = [
+        ['path' => 'historical-price-eod/full', 'status' => 429, 'body' => 'Too Many Requests'],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN');
+    $response->assertOk();
+    $response->assertSee('Market data rate limit reached');
 });
