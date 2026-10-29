@@ -4,6 +4,7 @@
 ## Contents
 
 - [Market Data Updates](#market-data-updates)
+- [Stock Analysis Pages (Vela)](#stock-analysis-pages-vela)
 - [Stock Buy Setup Scanner](#stock-buy-setup-scanner)
   - See also: [README_setup.md](README_setup.md) — algorithm selection & scoring-weight tuning guide
 - [EPS Surprise Tracker (bidirectional)](#eps-surprise-tracker-bidirectional)
@@ -18,6 +19,116 @@ In order to trigger alpha vantage stock updates, run this:
 ```bash
 php artisan market-watch:update-quotes
 ```
+
+## Stock Analysis Pages (Vela)
+
+DuoAsset includes an authenticated, TradingView-style **stock analysis page** at
+`/stocks/{symbol}` (named route `stocks.show`), including ticker symbols with exchange
+suffixes such as `FEO.V`. The page uses the existing Laravel/Livewire UI and FMP market
+data provider; it does **not** make browser-to-FMP requests or execute the expensive
+setup scanner when a page is viewed.
+
+> **Implementation status (October 28, 2026):** The routes, UI, backend candle adapter,
+> and automated PHP feature tests have been added. A production/browser acceptance pass
+> is still required; see **Outstanding validation and improvements** below. The code's
+> presence alone should not be taken as confirmation that all Vela interactions work.
+
+### Features implemented in code
+
+- **Stock identity and quote header:** symbol, company name, exchange, latest available
+  price, change and percent change, volume, market cap, a price-source badge, and a
+  market-data date/timestamp fallback. Missing fields show an unavailable value.
+- **Interactive chart shell:** LuxAlgo Vela (`@luxalgo/vela`, locked at `0.9.0`) in
+  single-chart workspace mode. The initial dataset is approximately one year of daily
+  candlesticks. The chart integration configures volume, OHLC status information,
+  crosshair/zoom/drawings through Vela, an indicator picker, app theme integration,
+  and an expanded/fullscreen control. Browser behavior still needs acceptance testing.
+- **Eight selectable intervals:** `1min`, `5min`, `15min`, `30min`, `1hour`, `1day`,
+  `1week`, `1month`. Weekly/monthly bars are aggregated from daily OHLCV.
+- **Six historical range choices:** `1M`, `3M`, `6M`, `1Y`, `5Y`, `All`. Intraday queries
+  are capped by interval to limit payload size; `All` is currently implemented as a
+  **20-year lookback**, not an exchange-listing-date discovery mechanism.
+- **Chart preferences:** the selected interval/range and Vela workspace state have
+  per-user, per-symbol localStorage keys (`duoasset_chart_prefs_*` and
+  `duoasset_vela_*`). Indicator/drawing restoration must still be verified in a browser.
+- **DuoAsset setup score:** shows the most recent persisted `StockBuySetupAlert` for the
+  symbol, including the stored score, setup classification, raw/heartbeat scores,
+  selected pattern metrics, calculation date, score-component breakdown, and reason
+  summary. Missing scores show a clear unavailable state. The scanner is **not**
+  invoked on page load. With multiple configured setup types, the current page shows
+  only one latest alert, not a score card for each type.
+- **Ticker navigation:** reusable `<x-ticker-link :symbol="..." />` component using the
+  `stocks.show` named route, applied to stock listings, setup scanner results, EPS
+  surprise/revision screens, watchlists, and the admin setup-run report. Autocomplete
+  selection UI remains a selection control rather than a navigation link.
+
+### Routes, data handling, and key files
+
+| Area | Route / file | Purpose |
+| --- | --- | --- |
+| Stock page | `GET /stocks/{symbol}` — `stocks.show` | Authenticated Livewire view; stock domain and verified-user middleware apply. |
+| Chart JSON | `GET /stocks/{symbol}/candles` — `stocks.candles` | Normalized OHLCV JSON; query parameters: `interval`, optional ISO date `from` / `to`, or `range`. |
+| Page component | `app/Livewire/Stocks/Show.php` | Loads the profile, quote, saved setup alert, and initial daily bars. |
+| Candle controller | `app/Http/Controllers/StockCandlesController.php` | Validates symbols and handles interval/range requests. |
+| Chart adapter | `app/Services/Stocks/StockChartService.php` | Reuses `MarketDataProvider`, normalizes/sorts/deduplicates candles, aggregates daily bars, and caches chart responses. |
+| Vela integration | `resources/js/stock-chart.js` | Creates the Vela workspace, handles theme and state integration. |
+| UI markup | `resources/views/livewire/stocks/show.blade.php` | Header, Alpine interval/range controls, chart, and setup-score panel. |
+| Ticker component | `resources/views/components/ticker-link.blade.php` | Shared link from existing symbol lists. |
+| Feature tests | `tests/Feature/Stocks/StockAnalysisPageTest.php` | Auth, tickers, JSON schema, intervals, aggregation, range parameters, and rendered controls. |
+
+Candle responses include `symbol`, `interval`, `from`, `to`, `count`, and ascending
+`candles`, each containing `time` (Unix seconds), `open`, `high`, `low`, `close`, and
+`volume`. The frontend converts timestamps to **epoch milliseconds** for Vela.
+
+The chart-service cache currently lasts **one hour** for daily/weekly/monthly data
+and **five minutes** for intraday data. The underlying FMP provider also caches daily
+bars for **12 hours** and intraday bars for **15 minutes**; the effective data freshness
+may therefore be longer than the chart-service TTL. Profiles are cached for 24 hours.
+
+### Setup and verification
+
+```bash
+npm ci
+npm run build
+php artisan route:list --name=stocks
+php artisan test --filter=StockAnalysisPageTest
+# or: ./vendor/bin/pest tests/Feature/Stocks/StockAnalysisPageTest.php
+```
+
+`php artisan` requires installed Composer dependencies (`vendor/`). A browser smoke
+check is also required for `ARVN`, `RARE`, `GPUS`, and `FEO.V`, with the Vite assets
+built and a functioning FMP configuration. Verify 1D, intraday and weekly/monthly
+intervals; range switching; volume/indicators; page navigation; theme/fullscreen;
+mobile widths; persistence after reload; and no browser console/network errors.
+
+### Outstanding validation and improvements
+
+1. **Correct the chart-container lifecycle:** `initStockChart()` currently clears the
+   entire `chartContainer` with `innerHTML = ''`, but the loading, error and empty-state
+   overlays are nested inside that same element. Mount Vela into a dedicated child
+   and preserve Alpine/Livewire-owned markup; add browser tests for those states.
+2. **Prove the real Vela integration works:** run a clean Vite build and browser smoke
+   tests against the installed package, including volume, native indicators,
+   state restore, and Livewire `wire:navigate` entry/exit cleanup. Avoid polling
+   indefinitely when the chart module fails to load.
+3. **Fix market-data semantics:** validate quote freshness and timestamps separately
+   from EOD candle dates; use actual exchange-session timezones for intraday bars,
+   account for split adjustments, reject/handle malformed OHLCV, and reconcile the
+   chart-service TTL with the FMP provider's longer underlying caches.
+4. **Harden request handling:** validate dates, ranges, and intervals explicitly,
+   distinguish provider failures from genuinely empty history, handle concurrent
+   timeframe requests, and test malformed/duplicate/future bars and zero volume.
+5. **Complete acceptance coverage:** browser tests for intervals, indicator enable/
+   disable, persistence, fullscreen, smaller viewports and ticker navigation without
+   breaking sorting, filtering or pagination. Add regression coverage for the
+   multi-setup-score situation and review whether each active setup type needs a
+   separate score card.
+
+**Deferred by the original specification:** Pine Script execution/editor, strategy
+backtesting, full historical scanner annotations, multi-chart workspaces, streaming,
+and price alerts. Keep AGPL-licensed PineTS/Vela-pinets out of the initial feature.
+Preserve Vela's required on-screen attribution and review licensing before adding a
+scripting engine. See `resources/js/stock-chart.js` for the initial extension note.
 
 ## Stock Buy Setup Scanner
 
