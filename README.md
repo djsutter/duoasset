@@ -29,9 +29,10 @@ data provider; it does **not** make browser-to-FMP requests or execute the expen
 setup scanner when a page is viewed.
 
 > **Implementation status (October 28, 2026):** The routes, UI, backend candle adapter,
-> and automated PHP feature tests have been added. A production/browser acceptance pass
-> is still required; see **Outstanding validation and improvements** below. The code's
-> presence alone should not be taken as confirmation that all Vela interactions work.
+> and automated PHP feature tests have been added. An isolated Vela build and a full
+> `npm ci --include=dev;npm run build` to build.
+> Browser acceptance and PHP test execution remain outstanding; see below. A successful
+> asset build alone does not confirm Vela renders/interacts correctly in the browser.
 
 ### Features implemented in code
 
@@ -95,7 +96,10 @@ php artisan test --filter=StockAnalysisPageTest
 # or: ./vendor/bin/pest tests/Feature/Stocks/StockAnalysisPageTest.php
 ```
 
-`php artisan` requires installed Composer dependencies (`vendor/`). A browser smoke
+`php artisan` requires installed Composer dependencies (`vendor/`).
+verified a successful Vite 6.3.5 build (156 modules, 4.04 seconds).
+
+A browser smoke
 check is also required for `ARVN`, `RARE`, `GPUS`, and `FEO.V`, with the Vite assets
 built and a functioning FMP configuration. Verify 1D, intraday and weekly/monthly
 intervals; range switching; volume/indicators; page navigation; theme/fullscreen;
@@ -107,9 +111,11 @@ mobile widths; persistence after reload; and no browser console/network errors.
    entire `chartContainer` with `innerHTML = ''`, but the loading, error and empty-state
    overlays are nested inside that same element. Mount Vela into a dedicated child
    and preserve Alpine/Livewire-owned markup; add browser tests for those states.
-2. **Prove the real Vela integration works:** run a clean Vite build and browser smoke
-   tests against the installed package, including volume, native indicators,
-   state restore, and Livewire `wire:navigate` entry/exit cleanup. Avoid polling
+2. **Prove the real Vela integration works:** the full Vite build passes. Run browser
+   smoke tests against the installed package, including volume, native indicators,
+   state restore, and Livewire `wire:navigate` entry/exit cleanup. `statusLine` is
+   not a Vela 0.9.0 workspace option (the documented `statusline` toggle is boolean).
+   Remove or replace that ineffective configuration. Avoid polling
    indefinitely when the chart module fails to load.
 3. **Fix market-data semantics:** validate quote freshness and timestamps separately
    from EOD candle dates; use actual exchange-session timezones for intraday bars,
