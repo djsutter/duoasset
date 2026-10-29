@@ -302,6 +302,7 @@ test('non-administrator does not see admin observability links in navigation', f
 test('stocks:scan-buy-setups command creates and finalizes a setup scan run record', function () {
     $mockProvider = Mockery::mock(MarketDataProvider::class);
     $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('lastErrors')->zeroOrMoreTimes()->andReturn([]);
     $mockProvider->shouldReceive('profile')->with('FEO')->andReturn([
         'company_name' => 'Oceanic Iron Ore Corp',
         'exchange' => 'TSXV',

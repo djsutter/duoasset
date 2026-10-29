@@ -27,6 +27,7 @@ test('scan buy setups command runs with dynamic config and screener options', fu
 
     $mockProvider = Mockery::mock(MarketDataProvider::class);
     $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('lastErrors')->zeroOrMoreTimes()->andReturn([]);
     $mockProvider->shouldReceive('companyScreener')
         ->once()
         ->with(Mockery::on(function ($filters) {
@@ -65,6 +66,7 @@ test('scan buy setups command widens the screener market-cap range to span every
 
     $mockProvider = Mockery::mock(MarketDataProvider::class);
     $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('lastErrors')->zeroOrMoreTimes()->andReturn([]);
     $mockProvider->shouldReceive('companyScreener')
         ->once()
         ->with(Mockery::on(function ($filters) {
