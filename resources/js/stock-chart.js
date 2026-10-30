@@ -234,11 +234,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             if (rawContainer) {
                 rawContainer.__vela_ws = null;
             }
-            const res = originalDestroy();
-            if (typeof cleanupVelaStyles === 'function' && !document.querySelector('[data-vela-mount]')) {
-                cleanupVelaStyles();
-            }
-            return res;
+            return originalDestroy();
         };
 
         containerRegistry.set(container, { observer, resizeHandler, unloadHandler, unsubState });
@@ -254,27 +250,21 @@ export function initStockChart(containerIdOrEl, options = {}) {
 }
 
 /**
- * Remove dynamically injected Vela <style id="vela-*"> elements from document.head
- * to prevent leaking chart styles to non-stock pages during Livewire navigation.
+ * When leaving a Vela page, perform a normal browser navigation instead of an SPA
+ * transition to prevent Vela from injecting itself everywhere else.
  */
-export function cleanupVelaStyles() {
-    if (typeof document === 'undefined') return;
-    const styles = document.querySelectorAll('style[id^="vela-"]');
-    styles.forEach((el) => {
-        try {
-            el.remove();
-        } catch (e) {}
-    });
-}
+document.addEventListener('livewire:navigate', (event) => {
+    if (!document.querySelector('[data-vela-mount]')) {
+        return;
+    }
 
-// Automatically prune lingering Vela style elements when Livewire navigates to a non-stock-chart page
-if (typeof document !== 'undefined') {
-    document.addEventListener('livewire:navigated', () => {
-        if (!document.querySelector('[data-vela-mount]')) {
-            cleanupVelaStyles();
-        }
-    });
-}
+    event.preventDefault();
 
-window.cleanupVelaStyles = cleanupVelaStyles;
+    if (event.detail.history) {
+        window.location.replace(event.detail.url.href);
+    } else {
+        window.location.assign(event.detail.url.href);
+    }
+});
+
 window.initStockChart = initStockChart;
