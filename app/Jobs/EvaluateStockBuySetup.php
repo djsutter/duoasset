@@ -9,6 +9,7 @@ use App\Models\StockDailyBar;
 use App\Models\User;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\IgnitionExtensionCalculator;
@@ -306,6 +307,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     $alert->detected_at = now();
                 }
                 $alert->save();
+                app(DashboardCacheService::class)->invalidateTopScoringSetups();
 
                 $shouldNotify = $result->setupScore >= $notifyMinScore;
 

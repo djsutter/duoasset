@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\EarningsAlert;
 use App\Models\EarningsEvent;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Services\Earnings\EarningsSurpriseScorer;
 use App\Services\MarketData\MarketCap;
 use App\Services\MarketData\MarketDataProvider;
@@ -128,6 +129,7 @@ class EnrichEarningsEvent implements ShouldQueue
         }
 
         $event->save();
+        app(DashboardCacheService::class)->invalidateEpsSurprises();
 
         // Ensure a basic Stock row exists for any symbol surfaced by the scanner,
         // regardless of whether the event qualifies for an alert.

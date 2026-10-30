@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\SectorFlowSnapshot;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Services\MoneyFlow\SectorMoneyFlowRunSummary;
 use App\Services\MoneyFlow\SectorMoneyFlowService;
 use Carbon\CarbonImmutable;
@@ -81,6 +82,8 @@ class UpdateMoneyFlows extends Command
 
             return self::FAILURE;
         }
+
+        app(DashboardCacheService::class)->invalidateMoneyFlows();
 
         return self::SUCCESS;
     }

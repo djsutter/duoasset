@@ -35,86 +35,84 @@
             </div>
         </div>
 
-        {{-- Watchlist Section --}}
-        @if (! $hasWatchlistItems)
-            {{-- Empty or missing watchlist notice --}}
-            <div class="p-4 rounded-xl border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-200 flex items-start gap-3.5 shadow-xs" data-testid="watchlist-empty-banner">
-                <div class="p-2 rounded-lg bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-400 shrink-0">
-                    <flux:icon icon="information-circle" class="size-5" />
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
-                        {{ __('Your watchlist is currently empty or does not exist.') }}
-                    </p>
-                    <p class="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-                        {{ __('Add stocks to your watchlist to monitor your highest scoring setup opportunities and percentage gainers since added date.') }}
-                    </p>
-                    <div class="mt-2.5">
-                        <a href="{{ route('watchlists.index') }}" wire:navigate class="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 underline hover:no-underline">
-                            <span>{{ __('Manage Watchlists') }}</span>
-                            <flux:icon icon="arrow-right" variant="mini" class="size-3.5" />
-                        </a>
-                    </div>
-                </div>
-            </div>
-        @else
-            {{-- Watchlist Cards: Top Setups & Top Gainers --}}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {{-- Card 1: 2 Highest Scoring Stocks from Watchlist --}}
-                <div class="p-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" data-testid="top-scoring-setups-card">
-                    <div class="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-zinc-100 dark:border-zinc-800">
-                        <div class="flex items-center gap-2">
-                            <div class="p-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400">
-                                <flux:icon icon="chart-bar" variant="mini" class="size-4" />
-                            </div>
-                            <div>
-                                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                                    {{ __('Top Watchlist Setups') }}
-                                </h3>
-                                <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-                                    {{ __('Highest scoring setups from :watchlist', ['watchlist' => $watchlist->name ?? __('Watchlist')]) }}
-                                </p>
-                            </div>
+        {{-- Setups & Watchlist Gainers --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {{-- Card 1: Top Scoring Setups (market-wide, latest score per setup type) --}}
+            <div class="p-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" data-testid="top-scoring-setups-card">
+                <div class="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-zinc-100 dark:border-zinc-800">
+                    <div class="flex items-center gap-2">
+                        <div class="p-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400">
+                            <flux:icon icon="chart-bar" variant="mini" class="size-4" />
                         </div>
-                        <a href="{{ route('watchlists.stock-buy-setups') }}" wire:navigate class="text-xs text-sky-600 dark:text-sky-400 hover:underline inline-flex items-center gap-1 font-medium">
-                            <span>{{ __('All Setups') }}</span>
-                            <flux:icon icon="chevron-right" variant="micro" class="size-3" />
-                        </a>
+                        <div>
+                            <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                {{ __('The Top Scoring Setups') }}
+                            </h3>
+                            <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                {{ __('Latest highest scoring setup per stock across the market') }}
+                            </p>
+                        </div>
                     </div>
+                    <a href="{{ route('watchlists.stock-buy-setups') }}" wire:navigate class="text-xs text-sky-600 dark:text-sky-400 hover:underline inline-flex items-center gap-1 font-medium">
+                        <span>{{ __('All Setups') }}</span>
+                        <flux:icon icon="chevron-right" variant="micro" class="size-3" />
+                    </a>
+                </div>
 
-                    @if ($highestScoringStocks->isNotEmpty())
-                        <div class="space-y-2.5">
-                            @foreach ($highestScoringStocks as $item)
-                                <div class="flex items-center justify-between p-3 rounded-lg bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 hover:border-zinc-200 dark:hover:border-zinc-700 transition-colors">
-                                    <div class="min-w-0 pr-2">
-                                        <div class="flex items-center gap-2">
-                                            <x-ticker-link :symbol="$item['symbol']" class="text-sm" />
-                                            @if (! empty($item['setup_type']))
-                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-                                                    {{ str_replace('_', ' ', $item['setup_type']) }}
-                                                </span>
-                                            @endif
-                                        </div>
-                                        <p class="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
-                                            {{ $item['company_name'] }}
-                                        </p>
+                @if ($highestScoringStocks->isNotEmpty())
+                    <div class="space-y-2.5">
+                        @foreach ($highestScoringStocks as $item)
+                            <div class="flex items-center justify-between p-3 rounded-lg bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 hover:border-zinc-200 dark:hover:border-zinc-700 transition-colors">
+                                <div class="min-w-0 pr-2">
+                                    <div class="flex items-center gap-2">
+                                        <x-ticker-link :symbol="$item['symbol']" class="text-sm" />
+                                        @if (! empty($item['setup_type']))
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                                                {{ str_replace('_', ' ', $item['setup_type']) }}
+                                            </span>
+                                        @endif
                                     </div>
-                                    <div class="text-right shrink-0">
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold font-mono bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 ring-1 ring-inset ring-sky-300 dark:ring-sky-800">
-                                            {{ __('Score') }}: {{ $item['setup_score'] }}
-                                        </span>
-                                    </div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+                                        {{ $item['company_name'] }}
+                                    </p>
                                 </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <div class="py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
-                            {{ __('No setup scores recorded for items in this watchlist yet.') }}
-                        </div>
-                    @endif
-                </div>
+                                <div class="text-right shrink-0">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold font-mono bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 ring-1 ring-inset ring-sky-300 dark:ring-sky-800">
+                                        {{ __('Score') }}: {{ $item['setup_score'] }}
+                                    </span>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <div class="py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                        {{ __('No setup scores recorded yet.') }}
+                    </div>
+                @endif
+            </div>
 
-                {{-- Card 2: 2 Highest Percentage Gaining Stocks Since Date Added --}}
+            {{-- Card 2: Top Watchlist Gainers (or empty-watchlist notice) --}}
+            @if (! $hasWatchlistItems)
+                <div class="p-4 rounded-xl border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-200 flex items-start gap-3.5 shadow-xs" data-testid="watchlist-empty-banner">
+                    <div class="p-2 rounded-lg bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-400 shrink-0">
+                        <flux:icon icon="information-circle" class="size-5" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
+                            {{ __('Your watchlist is currently empty or does not exist.') }}
+                        </p>
+                        <p class="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+                            {{ __('Add stocks to your watchlist to monitor your highest scoring setup opportunities and percentage gainers since added date.') }}
+                        </p>
+                        <div class="mt-2.5">
+                            <a href="{{ route('watchlists.index') }}" wire:navigate class="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 underline hover:no-underline">
+                                <span>{{ __('Manage Watchlists') }}</span>
+                                <flux:icon icon="arrow-right" variant="mini" class="size-3.5" />
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            @else
                 <div class="p-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" data-testid="top-watchlist-gainers-card">
                     <div class="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-zinc-100 dark:border-zinc-800">
                         <div class="flex items-center gap-2">
@@ -172,8 +170,9 @@
                         </div>
                     @endif
                 </div>
-            </div>
-        @endif
+            @endif
+        </div>
+
 
         {{-- Market Movers: Money Flow Gainers, Money Flow Losers, Highest EPS Surprises --}}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\PrewarmDashboardCacheJob;
 use App\Models\User;
 use App\Notifications\TwoFactorAuthenticationCode;
 use Illuminate\Auth\Events\Lockout;
@@ -50,6 +51,8 @@ new #[Layout('components.layouts.auth')] class extends Component
 
         if ($user) {
             RateLimiter::clear($this->throttleKey());
+
+            PrewarmDashboardCacheJob::dispatch($user->id);
 
             $code = $user->generateTwoFactorCode();
             $user->notify(new TwoFactorAuthenticationCode($code));

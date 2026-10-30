@@ -51,7 +51,7 @@ test('stock mode dashboard displays empty watchlist notice when user watchlist h
         ->assertSee(route('watchlists.index'));
 });
 
-test('stock mode dashboard displays top 2 scoring stocks from default watchlist', function () {
+test('stock mode dashboard displays top 2 scoring setups market-wide', function () {
     $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
 
     $defaultWatchlist = Watchlist::create([
@@ -113,15 +113,15 @@ test('stock mode dashboard displays top 2 scoring stocks from default watchlist'
 
     $response = $this->get('/dashboard');
     $response->assertStatus(200)
-        ->assertSee('Top Watchlist Setups')
+        ->assertSee('The Top Scoring Setups')
         ->assertSee('ALPH')
         ->assertSee('Alpha Corp')
         ->assertSee('95')
-        ->assertSee('BETA')
-        ->assertSee('Beta Inc')
-        ->assertSee('88')
-        ->assertDontSee('Gamma LLC')
-        ->assertDontSee('DELT');
+        ->assertSee('DELT')
+        ->assertSee('Delta Group')
+        ->assertSee('99')
+        ->assertDontSee('Beta Inc')
+        ->assertDontSee('Gamma LLC');
 });
 
 test('stock mode dashboard falls back to first watchlist when no default watchlist is set', function () {
@@ -149,7 +149,7 @@ test('stock mode dashboard falls back to first watchlist when no default watchli
 
     $response = $this->get('/dashboard');
     $response->assertStatus(200)
-        ->assertSee('Top Watchlist Setups')
+        ->assertSee('The Top Scoring Setups')
         ->assertSee('AAA')
         ->assertSee('91');
 });
@@ -316,6 +316,150 @@ test('dashboard respects crypto view mode and renders crypto dashboard instead o
     $response = $this->get('/dashboard');
     $response->assertStatus(200)
         ->assertDontSee('Market Overview')
-        ->assertDontSee('Top Watchlist Setups')
+        ->assertDontSee('The Top Scoring Setups')
         ->assertDontSee('Money Flow Gainers');
+});
+
+
+function makeAlert(string $symbol, int $score, string $type, string $spikeDate, ?string $company = null, string $source = 'test'): StockBuySetupAlert
+{
+    return StockBuySetupAlert::create([
+        'symbol' => $symbol,
+        'company_name' => $company ?? "{$symbol} Corp",
+        'setup_score' => $score,
+        'setup_type' => $type,
+        'spike_date' => $spikeDate,
+        'source' => $source,
+    ]);
+}
+
+test('top scoring setups ignore superseded older scores of the same setup type', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+
+    makeAlert('ARVN', 98, 'vcp_breakout', '2026-08-30');
+    makeAlert('ARVN', 65, 'vcp_breakout', '2026-10-25');
+    makeAlert('OTHR', 70, 'vcp_breakout', '2026-10-20');
+
+    $this->actingAs($user);
+
+    $setups = app(\App\Services\Dashboard\DashboardQueryService::class)->topScoringSetups();
+
+    expect($setups->pluck('symbol')->all())->toBe(['OTHR', 'ARVN'])
+        ->and($setups->firstWhere('symbol', 'ARVN')['setup_score'])->toBe(65);
+});
+
+test('top scoring setups pick the highest score among the latest alerts of each setup type', function () {
+    makeAlert('ARVN', 98, 'vcp_breakout', '2026-08-30');
+    makeAlert('ARVN', 65, 'vcp_breakout', '2026-10-25');
+    makeAlert('ARVN', 80, 'range_compression', '2026-10-01');
+    makeAlert('ZZZZ', 75, 'vcp_breakout', '2026-10-10');
+    makeAlert('YYYY', 60, 'vcp_breakout', '2026-10-10');
+
+    $setups = app(\App\Services\Dashboard\DashboardQueryService::class)->topScoringSetups();
+
+    expect($setups)->toHaveCount(2)
+        ->and($setups[0]['symbol'])->toBe('ARVN')
+        ->and($setups[0]['setup_score'])->toBe(80)
+        ->and($setups[0]['setup_type'])->toBe('range_compression')
+        ->and($setups[1]['symbol'])->toBe('ZZZZ');
+});
+
+test('same-day detections resolve by highest id', function () {
+    makeAlert('SAME', 90, 'vcp_breakout', '2026-10-25');
+    makeAlert('SAME', 55, 'vcp_breakout', '2026-10-25', null, 'rescan');
+
+    $setups = app(\App\Services\Dashboard\DashboardQueryService::class)->topScoringSetups();
+
+    expect($setups)->toHaveCount(1)->and($setups[0]['setup_score'])->toBe(55);
+});
+
+test('market-wide setups render even when the user has an empty watchlist', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    makeAlert('ARVN', 98, 'vcp_breakout', '2026-08-30');
+    makeAlert('ARVN', 65, 'vcp_breakout', '2026-10-25');
+
+    $this->actingAs($user)->get('/dashboard')
+        ->assertStatus(200)
+        ->assertSee('The Top Scoring Setups')
+        ->assertSee('ARVN')
+        ->assertSee('65')
+        ->assertDontSee('Score: 98')
+        ->assertSee('Your watchlist is currently empty or does not exist.')
+        ->assertDontSee('Top Watchlist Setups');
+});
+
+test('top scoring setups are cached until the setup scan invalidates them', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    makeAlert('ARVN', 60, 'vcp_breakout', '2026-10-25');
+
+    $this->actingAs($user)->get('/dashboard')->assertSee('ARVN');
+    expect(Cache::has('dash_top_scoring_setups'))->toBeTrue();
+
+    makeAlert('NEWW', 99, 'vcp_breakout', '2026-10-26', 'Newly Scanned Corp');
+    $this->get('/dashboard')->assertDontSee('Newly Scanned Corp');
+
+    $mockProvider = Mockery::mock(MarketDataProvider::class);
+    $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('lastErrors')->zeroOrMoreTimes()->andReturn([]);
+    $mockProvider->shouldReceive('companyScreener')->zeroOrMoreTimes()->andReturn([]);
+    $this->app->instance(MarketDataProvider::class, $mockProvider);
+
+    $this->artisan('stocks:scan-buy-setups', ['--sync' => true])->assertSuccessful();
+    expect(Cache::has('dash_top_scoring_setups'))->toBeFalse();
+
+    $this->get('/dashboard')->assertSee('Newly Scanned Corp');
+});
+
+test('eps surprises and money flows caches are cleared by their invalidators and refilled on visit', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    $cache = app(\App\Services\Dashboard\DashboardCacheService::class);
+
+    $this->actingAs($user)->get('/dashboard')->assertStatus(200);
+
+    expect(Cache::has('dash_highest_eps_surprises'))->toBeTrue()
+        ->and(Cache::has('dash_money_flows_gainers'))->toBeTrue()
+        ->and(Cache::has('dash_money_flows_losers'))->toBeTrue();
+
+    $cache->invalidateEpsSurprises();
+    expect(Cache::has('dash_highest_eps_surprises'))->toBeFalse()
+        ->and(Cache::has('dash_money_flows_gainers'))->toBeTrue();
+
+    $cache->invalidateMoneyFlows();
+    expect(Cache::has('dash_money_flows_gainers'))->toBeFalse()
+        ->and(Cache::has('dash_money_flows_losers'))->toBeFalse();
+
+    $this->get('/dashboard')->assertStatus(200);
+    expect(Cache::has('dash_highest_eps_surprises'))->toBeTrue()
+        ->and(Cache::has('dash_money_flows_gainers'))->toBeTrue();
+});
+
+test('user watchlist gainers are cached per user and cleared when the watchlist changes', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    $watchlist = Watchlist::create(['user_id' => $user->id, 'name' => 'Main', 'is_default' => true]);
+    $stock = Stock::factory()->create(['symbol' => 'GAIN']);
+    WatchlistItem::factory()->create(['watchlist_id' => $watchlist->id, 'stock_id' => $stock->id]);
+
+    $this->actingAs($user)->get('/dashboard')->assertStatus(200);
+    expect(Cache::has("dash_user_{$user->id}_gainers"))->toBeTrue();
+
+    $other = Stock::factory()->create(['symbol' => 'MORE']);
+    WatchlistItem::factory()->create(['watchlist_id' => $watchlist->id, 'stock_id' => $other->id]);
+    expect(Cache::has("dash_user_{$user->id}_gainers"))->toBeFalse();
+});
+
+test('earnings surprise scan completion clears the cached EPS surprises card', function () {
+    $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    $this->actingAs($user)->get('/dashboard')->assertStatus(200);
+    expect(Cache::has('dash_highest_eps_surprises'))->toBeTrue();
+
+    $mockProvider = Mockery::mock(MarketDataProvider::class);
+    $mockProvider->shouldReceive('clearErrors')->zeroOrMoreTimes();
+    $mockProvider->shouldReceive('lastErrors')->zeroOrMoreTimes()->andReturn([]);
+    $mockProvider->shouldReceive('earningsSurprises')->zeroOrMoreTimes()->andReturn([]);
+    $mockProvider->shouldReceive('earningsCalendar')->zeroOrMoreTimes()->andReturn([]);
+    $this->app->instance(MarketDataProvider::class, $mockProvider);
+
+    $this->artisan('earnings:scan-surprises')->assertSuccessful();
+
+    expect(Cache::has('dash_highest_eps_surprises'))->toBeFalse();
 });

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\EvaluateStockBuySetup;
 use App\Models\StockBuySetupRun;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\BuySetupConfigService;
 use Illuminate\Console\Command;
@@ -227,6 +228,8 @@ class ScanBuySetups extends Command
                 $this->warn('Jobs are queued, not executed by this command. Run `php artisan queue:work --queue='.$queue.'` or rerun with `--sync` for a foreground debug pass.');
             }
         }
+
+        app(DashboardCacheService::class)->invalidateTopScoringSetups();
 
         return self::SUCCESS;
     }

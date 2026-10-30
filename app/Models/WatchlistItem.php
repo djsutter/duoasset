@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Casts\FiatMoneyCast;
 use App\Enums\MoatLevel;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Types\FiatMoney;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -44,6 +45,15 @@ class WatchlistItem extends Model
 
     protected static function booted(): void
     {
+        $forgetGainers = function (WatchlistItem $item) {
+            $userId = Watchlist::query()->whereKey($item->watchlist_id)->value('user_id');
+            if ($userId) {
+                app(DashboardCacheService::class)->invalidateUserGainers((int) $userId);
+            }
+        };
+        static::saved($forgetGainers);
+        static::deleted($forgetGainers);
+
         static::saving(function (WatchlistItem $item) {
             // Currency is derived from the linked stock so users only choose
             // currency once (when creating the stock).

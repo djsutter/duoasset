@@ -28,6 +28,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'role' => 'guest',
         'view_mode' => 'stocks',
         'credit_balance' => 0.00,
+        'timezone' => 'America/New_York',
     ];
 
     /**
@@ -45,6 +46,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'role',
         'view_mode',
         'credit_balance',
+        'timezone',
     ];
 
     /**
@@ -58,6 +60,20 @@ class User extends Authenticatable implements MustVerifyEmail
         'two_factor_code',
         'activation_token',
     ];
+
+    /**
+     * The user's regional IANA timezone (falls back to America/New_York when unset or invalid).
+     */
+    public function timezone(): string
+    {
+        $timezone = $this->attributes['timezone'] ?? null;
+
+        if (is_string($timezone) && $timezone !== '' && in_array($timezone, \DateTimeZone::listIdentifiers(), true)) {
+            return $timezone;
+        }
+
+        return 'America/New_York';
+    }
 
     /**
      * Get the attributes that should be cast.

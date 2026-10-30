@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\EnrichEarningsEvent;
 use App\Models\EarningsEvent;
+use App\Services\Dashboard\DashboardCacheService;
 use App\Services\Earnings\EarningsSurpriseScorer;
 use App\Services\MarketData\MarketDataProvider;
 use Carbon\CarbonImmutable;
@@ -181,6 +182,8 @@ class ScanEarningsSurprises extends Command
         }
 
         $this->info("Processed: $processed, enrichment jobs dispatched: $dispatched");
+
+        app(DashboardCacheService::class)->invalidateEpsSurprises();
 
         return self::SUCCESS;
     }
