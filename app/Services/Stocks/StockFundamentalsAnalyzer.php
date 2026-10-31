@@ -30,6 +30,19 @@ class StockFundamentalsAnalyzer
     private const MAX_PCT_MAGNITUDE = 999999.9999;
 
     /**
+     * Largest magnitudes the persisted TTM margin columns can hold:
+     * *_margin_expansion_bps is decimal(12,4) and the *_ttm_*_margin ratios
+     * are decimal(10,6) (stock_buy_setup_alerts). A near-zero TTM revenue
+     * (pre-revenue / distressed micro-caps such as TLPH, OMEX) yields margins
+     * like -14,747x revenue and expansions of -142,000,000 bps, which overflow
+     * the columns (SQLSTATE 22003) and are economically meaningless, so the
+     * whole metric is treated as missing data instead.
+     */
+    private const MAX_MARGIN_RATIO = 9999.999999;
+
+    private const MAX_MARGIN_EXPANSION_BPS = 99999999.9999;
+
+    /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
      * @param  array<int, array<string, mixed>>  $cashFlowRows
@@ -159,6 +172,11 @@ class StockFundamentalsAnalyzer
         $currentMargin = $currentOperatingIncome / $currentRevenue;
         $priorMargin = $priorOperatingIncome / $priorRevenue;
         $rawExpansionBps = round(($currentMargin - $priorMargin) * 10000, 4);
+
+        if (! $this->marginMetricsPersistable($currentMargin, $priorMargin, $rawExpansionBps)) {
+            return $empty;
+        }
+
         $lossWorsened = $currentOperatingIncome < 0 && $currentOperatingIncome < $priorOperatingIncome;
 
         return [
@@ -288,6 +306,11 @@ class StockFundamentalsAnalyzer
         $currentMargin = $currentFcf / $currentRevenue;
         $priorMargin = $priorFcf / $priorRevenue;
         $rawExpansionBps = round(($currentMargin - $priorMargin) * 10000, 4);
+
+        if (! $this->marginMetricsPersistable($currentMargin, $priorMargin, $rawExpansionBps)) {
+            return $empty;
+        }
+
         $cashBurnWorsened = $currentFcf < 0 && $currentFcf < $priorFcf;
 
         return [
@@ -302,6 +325,23 @@ class StockFundamentalsAnalyzer
             'fcf_margin_expansion_bps' => $cashBurnWorsened ? min(0.0, $rawExpansionBps) : $rawExpansionBps,
             'raw_fcf_margin_expansion_bps' => $rawExpansionBps,
         ];
+    }
+
+    /**
+     * Whether the TTM margins and their bps expansion are finite and fit the
+     * decimal columns they are persisted in. See MAX_MARGIN_RATIO.
+     */
+    private function marginMetricsPersistable(float $currentMargin, float $priorMargin, float $expansionBps): bool
+    {
+        foreach ([$currentMargin, $priorMargin, $expansionBps] as $value) {
+            if (! is_finite($value)) {
+                return false;
+            }
+        }
+
+        return abs(round($currentMargin, 6)) <= self::MAX_MARGIN_RATIO
+            && abs(round($priorMargin, 6)) <= self::MAX_MARGIN_RATIO
+            && abs($expansionBps) <= self::MAX_MARGIN_EXPANSION_BPS;
     }
 
     /**

@@ -247,3 +247,45 @@ test('it does not replace invalid recent operating income with a ninth old quart
     expect($result['operating_margin_expansion_bps'])->toBeNull()
         ->and($result['raw_operating_margin_expansion_bps'])->toBeNull();
 });
+
+// Regression (TLPH / OMEX): near-zero TTM revenue produced a -142,524,074 bps
+// expansion and a -14,747 margin ratio, overflowing decimal(12,4)/decimal(10,6)
+// and failing the stock_buy_setup_alerts insert (SQLSTATE 22003).
+test('it treats an unpersistable bps expansion from near-zero revenue as missing data', function () {
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [100.0, -1_474_700.0]), // current margin -14,747x
+        array_fill(0, 4, [100.0, 0.0]),          // prior margin 0
+    ));
+
+    $result = (new StockFundamentalsAnalyzer)->operatingMarginExpansion($rows);
+
+    expect($result['operating_margin_expansion_bps'])->toBeNull()
+        ->and($result['raw_operating_margin_expansion_bps'])->toBeNull()
+        ->and($result['current_ttm_operating_margin'])->toBeNull()
+        ->and($result['prior_ttm_operating_margin'])->toBeNull();
+});
+
+test('it treats a margin ratio beyond the decimal(10,6) column as missing data even when bps fits', function () {
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [100.0, -1_474_700.0]), // -14,747
+        array_fill(0, 4, [100.0, -1_000_000.0]), // -10,000 -> bps diff ~ -47M (fits decimal(12,4))
+    ));
+
+    $result = (new StockFundamentalsAnalyzer)->operatingMarginExpansion($rows);
+
+    expect($result['operating_margin_expansion_bps'])->toBeNull()
+        ->and($result['current_ttm_operating_margin'])->toBeNull();
+});
+
+test('it keeps large but storable operating margin values', function () {
+    $rows = omeRows(array_merge(
+        array_fill(0, 4, [100.0, -5_000.0]), // -50x
+        array_fill(0, 4, [100.0, -2_500.0]), // -25x
+    ));
+
+    $result = (new StockFundamentalsAnalyzer)->operatingMarginExpansion($rows);
+
+    expect($result['current_ttm_operating_margin'])->toBe(-50.0)
+        ->and($result['prior_ttm_operating_margin'])->toBe(-25.0)
+        ->and($result['raw_operating_margin_expansion_bps'])->toBe(-250_000.0);
+});

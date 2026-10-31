@@ -274,3 +274,28 @@ test('it rejects mismatched income and cash flow reporting currencies', function
     expect($result['fcf_margin_expansion_bps'])->toBeNull()
         ->and($result['raw_fcf_margin_expansion_bps'])->toBeNull();
 });
+
+// Regression (TLPH / OMEX): near-zero TTM revenue produced a -118,400,741 bps
+// FCF expansion and a -12,270 margin ratio that overflowed the alert columns.
+test('it treats an unpersistable fcf margin from near-zero revenue as missing data', function () {
+    $income = fcfIncomeRows([100, 100, 100, 100, 100, 100, 100, 100]);
+    $cashFlow = fcfCashFlowRows([-1_227_000, -1_227_000, -1_227_000, -1_227_000, 0, 0, 0, 0]);
+
+    $result = (new StockFundamentalsAnalyzer)->fcfMarginExpansion($income, $cashFlow);
+
+    expect($result['fcf_margin_expansion_bps'])->toBeNull()
+        ->and($result['raw_fcf_margin_expansion_bps'])->toBeNull()
+        ->and($result['current_ttm_fcf_margin'])->toBeNull()
+        ->and($result['prior_ttm_fcf_margin'])->toBeNull();
+});
+
+test('it keeps large but storable fcf margin values', function () {
+    $income = fcfIncomeRows([100, 100, 100, 100, 100, 100, 100, 100]);
+    $cashFlow = fcfCashFlowRows([-1_250, -1_250, -1_250, -1_250, -625, -625, -625, -625]);
+
+    $result = (new StockFundamentalsAnalyzer)->fcfMarginExpansion($income, $cashFlow);
+
+    expect($result['current_ttm_fcf_margin'])->toBe(-12.5)
+        ->and($result['prior_ttm_fcf_margin'])->toBe(-6.25)
+        ->and($result['raw_fcf_margin_expansion_bps'])->toBe(-62_500.0);
+});
