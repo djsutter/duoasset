@@ -191,6 +191,7 @@ class DashboardQueryService
             ->whereNotNull('eps_surprise_percent')
             ->orderByDesc('eps_surprise_percent')
             ->orderByDesc('report_date')
+            ->limit(50)
             ->get()
             ->unique('symbol')
             ->take($limit)

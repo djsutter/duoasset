@@ -125,6 +125,12 @@ class Dashboard extends Component
             $moneyFlowGainers = $this->getMoneyFlowGainers();
             $moneyFlowLosers = $this->getMoneyFlowLosers();
             $highestEpsSurprises = $this->getHighestEpsSurpriseStocks();
+
+            /** @var User|null $user */
+            $user = Auth::user();
+            if ($user) {
+                app(DashboardCacheService::class)->triggerPrefetchIfStale($user);
+            }
         }
 
         return view('livewire.dashboard', [
