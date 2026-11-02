@@ -326,3 +326,32 @@ test('api earnings calendar and surprises return structured events', function ()
             'count' => 1,
         ]);
 });
+
+test('api candles endpoint rejects excessive intraday range to prevent upstream consumption', function () {
+    $response = $this->withHeader('X-API-KEY', 'test-duoasset-key-12345')
+        ->getJson('/api/v1/market-data/AAPL/candles?interval=15min&from=2026-01-01&to=2026-06-01');
+
+    $response->assertStatus(422)
+        ->assertJson([
+            'provider' => 'duoasset',
+            'error' => 'Intraday candle range cannot exceed 60 days to prevent excessive upstream consumption.',
+        ]);
+});
+
+test('internal api rate limiting throttles requests when limit is exceeded', function () {
+    // Configure small limit for test
+    config()->set('market_data.api_rate_limit_per_minute', 3);
+
+    for ($i = 0; $i < 3; $i++) {
+        $response = $this->withHeader('X-API-KEY', 'throttle-test-key')
+            ->getJson('/api/v1/market-data/AAPL/quote');
+        // Either 200 or 404 (not throttled)
+        expect($response->status())->not->toBe(429);
+    }
+
+    // 4th request must be throttled with HTTP 429
+    $throttled = $this->withHeader('X-API-KEY', 'throttle-test-key')
+        ->getJson('/api/v1/market-data/AAPL/quote');
+
+    $throttled->assertStatus(429);
+});

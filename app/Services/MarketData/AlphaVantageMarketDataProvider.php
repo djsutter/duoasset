@@ -46,13 +46,13 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
          */
         private readonly int $throttleMs = 1/* 1001 // Since we have paid FMP, let's not throttle so much, bounce over to FMP. */,
         /**
-         * Optional FMP fallback. When Alpha Vantage returns a throttle
+         * Optional FMP / MarketData fallback. When Alpha Vantage returns a throttle
          * notice (Note/Information) or a non-2xx HTTP status for the
          * quote / symbol search / overview endpoints, the call is
          * transparently retried against FMP so the UI and watch command
          * keep working even after we exhaust the AV daily budget.
          */
-        private readonly ?FmpMarketDataProvider $fmpFallback = null,
+        private readonly ?MarketDataProvider $fmpFallback = null,
     ) {}
 
     /**
@@ -252,7 +252,9 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
             // Transparent FMP fallback on throttle / HTTP failure.
             if ($this->fmpFallback) {
                 try {
-                    return $this->fmpFallback->searchSymbols($query);
+                    if (method_exists($this->fmpFallback, 'searchSymbols')) {
+                        return $this->fmpFallback->searchSymbols($query);
+                    }
                 } catch (\Throwable $fallbackErr) {
                     Log::info('FMP search fallback failed', [
                         'query' => $query,
@@ -343,7 +345,9 @@ final class AlphaVantageMarketDataProvider implements MarketDataProviderInterfac
 
             if ($this->fmpFallback) {
                 try {
-                    return $this->fmpFallback->lookupOverview($symbol);
+                    if (method_exists($this->fmpFallback, 'lookupOverview')) {
+                        return $this->fmpFallback->lookupOverview($symbol);
+                    }
                 } catch (\Throwable $fallbackErr) {
                     Log::info('FMP overview fallback failed', [
                         'symbol' => $symbol,

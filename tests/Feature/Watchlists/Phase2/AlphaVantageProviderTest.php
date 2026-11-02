@@ -148,3 +148,47 @@ it('binds the Alpha Vantage provider when an API key is configured', function ()
     expect($resolved)->toBeInstanceOf(AlphaVantageMarketDataProvider::class)
         ->and($resolved->name())->toBe('alpha_vantage');
 });
+
+it('falls back to persistent market data provider when Alpha Vantage fails', function () {
+    Http::fake([
+        'www.alphavantage.co/*' => Http::response([], 500),
+    ]);
+
+    $upstream = Mockery::mock(\App\Services\MarketData\MarketDataProvider::class);
+    $upstream->shouldReceive('quote')->with('AAPL')->andReturn([
+        'symbol' => 'AAPL',
+        'price' => 150.25,
+        'daily_change' => 1.5,
+        'daily_change_percent' => 0.01,
+        'volume' => 1000000,
+        'exchange' => 'NASDAQ',
+    ]);
+    $upstream->shouldReceive('profile')->with('AAPL')->andReturn([
+        'symbol' => 'AAPL',
+        'company_name' => 'Apple Inc',
+        'exchange' => 'NASDAQ',
+        'currency' => 'USD',
+        'country' => 'USA',
+        'sector' => 'Technology',
+        'industry' => 'Consumer Electronics',
+    ]);
+
+    $persistent = new \App\Services\MarketData\PersistentMarketDataProvider($upstream);
+
+    $provider = new AlphaVantageMarketDataProvider(
+        http: app(HttpFactory::class),
+        apiKey: 'TEST-KEY',
+        fmpFallback: $persistent,
+    );
+
+    $stock = avStock('AAPL');
+    $quote = $provider->fetchQuote($stock);
+
+    expect($quote)->not->toBeNull()
+        ->and($quote->symbol)->toBe('AAPL')
+        ->and($quote->lastPrice->toDecimal())->toBe('150.25');
+
+    $overview = $provider->lookupOverview('AAPL');
+    expect($overview)->not->toBeNull()
+        ->and($overview['name'])->toBe('Apple Inc');
+});

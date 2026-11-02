@@ -606,6 +606,28 @@ class FmpMarketDataProvider implements MarketDataProvider
             return null;
         }
 
+        $rateLimit = (int) config('market_data.fmp.rate_limit_per_minute', 300);
+        if ($rateLimit > 0) {
+            $executed = \Illuminate\Support\Facades\RateLimiter::attempt(
+                'fmp_api_client_limit',
+                $rateLimit,
+                fn () => true,
+                60
+            );
+
+            if (! $executed) {
+                $err = [
+                    'path' => $path,
+                    'status' => 429,
+                    'body' => "Internal FMP rate limit exceeded ({$rateLimit} requests/minute). Throttling internal request.",
+                ];
+                $this->errors[] = $err;
+                Log::warning('fmp.internal_rate_limit_exceeded', $err);
+
+                return null;
+            }
+        }
+
         $query['apikey'] = $this->apiKey;
         $url = rtrim($this->baseUrl, '/').'/'.ltrim($path, '/');
 

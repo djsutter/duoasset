@@ -33,12 +33,14 @@ if (! function_exists('fakeMoneyFlowFmp')) {
                 return Http::response([], 200);
             }
 
+            $to = ! empty($query['to']) ? CarbonImmutable::parse((string) $query['to']) : null;
+
             if (str_contains($url, 'historical-price-eod/full')) {
-                return Http::response(moneyFlowDailySeries($priceStep), 200);
+                return Http::response(moneyFlowDailySeries($priceStep, 60, $to), 200);
             }
 
             if (str_contains($url, 'historical-chart')) {
-                return Http::response(moneyFlowIntradaySeries($priceStep), 200);
+                return Http::response(moneyFlowIntradaySeries($priceStep, 30, $to ? $to->setTime(15, 0, 0) : null), 200);
             }
 
             return Http::response([], 200);
@@ -48,10 +50,10 @@ if (! function_exists('fakeMoneyFlowFmp')) {
 
 if (! function_exists('moneyFlowDailySeries')) {
     /** @return array<int, array<string, mixed>> */
-    function moneyFlowDailySeries(float $step = 0.5, int $n = 60): array
+    function moneyFlowDailySeries(float $step = 0.5, int $n = 60, ?CarbonImmutable $base = null): array
     {
         $rows = [];
-        $base = CarbonImmutable::parse('2026-07-17');
+        $base = $base ?? CarbonImmutable::parse('2026-07-17');
         for ($i = 0; $i < $n; $i++) {
             $close = 100.0 + ($i * $step);
             $rows[] = [
@@ -71,10 +73,10 @@ if (! function_exists('moneyFlowDailySeries')) {
 
 if (! function_exists('moneyFlowIntradaySeries')) {
     /** @return array<int, array<string, mixed>> */
-    function moneyFlowIntradaySeries(float $step = 0.5, int $n = 30): array
+    function moneyFlowIntradaySeries(float $step = 0.5, int $n = 30, ?CarbonImmutable $base = null): array
     {
         $rows = [];
-        $base = CarbonImmutable::parse('2026-07-17 15:00:00');
+        $base = $base ?? CarbonImmutable::parse('2026-07-17 15:00:00');
         for ($i = 0; $i < $n; $i++) {
             $close = 100.0 + ($i * $step);
             $rows[] = [

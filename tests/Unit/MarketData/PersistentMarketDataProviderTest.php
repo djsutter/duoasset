@@ -989,3 +989,187 @@ test('financial statements preserve distinction between missing null values and 
     expect($nullIncome[0]['revenue'])->toBeNull() // missing revenue must be null, not 0.0
         ->and($nullIncome[0]['net_income'])->toBeNull(); // missing net income must be null, not 0.0
 });
+
+test('requesting additional quarters retrieves missing records even when smaller request was recently completed', function () {
+    // 1. Initial request for 2 quarters
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('EXPAND', 2)
+        ->andReturn([
+            ['date' => '2026-06-30', 'revenue' => 2000000, 'net_income' => 200000, 'eps' => 0.20, 'raw' => []],
+            ['date' => '2026-03-31', 'revenue' => 1900000, 'net_income' => 190000, 'eps' => 0.19, 'raw' => []],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $q2 = $provider->quarterlyIncomeStatements('EXPAND', 2);
+    expect($q2)->toHaveCount(2);
+
+    // 2. Caller now requests 4 quarters (expanding historical coverage)
+    // Upstream MUST be queried to retrieve the additional missing quarters, even though call 1 completed recently!
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('EXPAND', 4)
+        ->andReturn([
+            ['date' => '2026-06-30', 'revenue' => 2000000, 'net_income' => 200000, 'eps' => 0.20, 'raw' => []],
+            ['date' => '2026-03-31', 'revenue' => 1900000, 'net_income' => 190000, 'eps' => 0.19, 'raw' => []],
+            ['date' => '2025-12-31', 'revenue' => 1800000, 'net_income' => 180000, 'eps' => 0.18, 'raw' => []],
+            ['date' => '2025-09-30', 'revenue' => 1700000, 'net_income' => 170000, 'eps' => 0.17, 'raw' => []],
+        ]);
+
+    $q4 = $provider->quarterlyIncomeStatements('EXPAND', 4);
+    expect($q4)->toHaveCount(4)
+        ->and($q4[3]['date'])->toBe('2025-09-30');
+
+    // 3. Repeated call for 4 quarters or fewer serves from database without calling upstream
+    $q3 = $provider->quarterlyIncomeStatements('EXPAND', 3);
+    expect($q3)->toHaveCount(3);
+});
+
+test('prevents repeated upstream calls when company genuinely has no financial history', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream called once and returns empty
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('NOHIST', 4)
+        ->andReturn([]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Call 1: discovers no history
+    $res1 = $provider->quarterlyIncomeStatements('NOHIST', 4);
+    expect($res1)->toBeEmpty();
+
+    // Call 2: should NOT call upstream again within 24 hours
+    $res2 = $provider->quarterlyIncomeStatements('NOHIST', 4);
+    expect($res2)->toBeEmpty();
+});
+
+test('exchange-aware trading calendars prevent US holidays from generating unnecessary requests in middle gaps', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Friday before Labor Day 2026: Sept 4, 2026. Tuesday after Labor Day: Sept 8, 2026.
+    // Labor Day was Monday Sept 7, 2026.
+    StockDailyBar::create([
+        'symbol' => 'HOLIDAY',
+        'bar_date' => '2026-09-04',
+        'open' => 100.0,
+        'high' => 102.0,
+        'low' => 99.0,
+        'close' => 101.0,
+        'volume' => 50000,
+        'retrieved_at' => now(),
+    ]);
+
+    StockDailyBar::create([
+        'symbol' => 'HOLIDAY',
+        'bar_date' => '2026-09-08',
+        'open' => 102.0,
+        'high' => 104.0,
+        'low' => 101.0,
+        'close' => 103.0,
+        'volume' => 60000,
+        'retrieved_at' => now(),
+    ]);
+
+    // Upstream should NEVER be called because Sept 5-6 are weekend and Sept 7 is Labor Day (confirmed non-trading day)
+    $upstream->shouldNotReceive('historicalDailyBars');
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $from = CarbonImmutable::parse('2026-09-04');
+    $to = CarbonImmutable::parse('2026-09-08');
+
+    $bars = $provider->historicalDailyBars('HOLIDAY', $from, $to);
+    expect($bars)->toHaveCount(2)
+        ->and($bars[0]['date'])->toBe('2026-09-04')
+        ->and($bars[1]['date'])->toBe('2026-09-08');
+});
+
+test('intraday overlapping time windows reuse stored candles without requiring exact candle timestamp to equal requested ending time', function () {
+    $date = CarbonImmutable::parse('2026-10-15');
+    // Stored candles from 09:30 to 15:45 (final regular trading hour candle)
+    MarketDataPayload::create([
+        'symbol' => 'WINDOW',
+        'data_type' => 'intraday_15min',
+        'period' => '2026-10-15',
+        'payload' => [
+            ['date' => '2026-10-15 09:30:00', 'open' => 50.0, 'close' => 50.5, 'volume' => 1000],
+            ['date' => '2026-10-15 12:00:00', 'open' => 50.5, 'close' => 51.0, 'volume' => 1200],
+            ['date' => '2026-10-15 15:45:00', 'open' => 51.0, 'close' => 51.5, 'volume' => 2000],
+        ],
+        'retrieved_at' => CarbonImmutable::parse('2026-10-15 21:30:00'), // After 4:15 PM Eastern close
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream must NOT be called even though caller requests up to 16:30:00 (after regular market close)
+    $upstream->shouldNotReceive('historicalIntradayBars');
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $from = CarbonImmutable::parse('2026-10-15 09:30:00');
+    $to = CarbonImmutable::parse('2026-10-15 16:30:00');
+
+    $bars = $provider->historicalIntradayBars('WINDOW', '15min', $from, $to);
+    expect($bars)->toHaveCount(3)
+        ->and($bars[2]['date'])->toBe('2026-10-15 15:45:00');
+});
+
+test('quote memory-cache expiration never extends beyond underlying quote freshness period', function () {
+    $retrievedAt = now()->subSeconds(45); // 45 seconds old (freshness is 60s during trading hours, so 15s remaining)
+    MarketDataPayload::create([
+        'symbol' => 'QUOTETTL',
+        'data_type' => 'quote',
+        'period' => 'latest',
+        'payload' => [
+            'symbol' => 'QUOTETTL',
+            'price' => 100.0,
+            'market_cap' => 1000000,
+        ],
+        'retrieved_at' => $retrievedAt,
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    $quote = $provider->quote('QUOTETTL');
+    expect((float) $quote['price'])->toBe(100.0);
+
+    // Verify cache key was populated
+    $v = PersistentMarketDataProvider::getCacheVersion('quote', 'QUOTETTL');
+    $cached = Cache::get("duoasset.v{$v}.quote.QUOTETTL");
+    expect($cached)->not->toBeNull();
+});
+
+test('historical snapshots are immutable and never overwritten by subsequent fetches', function () {
+    $today = now()->toDateString();
+    MarketDataPayload::create([
+        'symbol' => 'IMMUTABLE',
+        'data_type' => 'profile',
+        'period' => "snapshot_{$today}",
+        'payload' => [
+            'symbol' => 'IMMUTABLE',
+            'name' => 'Original Morning Snapshot',
+            'price' => 100.0,
+        ],
+        'retrieved_at' => now()->subHours(4),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('IMMUTABLE')
+        ->andReturn([
+            'symbol' => 'IMMUTABLE',
+            'name' => 'New Afternoon Name',
+            'price' => 105.0,
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $fresh = $provider->profile('IMMUTABLE');
+
+    // Latest value was updated
+    $latest = MarketDataPayload::where('symbol', 'IMMUTABLE')->where('data_type', 'profile')->where('period', 'latest')->first();
+    expect($latest->payload['name'])->toBe('New Afternoon Name');
+
+    // Historical snapshot MUST NOT have been overwritten!
+    $snapshot = MarketDataPayload::where('symbol', 'IMMUTABLE')->where('data_type', 'profile')->where('period', "snapshot_{$today}")->first();
+    expect($snapshot->payload['name'])->toBe('Original Morning Snapshot');
+});

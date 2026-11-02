@@ -67,6 +67,13 @@ class MarketDataApiController extends Controller
         }
 
         $isIntraday = in_array($interval, ['1m', '1min', '5m', '5min', '15m', '15min', '30m', '30min', '1h', '1hour'], true);
+        if ($isIntraday && abs($to->diffInDays($from)) > 60) {
+            return response()->json([
+                'provider' => 'duoasset',
+                'error' => 'Intraday candle range cannot exceed 60 days to prevent excessive upstream consumption.',
+            ], 422);
+        }
+
         $isWeekly = in_array($interval, ['1w', '1week'], true);
         $isMonthly = in_array($interval, ['1mo', '1month'], true);
 

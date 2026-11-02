@@ -5,9 +5,12 @@ return [
 
     'api_key' => env('DUOASSET_API_KEY', env('MARKET_DATA_API_KEY')),
 
+    'api_rate_limit_per_minute' => (int) env('MARKET_DATA_API_RATE_LIMIT_PER_MINUTE', 120),
+
     'fmp' => [
         'base_url' => env('FMP_BASE_URL', 'https://financialmodelingprep.com/stable'),
         'api_key' => env('FMP_API_KEY', env('FMP_KEY')),
+        'rate_limit_per_minute' => (int) env('FMP_RATE_LIMIT_PER_MINUTE', 300),
     ],
 
     /*

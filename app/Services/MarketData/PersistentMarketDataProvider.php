@@ -32,6 +32,50 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return $this->upstream;
     }
 
+    public function searchSymbols(string $query): array
+    {
+        if (method_exists($this->upstream, 'searchSymbols')) {
+            return $this->upstream->searchSymbols($query);
+        }
+
+        return [];
+    }
+
+    public function lookupOverview(string $symbol): ?array
+    {
+        if (method_exists($this->upstream, 'lookupOverview')) {
+            $overview = $this->upstream->lookupOverview($symbol);
+            if ($overview !== null) {
+                return $overview;
+            }
+        }
+
+        $profile = $this->profile($symbol);
+        if (! is_array($profile)) {
+            return null;
+        }
+
+        return [
+            'symbol' => (string) ($profile['symbol'] ?? strtoupper($symbol)),
+            'name' => (string) ($profile['company_name'] ?? $profile['companyName'] ?? $profile['name'] ?? ''),
+            'exchange' => strtoupper((string) ($profile['exchange'] ?? '')),
+            'currency' => strtoupper((string) ($profile['currency'] ?? '')),
+            'country' => (string) ($profile['country'] ?? ''),
+            'sector' => (string) ($profile['sector'] ?? ''),
+            'industry' => (string) ($profile['industry'] ?? ''),
+            'sub_industry' => (string) ($profile['sub_industry'] ?? ''),
+        ];
+    }
+
+    public function __call(string $method, array $arguments): mixed
+    {
+        if (method_exists($this->upstream, $method)) {
+            return $this->upstream->{$method}(...$arguments);
+        }
+
+        throw new \BadMethodCallException("Method [{$method}] does not exist on [".static::class."].");
+    }
+
     public static function getCacheVersion(string $type = 'all', string $symbol = ''): int
     {
         // Support legacy signature getCacheVersion(string $symbol)
@@ -159,7 +203,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 $gapStart = $currDate->addDay();
                 $gapEnd = $nextDate->subDay();
 
-                if ($gapStart->lessThanOrEqualTo($gapEnd) && $this->hasWeekdays($gapStart, $gapEnd)) {
+                if ($gapStart->lessThanOrEqualTo($gapEnd) && $this->hasTradingDays($gapStart, $gapEnd, $symbol)) {
                     if (! $this->hasQueriedBarInterval($symbol, $gapStart, $gapEnd)) {
                         $this->fetchAndStoreBars($symbol, $gapStart, $gapEnd);
                     }
@@ -262,17 +306,188 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return false;
     }
 
-    protected function hasWeekdays(CarbonInterface $from, CarbonInterface $to): bool
+    public function isMarketHoliday(CarbonInterface $date, string $symbol = ''): bool
     {
-        $curr = CarbonImmutable::parse($from->toDateString());
-        $end = CarbonImmutable::parse($to->toDateString());
+        $dt = CarbonImmutable::parse($date->toDateString(), 'America/New_York');
+        $year = $dt->year;
+
+        if ($dt->isWeekend()) {
+            return false;
+        }
+
+        $isCanadian = str_ends_with(strtoupper($symbol), '.TO') || str_ends_with(strtoupper($symbol), '.V');
+
+        // Easter-dependent holidays (Good Friday)
+        $easterTimestamp = easter_date($year);
+        $easter = CarbonImmutable::createFromTimestamp($easterTimestamp, 'America/New_York');
+        $goodFriday = $easter->subDays(2);
+        if ($dt->isSameDay($goodFriday)) {
+            return true;
+        }
+
+        if ($isCanadian) {
+            // Easter Monday
+            if ($dt->isSameDay($easter->addDay())) {
+                return true;
+            }
+            // Victoria Day: Monday before May 25
+            $may25 = CarbonImmutable::create($year, 5, 25, 0, 0, 0, 'America/New_York');
+            $victoriaDay = $may25->previous(\Carbon\CarbonInterface::MONDAY);
+            if ($dt->isSameDay($victoriaDay)) {
+                return true;
+            }
+            // Canada Day: July 1 (observed July 2 if Sunday)
+            $canadaDay = CarbonImmutable::create($year, 7, 1, 0, 0, 0, 'America/New_York');
+            if ($canadaDay->isSunday()) {
+                $canadaDay = $canadaDay->addDay();
+            }
+            if ($dt->isSameDay($canadaDay)) {
+                return true;
+            }
+            // Civic Holiday: 1st Monday in August
+            $firstAug = CarbonImmutable::create($year, 8, 1, 0, 0, 0, 'America/New_York');
+            $civic = $firstAug->isMonday() ? $firstAug : $firstAug->next(\Carbon\CarbonInterface::MONDAY);
+            if ($dt->isSameDay($civic)) {
+                return true;
+            }
+            // Labour Day: 1st Monday in September
+            $firstSep = CarbonImmutable::create($year, 9, 1, 0, 0, 0, 'America/New_York');
+            $labour = $firstSep->isMonday() ? $firstSep : $firstSep->next(\Carbon\CarbonInterface::MONDAY);
+            if ($dt->isSameDay($labour)) {
+                return true;
+            }
+            // Thanksgiving (Canada): 2nd Monday in October
+            $firstOct = CarbonImmutable::create($year, 10, 1, 0, 0, 0, 'America/New_York');
+            $firstOctMon = $firstOct->isMonday() ? $firstOct : $firstOct->next(\Carbon\CarbonInterface::MONDAY);
+            $thanksgivingCa = $firstOctMon->addWeek();
+            if ($dt->isSameDay($thanksgivingCa)) {
+                return true;
+            }
+            // Christmas (Dec 25) & Boxing Day (Dec 26)
+            $xmas = CarbonImmutable::create($year, 12, 25, 0, 0, 0, 'America/New_York');
+            if ($xmas->isSaturday()) {
+                $xmas = $xmas->subDay();
+            } elseif ($xmas->isSunday()) {
+                $xmas = $xmas->addDay();
+            }
+            if ($dt->isSameDay($xmas)) {
+                return true;
+            }
+            $boxing = CarbonImmutable::create($year, 12, 26, 0, 0, 0, 'America/New_York');
+            if ($boxing->isSunday()) {
+                $boxing = $boxing->addDay();
+            }
+            if ($dt->isSameDay($boxing)) {
+                return true;
+            }
+
+            return false;
+        }
+
+        // US Market Holidays (NYSE / NASDAQ)
+        // 1. New Year's Day (Jan 1, observed Jan 2 if Sun)
+        $nyd = CarbonImmutable::create($year, 1, 1, 0, 0, 0, 'America/New_York');
+        if ($nyd->isSunday()) {
+            $nyd = $nyd->addDay();
+        }
+        if ($dt->isSameDay($nyd)) {
+            return true;
+        }
+
+        // 2. Martin Luther King Jr. Day (3rd Monday in January)
+        $firstJan = CarbonImmutable::create($year, 1, 1, 0, 0, 0, 'America/New_York');
+        $firstJanMon = $firstJan->isMonday() ? $firstJan : $firstJan->next(\Carbon\CarbonInterface::MONDAY);
+        $mlk = $firstJanMon->addWeeks(2);
+        if ($dt->isSameDay($mlk)) {
+            return true;
+        }
+
+        // 3. Washington's Birthday / Presidents' Day (3rd Monday in February)
+        $firstFeb = CarbonImmutable::create($year, 2, 1, 0, 0, 0, 'America/New_York');
+        $firstFebMon = $firstFeb->isMonday() ? $firstFeb : $firstFeb->next(\Carbon\CarbonInterface::MONDAY);
+        $presidents = $firstFebMon->addWeeks(2);
+        if ($dt->isSameDay($presidents)) {
+            return true;
+        }
+
+        // 4. Memorial Day (last Monday in May)
+        $may31 = CarbonImmutable::create($year, 5, 31, 0, 0, 0, 'America/New_York');
+        $memorial = $may31->isMonday() ? $may31 : $may31->previous(\Carbon\CarbonInterface::MONDAY);
+        if ($dt->isSameDay($memorial)) {
+            return true;
+        }
+
+        // 5. Juneteenth National Independence Day (June 19, starting 2021)
+        if ($year >= 2021) {
+            $juneteenth = CarbonImmutable::create($year, 6, 19, 0, 0, 0, 'America/New_York');
+            if ($juneteenth->isSaturday()) {
+                $juneteenth = $juneteenth->subDay();
+            } elseif ($juneteenth->isSunday()) {
+                $juneteenth = $juneteenth->addDay();
+            }
+            if ($dt->isSameDay($juneteenth)) {
+                return true;
+            }
+        }
+
+        // 6. Independence Day (July 4)
+        $july4 = CarbonImmutable::create($year, 7, 4, 0, 0, 0, 'America/New_York');
+        if ($july4->isSaturday()) {
+            $july4 = $july4->subDay();
+        } elseif ($july4->isSunday()) {
+            $july4 = $july4->addDay();
+        }
+        if ($dt->isSameDay($july4)) {
+            return true;
+        }
+
+        // 7. Labor Day (1st Monday in September)
+        $firstSep = CarbonImmutable::create($year, 9, 1, 0, 0, 0, 'America/New_York');
+        $labor = $firstSep->isMonday() ? $firstSep : $firstSep->next(\Carbon\CarbonInterface::MONDAY);
+        if ($dt->isSameDay($labor)) {
+            return true;
+        }
+
+        // 8. Thanksgiving Day (4th Thursday in November)
+        $firstNov = CarbonImmutable::create($year, 11, 1, 0, 0, 0, 'America/New_York');
+        $firstNovThu = $firstNov->isThursday() ? $firstNov : $firstNov->next(\Carbon\CarbonInterface::THURSDAY);
+        $thanksgiving = $firstNovThu->addWeeks(3);
+        if ($dt->isSameDay($thanksgiving)) {
+            return true;
+        }
+
+        // 9. Christmas Day (Dec 25)
+        $xmas = CarbonImmutable::create($year, 12, 25, 0, 0, 0, 'America/New_York');
+        if ($xmas->isSaturday()) {
+            $xmas = $xmas->subDay();
+        } elseif ($xmas->isSunday()) {
+            $xmas = $xmas->addDay();
+        }
+        if ($dt->isSameDay($xmas)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public function hasTradingDays(CarbonInterface $from, CarbonInterface $to, string $symbol = ''): bool
+    {
+        $curr = CarbonImmutable::parse($from->toDateString(), 'America/New_York');
+        $end = CarbonImmutable::parse($to->toDateString(), 'America/New_York');
+
         while ($curr->lessThanOrEqualTo($end)) {
-            if (! $curr->isWeekend()) {
+            if (! $curr->isWeekend() && ! $this->isMarketHoliday($curr, $symbol)) {
                 return true;
             }
             $curr = $curr->addDay();
         }
+
         return false;
+    }
+
+    protected function hasWeekdays(CarbonInterface $from, CarbonInterface $to): bool
+    {
+        return $this->hasTradingDays($from, $to);
     }
 
     protected function hasQueriedBarInterval(string $symbol, CarbonInterface $from, CarbonInterface $to): bool
@@ -331,27 +546,29 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
         $now = now();
         if (! empty($fresh)) {
-            foreach ($fresh as $row) {
-                if (empty($row['date'])) {
-                    continue;
+            \Illuminate\Support\Facades\DB::transaction(function () use ($fresh, $symbol, $now) {
+                foreach ($fresh as $row) {
+                    if (empty($row['date'])) {
+                        continue;
+                    }
+
+                    // Filter out nulls to preserve previously stored historical prices
+                    $attributes = array_filter([
+                        'open' => $row['open'] ?? null,
+                        'high' => $row['high'] ?? null,
+                        'low' => $row['low'] ?? null,
+                        'close' => $row['close'] ?? null,
+                        'adj_close' => $row['adj_close'] ?? null,
+                        'volume' => $row['volume'] ?? null,
+                        'retrieved_at' => $now,
+                    ], fn ($val) => $val !== null);
+
+                    StockDailyBar::updateOrCreate(
+                        ['symbol' => $symbol, 'bar_date' => $row['date']],
+                        $attributes
+                    );
                 }
-
-                // Filter out nulls to preserve previously stored historical prices
-                $attributes = array_filter([
-                    'open' => $row['open'] ?? null,
-                    'high' => $row['high'] ?? null,
-                    'low' => $row['low'] ?? null,
-                    'close' => $row['close'] ?? null,
-                    'adj_close' => $row['adj_close'] ?? null,
-                    'volume' => $row['volume'] ?? null,
-                    'retrieved_at' => $now,
-                ], fn ($val) => $val !== null);
-
-                StockDailyBar::updateOrCreate(
-                    ['symbol' => $symbol, 'bar_date' => $row['date']],
-                    $attributes
-                );
-            }
+            });
         }
 
         // Archive raw payload for this queried interval, even if empty (e.g. holidays)
@@ -439,8 +656,8 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 ['payload' => $fresh, 'retrieved_at' => $now]
             );
 
-            // Historical archival snapshot so older snapshots aren't unintentionally lost
-            MarketDataPayload::updateOrCreate(
+            // Historical archival snapshot so older snapshots aren't unintentionally lost (immutable)
+            MarketDataPayload::firstOrCreate(
                 ['symbol' => $symbol, 'data_type' => 'profile', 'period' => 'snapshot_' . $now->toDateString()],
                 ['payload' => $fresh, 'retrieved_at' => $now]
             );
@@ -525,8 +742,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $freshnessSeconds = $isTrading ? 60 : 900;
 
         if ($storedPayload && is_array($storedPayload->payload) && $storedPayload->retrieved_at) {
-            if ($storedPayload->retrieved_at->diffInSeconds(now()) < $freshnessSeconds) {
-                Cache::put($cacheKey, $storedPayload->payload, now()->addSeconds($freshnessSeconds));
+            $ageSeconds = $storedPayload->retrieved_at->diffInSeconds(now());
+            if ($ageSeconds < $freshnessSeconds) {
+                $remainingSeconds = max(1, $freshnessSeconds - $ageSeconds);
+                Cache::put($cacheKey, $storedPayload->payload, now()->addSeconds($remainingSeconds));
                 return $storedPayload->payload;
             }
         }
@@ -538,6 +757,12 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 $now = now();
                 MarketDataPayload::updateOrCreate(
                     ['symbol' => $symbol, 'data_type' => 'quote', 'period' => 'latest'],
+                    ['payload' => $quote, 'retrieved_at' => $now]
+                );
+
+                // Immutable historical snapshot
+                MarketDataPayload::firstOrCreate(
+                    ['symbol' => $symbol, 'data_type' => 'quote', 'period' => 'snapshot_' . $now->toDateString()],
                     ['payload' => $quote, 'retrieved_at' => $now]
                 );
 
@@ -591,8 +816,12 @@ class PersistentMarketDataProvider implements MarketDataProvider
             ->first();
     }
 
-    protected function recordFinancialRefreshAttempt(string $symbol, string $statementType, bool $success, int $count): void
+    protected function recordFinancialRefreshAttempt(string $symbol, string $statementType, bool $success, int $count, int $requestedLimit = 8): void
     {
+        $prev = $this->getFinancialRefreshAttempt($symbol, $statementType);
+        $prevData = $prev && is_array($prev->payload) ? $prev->payload : [];
+        $prevLimit = (int) ($prevData['requested_limit'] ?? 0);
+
         MarketDataPayload::updateOrCreate(
             [
                 'symbol' => "REFRESH_{$symbol}",
@@ -604,6 +833,9 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     'attempted_at' => now()->toDateTimeString(),
                     'success' => $success,
                     'count' => $count,
+                    'requested_limit' => max($requestedLimit, $prevLimit),
+                    'has_no_history' => $success && $count === 0,
+                    'has_reached_history_limit' => $success && $count < $requestedLimit,
                 ],
                 'retrieved_at' => now(),
             ]
@@ -629,7 +861,19 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $attemptedRecently = $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 24;
         $attemptFailedRecently = $attemptData && ! ($attemptData['success'] ?? true) && $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 1;
 
-        $isFresh = $existing->isNotEmpty() && (
+        $hasNoHistory = $attemptData && ($attemptData['has_no_history'] ?? false);
+        if ($hasNoHistory && $attemptedRecently) {
+            return [];
+        }
+
+        $prevRequestedLimit = (int) ($attemptData['requested_limit'] ?? 0);
+        $hasReachedHistoryLimit = (bool) ($attemptData['has_reached_history_limit'] ?? false);
+
+        $coverageSufficient = $existing->count() >= $limit
+            || ($limit <= $prevRequestedLimit && ($attemptData['success'] ?? false))
+            || ($hasReachedHistoryLimit && ($attemptData['success'] ?? false));
+
+        $isFresh = $existing->isNotEmpty() && $coverageSufficient && (
             ($existing->count() >= $limit && $existing->first()->retrieved_at && $existing->first()->retrieved_at->diffInHours(now()) < 24)
             || ($attemptedRecently && ($attemptData['success'] ?? false))
             || $attemptFailedRecently
@@ -660,7 +904,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
         }
 
         $now = now();
-        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_INCOME, $success, count($fresh));
+        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_INCOME, $success, count($fresh), $limit);
 
         if (! empty($fresh)) {
             foreach ($fresh as $row) {
@@ -727,7 +971,19 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $attemptedRecently = $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 24;
         $attemptFailedRecently = $attemptData && ! ($attemptData['success'] ?? true) && $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 1;
 
-        $isFresh = $existing->isNotEmpty() && (
+        $hasNoHistory = $attemptData && ($attemptData['has_no_history'] ?? false);
+        if ($hasNoHistory && $attemptedRecently) {
+            return [];
+        }
+
+        $prevRequestedLimit = (int) ($attemptData['requested_limit'] ?? 0);
+        $hasReachedHistoryLimit = (bool) ($attemptData['has_reached_history_limit'] ?? false);
+
+        $coverageSufficient = $existing->count() >= $limit
+            || ($limit <= $prevRequestedLimit && ($attemptData['success'] ?? false))
+            || ($hasReachedHistoryLimit && ($attemptData['success'] ?? false));
+
+        $isFresh = $existing->isNotEmpty() && $coverageSufficient && (
             ($existing->count() >= $limit && $existing->first()->retrieved_at && $existing->first()->retrieved_at->diffInHours(now()) < 24)
             || ($attemptedRecently && ($attemptData['success'] ?? false))
             || $attemptFailedRecently
@@ -755,7 +1011,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
         }
 
         $now = now();
-        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_BALANCE_SHEET, $success, count($fresh));
+        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_BALANCE_SHEET, $success, count($fresh), $limit);
 
         if (! empty($fresh)) {
             foreach ($fresh as $row) {
@@ -818,7 +1074,19 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $attemptedRecently = $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 24;
         $attemptFailedRecently = $attemptData && ! ($attemptData['success'] ?? true) && $lastAttempt && $lastAttempt->retrieved_at && $lastAttempt->retrieved_at->diffInHours(now()) < 1;
 
-        $isFresh = $existing->isNotEmpty() && (
+        $hasNoHistory = $attemptData && ($attemptData['has_no_history'] ?? false);
+        if ($hasNoHistory && $attemptedRecently) {
+            return [];
+        }
+
+        $prevRequestedLimit = (int) ($attemptData['requested_limit'] ?? 0);
+        $hasReachedHistoryLimit = (bool) ($attemptData['has_reached_history_limit'] ?? false);
+
+        $coverageSufficient = $existing->count() >= $limit
+            || ($limit <= $prevRequestedLimit && ($attemptData['success'] ?? false))
+            || ($hasReachedHistoryLimit && ($attemptData['success'] ?? false));
+
+        $isFresh = $existing->isNotEmpty() && $coverageSufficient && (
             ($existing->count() >= $limit && $existing->first()->retrieved_at && $existing->first()->retrieved_at->diffInHours(now()) < 24)
             || ($attemptedRecently && ($attemptData['success'] ?? false))
             || $attemptFailedRecently
@@ -849,7 +1117,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
         }
 
         $now = now();
-        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_CASH_FLOW, $success, count($fresh));
+        $this->recordFinancialRefreshAttempt($symbol, CompanyFinancial::TYPE_CASH_FLOW, $success, count($fresh), $limit);
 
         if (! empty($fresh)) {
             foreach ($fresh as $row) {
@@ -1159,7 +1427,15 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 $reqFromStr = $from->format('Y-m-d H:i:s');
                 $reqToStr = $to->format('Y-m-d H:i:s');
 
-                if ($firstCandleDate <= $reqFromStr && $lastCandleDate >= $reqToStr) {
+                // Stored candles must start at or before requested start:
+                $headCovered = $firstCandleDate <= $reqFromStr;
+
+                // Stored candles must reach the requested end time, OR if requested end time is after
+                // regular market close (16:00), reach the final regular session candle (>= 15:30).
+                $tailCovered = $lastCandleDate >= $reqToStr
+                    || (substr($reqToStr, 11) >= '16:00:00' && substr($lastCandleDate, 0, 10) === $toDay && substr($lastCandleDate, 11) >= '15:30:00');
+
+                if ($headCovered && $tailCovered) {
                     $coversWindow = true;
                 }
             }
@@ -1187,9 +1463,29 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return $filtered;
         }
 
+        $fetchFrom = $from;
+        $fetchTo = $to;
+
+        // If we already have stored candles, prefer incremental retrieval of missing candles
+        if (! empty($existingCandles) && $hasTime) {
+            $firstCandleDate = $existingCandles[0]['date'] ?? '';
+            $lastCandleDate = $existingCandles[count($existingCandles) - 1]['date'] ?? '';
+            $reqFromStr = $from->format('Y-m-d H:i:s');
+            $reqToStr = $to->format('Y-m-d H:i:s');
+
+            // If stored candles overlap into the requested window from the start:
+            if ($firstCandleDate <= $reqFromStr && $lastCandleDate >= $reqFromStr && $lastCandleDate < $reqToStr) {
+                $fetchFrom = CarbonImmutable::parse($lastCandleDate);
+            }
+            // If stored candles overlap into the requested window from the end:
+            elseif ($lastCandleDate >= $reqToStr && $firstCandleDate <= $reqToStr && $firstCandleDate > $reqFromStr) {
+                $fetchTo = CarbonImmutable::parse($firstCandleDate);
+            }
+        }
+
         // Fetch fresh candles from upstream to fill missing interval
         try {
-            $fresh = $this->upstream->historicalIntradayBars($symbol, $interval, $from, $to);
+            $fresh = $this->upstream->historicalIntradayBars($symbol, $interval, $fetchFrom, $fetchTo);
         } catch (Throwable $e) {
             Log::warning('persistent_market_data.intraday_fetch_failed', [
                 'symbol' => $symbol,

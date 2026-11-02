@@ -109,9 +109,11 @@ PHP;
                     // working after Alpha Vantage hits its daily ceiling.
                     $fmpKey = (string) config('market_data.fmp.api_key', '');
                     $fmpFallback = $fmpKey !== ''
-                        ? new \App\Services\MarketData\FmpMarketDataProvider(
-                            baseUrl: (string) config('market_data.fmp.base_url', 'https://financialmodelingprep.com/stable'),
-                            apiKey: $fmpKey,
+                        ? new \App\Services\MarketData\PersistentMarketDataProvider(
+                            new \App\Services\MarketData\FmpMarketDataProvider(
+                                baseUrl: (string) config('market_data.fmp.base_url', 'https://financialmodelingprep.com/stable'),
+                                apiKey: $fmpKey,
+                            )
                         )
                         : null;
 
@@ -134,6 +136,13 @@ PHP;
         );
 
         View::addNamespace('layouts', resource_path('views/components/layouts'));
+
+        \Illuminate\Support\Facades\RateLimiter::for('market-data-api', function (\Illuminate\Http\Request $request) {
+            $limit = (int) config('market_data.api_rate_limit_per_minute', 120);
+            $key = (string) ($request->header('X-API-KEY') ?: $request->ip());
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute($limit)->by($key);
+        });
 
         Gate::define('access-stocks', function (User $user) {
             return $user->hasStockAccess();
