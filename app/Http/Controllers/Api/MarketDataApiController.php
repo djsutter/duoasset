@@ -17,7 +17,7 @@ class MarketDataApiController extends Controller
     ];
 
     public const ALLOWED_RANGES = [
-        '1M', '3M', '6M', '1Y', '5Y', 'ALL',
+        '1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'ALL',
     ];
 
     public function __construct(
@@ -50,9 +50,12 @@ class MarketDataApiController extends Controller
         } elseif ($request->has('range')) {
             $range = strtoupper(trim((string) $request->query('range')));
             $from = match ($range) {
+                '1D' => $to->subDay(),
+                '7D' => $to->subDays(7),
                 '1M' => $to->subDays(30),
                 '3M' => $to->subDays(90),
                 '6M' => $to->subDays(180),
+                'YTD' => $to->startOfYear(),
                 '1Y' => $to->subDays(365),
                 '5Y' => $to->subYears(5),
                 'ALL' => $to->subYears(20),

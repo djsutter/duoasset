@@ -133,7 +133,7 @@
                  { id: '1W', label: '1W', api: '1week', vela: '1W' },
                  { id: '1M', label: '1M', api: '1month', vela: '1M' },
              ],
-             ranges: ['1M', '3M', '6M', '1Y', '5Y', 'All'],
+             ranges: ['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'],
              initChart() {
                  // Check localStorage for saved user preferences
                  try {
@@ -186,6 +186,7 @@
                          previousWorkspace: this.workspace,
                          userId: this.userId,
                          timezone: this.userTimezone,
+                         activeRange: this.selectedRange,
                          onTimezoneChange: (newTz) => {
                              if (newTz && newTz !== this.userTimezone) {
                                  this.userTimezone = newTz;
@@ -194,6 +195,12 @@
                                  }
                                  this.fetchCandles({ refresh: true });
                              }
+                         },
+                         onRangeChange: (rangeId, suggestedInterval) => {
+                             if (suggestedInterval && this.selectedInterval !== suggestedInterval) {
+                                 this.selectedInterval = suggestedInterval;
+                             }
+                             this.changeRange(rangeId);
                          },
                      });
                      if (this.candles.length > 0 && !this.workspace) {
@@ -221,19 +228,19 @@
 
                  // Sensible range adjustments for intraday intervals
                  if (['1m', '5m'].includes(intervalId)) {
-                     if (['5Y', 'All', '1Y'].includes(this.selectedRange)) {
-                         this.selectedRange = '1M';
+                     if (['5Y', 'All', '1Y', 'YTD', '6M', '3M'].includes(this.selectedRange)) {
+                         this.selectedRange = '1D';
                      }
                  } else if (['15m', '30m'].includes(intervalId)) {
-                     if (['5Y', 'All'].includes(this.selectedRange)) {
-                         this.selectedRange = '3M';
+                     if (['5Y', 'All', '1Y', 'YTD'].includes(this.selectedRange)) {
+                         this.selectedRange = '7D';
                      }
                  } else if (intervalId === '1h') {
-                     if (this.selectedRange === 'All') {
-                         this.selectedRange = '6M';
+                     if (['5Y', 'All'].includes(this.selectedRange)) {
+                         this.selectedRange = '1M';
                      }
                  } else if (['1W', '1M'].includes(intervalId)) {
-                     if (this.selectedRange === '1M') {
+                     if (['1D', '7D', '1M'].includes(this.selectedRange)) {
                          this.selectedRange = '1Y';
                      }
                  }
@@ -246,8 +253,12 @@
                  this.selectedRange = rangeId;
 
                  // If choosing wide ranges with high-frequency intraday, adjust to daily
-                 if (['5Y', 'All'].includes(rangeId) && ['1m', '5m', '15m', '30m'].includes(this.selectedInterval)) {
+                 if (['1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'].includes(rangeId) && ['1m', '5m', '15m', '30m'].includes(this.selectedInterval)) {
                      this.selectedInterval = '1D';
+                 } else if (rangeId === '1D' && !['1m', '5m', '15m'].includes(this.selectedInterval)) {
+                     this.selectedInterval = '5m';
+                 } else if (rangeId === '7D' && !['5m', '15m', '30m', '1h'].includes(this.selectedInterval)) {
+                     this.selectedInterval = '15m';
                  }
 
                  this.savePreferences();
@@ -267,6 +278,12 @@
                  const fromDate = new Date();
 
                  switch (this.selectedRange) {
+                     case '1D':
+                         fromDate.setDate(fromDate.getDate() - 1);
+                         break;
+                     case '7D':
+                         fromDate.setDate(fromDate.getDate() - 7);
+                         break;
                      case '1M':
                          fromDate.setDate(fromDate.getDate() - 30);
                          break;
@@ -276,6 +293,9 @@
                      case '6M':
                          fromDate.setDate(fromDate.getDate() - 180);
                          break;
+                     case 'YTD':
+                         fromDate.setMonth(0, 1);
+                         break;
                      case '1Y':
                          fromDate.setDate(fromDate.getDate() - 365);
                          break;
@@ -283,6 +303,7 @@
                          fromDate.setFullYear(fromDate.getFullYear() - 5);
                          break;
                      case 'All':
+                     case 'ALL':
                          fromDate.setFullYear(fromDate.getFullYear() - 20);
                          break;
                      default:
@@ -442,7 +463,7 @@
                         {{ __('Range') }}:
                     </span>
                     <div class="inline-flex rounded-md p-0.5 bg-zinc-200/50 dark:bg-zinc-800/60">
-                        @foreach (['1M', '3M', '6M', '1Y', '5Y', 'All'] as $rng)
+                        @foreach (['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'] as $rng)
                             <button type="button"
                                     x-on:click="changeRange('{{ $rng }}')"
                                     :class="selectedRange === '{{ $rng }}' ? 'bg-white dark:bg-zinc-700 text-zinc-950 dark:text-white shadow-xs font-semibold' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 font-medium'"

@@ -22,7 +22,7 @@ class StockCandlesController extends Controller
     ];
 
     public const ALLOWED_RANGES = [
-        '1M', '3M', '6M', '1Y', '5Y', 'ALL',
+        '1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'ALL',
     ];
 
     public function __construct(
@@ -91,13 +91,16 @@ class StockCandlesController extends Controller
             abort(422, 'The from date must be prior or equal to the to date.');
         }
 
-        // Optional range shorthand (e.g. 1M, 3M, 6M, 1Y, 5Y, ALL)
+        // Optional range shorthand (e.g. 1D, 7D, 1M, 3M, 6M, YTD, 1Y, 5Y, ALL)
         if ($from === null && $range !== null) {
             $refTo = $to ? $to->copy() : Carbon::now('UTC');
             $from = match ($range) {
+                '1D' => $refTo->subDay(),
+                '7D' => $refTo->subDays(7),
                 '1M' => $refTo->subDays(30),
                 '3M' => $refTo->subDays(90),
                 '6M' => $refTo->subDays(180),
+                'YTD' => $refTo->startOfYear(),
                 '1Y' => $refTo->subDays(365),
                 '5Y' => $refTo->subYears(5),
                 'ALL' => $refTo->subYears(20),

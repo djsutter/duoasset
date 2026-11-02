@@ -42,7 +42,9 @@ export function initStockChart(containerIdOrEl, options = {}) {
         previousWorkspace = null,
         userId = null,
         timezone = null,
+        activeRange = '1Y',
         onTimezoneChange = null,
+        onRangeChange = null,
     } = options;
 
     const userTzKey = 'duoasset_chart_tz_' + (userId || 'default');
@@ -106,6 +108,9 @@ export function initStockChart(containerIdOrEl, options = {}) {
             }
             if (typeof existingRegistration.unsubState === 'function') {
                 existingRegistration.unsubState();
+            }
+            if (existingRegistration.onRangeClick) {
+                container.removeEventListener('click', existingRegistration.onRangeClick, true);
             }
         } catch (e) {
             // ignore
