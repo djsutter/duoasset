@@ -67,6 +67,9 @@ class MarketDataApiController extends Controller
         }
 
         $isIntraday = in_array($interval, ['1m', '1min', '5m', '5min', '15m', '15min', '30m', '30min', '1h', '1hour'], true);
+        $isWeekly = in_array($interval, ['1w', '1week'], true);
+        $isMonthly = in_array($interval, ['1mo', '1month'], true);
+
         if ($isIntraday) {
             $normInterval = match ($interval) {
                 '1m', '1min' => '1min',
@@ -76,6 +79,12 @@ class MarketDataApiController extends Controller
                 default => '1hour',
             };
             $candles = $this->provider->historicalIntradayBars($symbol, $normInterval, $from, $to);
+        } elseif ($isWeekly) {
+            $daily = $this->provider->historicalDailyBars($symbol, $from, $to);
+            $candles = $this->aggregateToWeekly($daily);
+        } elseif ($isMonthly) {
+            $daily = $this->provider->historicalDailyBars($symbol, $from, $to);
+            $candles = $this->aggregateToMonthly($daily);
         } else {
             $candles = $this->provider->historicalDailyBars($symbol, $from, $to);
         }
@@ -89,6 +98,76 @@ class MarketDataApiController extends Controller
             'count' => count($candles),
             'candles' => $candles,
         ]);
+    }
+
+    /**
+     * Aggregate daily OHLCV bars into weekly bars (starting Monday).
+     */
+    protected function aggregateToWeekly(array $dailyBars): array
+    {
+        $weeks = [];
+
+        foreach ($dailyBars as $bar) {
+            $dt = CarbonImmutable::parse($bar['date']);
+            $weekStart = $dt->startOfWeek()->toDateString();
+
+            if (! isset($weeks[$weekStart])) {
+                $weeks[$weekStart] = [
+                    'date' => $weekStart,
+                    'open' => (float) $bar['open'],
+                    'high' => (float) $bar['high'],
+                    'low' => (float) $bar['low'],
+                    'close' => (float) $bar['close'],
+                    'adj_close' => isset($bar['adj_close']) && $bar['adj_close'] !== null ? (float) $bar['adj_close'] : null,
+                    'volume' => (int) $bar['volume'],
+                ];
+            } else {
+                $weeks[$weekStart]['high'] = max((float) $weeks[$weekStart]['high'], (float) $bar['high']);
+                $weeks[$weekStart]['low'] = min((float) $weeks[$weekStart]['low'], (float) $bar['low']);
+                $weeks[$weekStart]['close'] = (float) $bar['close'];
+                if (isset($bar['adj_close']) && $bar['adj_close'] !== null) {
+                    $weeks[$weekStart]['adj_close'] = (float) $bar['adj_close'];
+                }
+                $weeks[$weekStart]['volume'] += (int) $bar['volume'];
+            }
+        }
+
+        return array_values($weeks);
+    }
+
+    /**
+     * Aggregate daily OHLCV bars into monthly bars (starting 1st of month).
+     */
+    protected function aggregateToMonthly(array $dailyBars): array
+    {
+        $months = [];
+
+        foreach ($dailyBars as $bar) {
+            $dt = CarbonImmutable::parse($bar['date']);
+            $monthStart = $dt->startOfMonth()->toDateString();
+
+            if (! isset($months[$monthStart])) {
+                $months[$monthStart] = [
+                    'date' => $monthStart,
+                    'open' => (float) $bar['open'],
+                    'high' => (float) $bar['high'],
+                    'low' => (float) $bar['low'],
+                    'close' => (float) $bar['close'],
+                    'adj_close' => isset($bar['adj_close']) && $bar['adj_close'] !== null ? (float) $bar['adj_close'] : null,
+                    'volume' => (int) $bar['volume'],
+                ];
+            } else {
+                $months[$monthStart]['high'] = max((float) $months[$monthStart]['high'], (float) $bar['high']);
+                $months[$monthStart]['low'] = min((float) $months[$monthStart]['low'], (float) $bar['low']);
+                $months[$monthStart]['close'] = (float) $bar['close'];
+                if (isset($bar['adj_close']) && $bar['adj_close'] !== null) {
+                    $months[$monthStart]['adj_close'] = (float) $bar['adj_close'];
+                }
+                $months[$monthStart]['volume'] += (int) $bar['volume'];
+            }
+        }
+
+        return array_values($months);
     }
 
     public function profile(Request $request, string $symbol): JsonResponse

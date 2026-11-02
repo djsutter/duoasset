@@ -26,6 +26,15 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Safeguard: protect permanent stock daily bars from accidental destruction during rollback
+        if (Schema::hasTable('stock_daily_bars') && \Illuminate\Support\Facades\DB::table('stock_daily_bars')->exists()) {
+            if (! env('ALLOW_DROP_MARKET_DATA', false) && ! config('market_data.allow_drop_tables', false)) {
+                throw new \RuntimeException(
+                    'Migration rollback halted: permanent market data table [stock_daily_bars] contains accumulated historical data. Set ALLOW_DROP_MARKET_DATA=true to bypass.'
+                );
+            }
+        }
+
         Schema::dropIfExists('stock_daily_bars');
     }
 };

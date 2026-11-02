@@ -3,6 +3,8 @@
 return [
     'provider' => env('MARKET_DATA_PROVIDER', 'fmp'),
 
+    'api_key' => env('DUOASSET_API_KEY', env('MARKET_DATA_API_KEY')),
+
     'fmp' => [
         'base_url' => env('FMP_BASE_URL', 'https://financialmodelingprep.com/stable'),
         'api_key' => env('FMP_API_KEY', env('FMP_KEY')),

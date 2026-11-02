@@ -116,3 +116,30 @@ test('company financial stores structured metrics and enforces statement uniquen
         'fiscal_year' => 2026,
     ]))->toThrow(QueryException::class);
 });
+
+test('migration rollback protection halts when persistent market data tables contain accumulated data', function () {
+    CompanyProfile::create([
+        'symbol' => 'AAPL',
+        'company_name' => 'Apple Inc.',
+    ]);
+
+    $migration = require database_path('migrations/2026_11_01_180000_create_persistent_market_data_tables.php');
+
+    expect(fn () => $migration->down())
+        ->toThrow(\RuntimeException::class, 'Migration rollback halted: permanent market data tables contain accumulated historical data.');
+
+    StockDailyBar::create([
+        'symbol' => 'AAPL',
+        'bar_date' => '2026-10-01',
+        'open' => 150.0,
+        'high' => 155.0,
+        'low' => 149.0,
+        'close' => 154.0,
+        'volume' => 1000,
+    ]);
+
+    $barsMigration = require database_path('migrations/2026_06_27_120000_create_stock_daily_bars_table.php');
+
+    expect(fn () => $barsMigration->down())
+        ->toThrow(\RuntimeException::class, 'Migration rollback halted: permanent market data table [stock_daily_bars] contains accumulated historical data.');
+});

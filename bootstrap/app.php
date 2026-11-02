@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'domain' => \App\Http\Middleware\EnsureDomainAccess::class,
             'EnsureDomainAccess' => \App\Http\Middleware\EnsureDomainAccess::class,
             '2fa' => \App\Http\Middleware\EnsureTwoFactorAuthenticated::class,
+            'api.market_data' => \App\Http\Middleware\EnsureApiMarketDataAccess::class,
         ]);
 
         $middleware->web(append: [

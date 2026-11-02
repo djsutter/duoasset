@@ -74,6 +74,22 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Safeguard: protect permanent market data tables from accidental destruction during rollback
+        $tables = ['company_financials', 'company_profiles', 'market_data_payloads'];
+        $hasData = false;
+        foreach ($tables as $t) {
+            if (Schema::hasTable($t) && \Illuminate\Support\Facades\DB::table($t)->exists()) {
+                $hasData = true;
+                break;
+            }
+        }
+
+        if ($hasData && ! env('ALLOW_DROP_MARKET_DATA', false) && ! config('market_data.allow_drop_tables', false)) {
+            throw new \RuntimeException(
+                'Migration rollback halted: permanent market data tables contain accumulated historical data. Set ALLOW_DROP_MARKET_DATA=true to bypass.'
+            );
+        }
+
         Schema::dropIfExists('company_financials');
         Schema::dropIfExists('company_profiles');
         Schema::dropIfExists('market_data_payloads');

@@ -272,9 +272,720 @@ test('earningsCalendar and earningsSurprises store and return from payload archi
         ->and(MarketDataPayload::where('data_type', 'earnings_surprises')->exists())->toBeTrue();
 });
 
+test('historicalDailyBars detects missing trading days in the middle of a range and queries upstream only for the gap', function () {
+    // Seed bar for 2026-10-01 (Thursday) and 2026-10-08 (Thursday)
+    StockDailyBar::create([
+        'symbol' => 'INTC',
+        'bar_date' => '2026-10-01',
+        'open' => 22.0,
+        'high' => 23.0,
+        'low' => 21.5,
+        'close' => 22.8,
+        'adj_close' => 22.8,
+        'volume' => 10000000,
+        'retrieved_at' => now(),
+    ]);
+    StockDailyBar::create([
+        'symbol' => 'INTC',
+        'bar_date' => '2026-10-08',
+        'open' => 23.0,
+        'high' => 24.0,
+        'low' => 22.8,
+        'close' => 23.5,
+        'adj_close' => 23.5,
+        'volume' => 12000000,
+        'retrieved_at' => now(),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream should ONLY be called for the middle gap: 2026-10-02 to 2026-10-07
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('INTC', Mockery::on(fn ($c) => $c->toDateString() === '2026-10-02'), Mockery::on(fn ($c) => $c->toDateString() === '2026-10-07'))
+        ->andReturn([
+            ['date' => '2026-10-02', 'open' => 22.8, 'high' => 23.2, 'low' => 22.5, 'close' => 23.0, 'adj_close' => 23.0, 'volume' => 11000000],
+            ['date' => '2026-10-05', 'open' => 23.0, 'high' => 23.4, 'low' => 22.7, 'close' => 23.1, 'adj_close' => 23.1, 'volume' => 11500000],
+            ['date' => '2026-10-06', 'open' => 23.1, 'high' => 23.5, 'low' => 22.8, 'close' => 23.2, 'adj_close' => 23.2, 'volume' => 10500000],
+            ['date' => '2026-10-07', 'open' => 23.2, 'high' => 23.6, 'low' => 22.9, 'close' => 23.3, 'adj_close' => 23.3, 'volume' => 10800000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $from = CarbonImmutable::parse('2026-10-01');
+    $to = CarbonImmutable::parse('2026-10-08');
+
+    $bars = $provider->historicalDailyBars('INTC', $from, $to);
+
+    expect($bars)->toHaveCount(6)
+        ->and($bars[0]['date'])->toBe('2026-10-01')
+        ->and($bars[1]['date'])->toBe('2026-10-02')
+        ->and($bars[5]['date'])->toBe('2026-10-08')
+        ->and(StockDailyBar::where('symbol', 'INTC')->count())->toBe(6);
+});
+
+test('quarterlyIncomeStatements discovers new quarterly reports when freshness expires even if limit is already met', function () {
+    // Pre-populate 8 older quarters from 2024 and 2025, with retrieved_at 48 hours ago (stale)
+    for ($i = 1; $i <= 8; $i++) {
+        CompanyFinancial::create([
+            'symbol' => 'META',
+            'statement_type' => CompanyFinancial::TYPE_INCOME,
+            'fiscal_date' => "2025-0{$i}-15",
+            'period' => "Q{$i}",
+            'revenue' => 30000000000 + ($i * 1000000000),
+            'net_income' => 10000000000,
+            'eps' => 3.5,
+            'retrieved_at' => now()->subHours(48),
+        ]);
+    }
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream returns fresh statements including a brand new 2026-06-30 quarter
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('META', 8)
+        ->andReturn([
+            ['date' => '2026-06-30', 'revenue' => 45000000000.0, 'net_income' => 15000000000.0, 'eps' => 5.25, 'period' => 'Q2', 'fiscalYear' => 2026],
+            ['date' => '2026-03-31', 'revenue' => 42000000000.0, 'net_income' => 14000000000.0, 'eps' => 4.80, 'period' => 'Q1', 'fiscalYear' => 2026],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $statements = $provider->quarterlyIncomeStatements('META', 8);
+
+    expect($statements)->toHaveCount(8)
+        ->and($statements[0]['date'])->toBe('2026-06-30')
+        ->and($statements[0]['revenue'])->toBe(45000000000.0)
+        ->and(CompanyFinancial::where('symbol', 'META')->where('fiscal_date', '2026-06-30')->exists())->toBeTrue();
+});
+
+test('historicalIntradayBars archives intraday bars and serves historical intraday intervals from database payload with zero upstream calls', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $from = CarbonImmutable::parse('2026-09-01');
+    $to = CarbonImmutable::parse('2026-09-05');
+
+    $upstream->shouldReceive('historicalIntradayBars')
+        ->once()
+        ->with('AMD', '15min', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
+        ->andReturn([
+            ['date' => '2026-09-01 09:30:00', 'open' => 140.0, 'close' => 141.0, 'volume' => 50000],
+            ['date' => '2026-09-01 09:45:00', 'open' => 141.0, 'close' => 141.5, 'volume' => 45000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 1. First call fetches from upstream and archives into MarketDataPayload
+    $bars = $provider->historicalIntradayBars('AMD', '15min', $from, $to);
+    expect($bars)->toHaveCount(2)
+        ->and(MarketDataPayload::where('symbol', 'AMD')->where('data_type', 'intraday_15min')->exists())->toBeTrue();
+
+    // 2. Clear memory cache to simulate app restart
+    Cache::flush();
+
+    // 3. Second call must serve from MarketDataPayload with zero upstream calls
+    $barsFromDb = $provider->historicalIntradayBars('AMD', '15min', $from, $to);
+    expect($barsFromDb)->toHaveCount(2)
+        ->and((float) $barsFromDb[0]['open'])->toBe(140.0);
+});
+
+test('companyScreener does not overwrite existing non-null profile attributes with null', function () {
+    // Seed existing complete profile
+    CompanyProfile::create([
+        'symbol' => 'ORCL',
+        'company_name' => 'Oracle Corporation',
+        'exchange' => 'NYSE',
+        'currency' => 'USD',
+        'country' => 'US',
+        'sector' => 'Technology',
+        'industry' => 'Software - Infrastructure',
+        'market_cap' => 400000000000,
+        'price' => 140.0,
+        'retrieved_at' => now()->subDays(5),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Screener response only contains symbol, company_name, price, market_cap (missing sector, industry, country)
+    $upstream->shouldReceive('companyScreener')
+        ->once()
+        ->andReturn([
+            [
+                'symbol' => 'ORCL',
+                'company_name' => 'Oracle Corp Updated',
+                'price' => 145.5,
+                'market_cap' => 420000000000,
+                // sector, industry, country are absent/null
+            ],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $provider->companyScreener(['marketCapMoreThan' => 1000000000]);
+
+    $profile = CompanyProfile::where('symbol', 'ORCL')->first();
+    expect($profile)->not->toBeNull()
+        ->and((float) $profile->price)->toBe(145.5)
+        ->and($profile->market_cap)->toBe(420000000000)
+        // Previously collected attributes must NOT be overwritten with null
+        ->and($profile->country)->toBe('US')
+        ->and($profile->sector)->toBe('Technology')
+        ->and($profile->industry)->toBe('Software - Infrastructure');
+});
+
+test('previously retrieved market data survives application restarts with zero upstream calls', function () {
+    // 1. Seed complete data in database
+    StockDailyBar::create([
+        'symbol' => 'NFLX',
+        'bar_date' => '2026-10-15',
+        'open' => 600.0,
+        'high' => 610.0,
+        'low' => 598.0,
+        'close' => 608.0,
+        'volume' => 3000000,
+        'retrieved_at' => now(),
+    ]);
+
+    CompanyProfile::create([
+        'symbol' => 'NFLX',
+        'company_name' => 'Netflix, Inc.',
+        'exchange' => 'NASDAQ',
+        'currency' => 'USD',
+        'price' => 608.0,
+        'retrieved_at' => now(),
+    ]);
+
+    CompanyFinancial::create([
+        'symbol' => 'NFLX',
+        'statement_type' => CompanyFinancial::TYPE_INCOME,
+        'fiscal_date' => '2026-06-30',
+        'period' => 'Q2',
+        'revenue' => 9500000000,
+        'net_income' => 2100000000,
+        'eps' => 4.88,
+        'retrieved_at' => now(),
+    ]);
+
+    // 2. Clear all in-memory cache to simulate server restart
+    Cache::flush();
+
+    // 3. Upstream mock should NEVER be called
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldNotReceive('historicalDailyBars');
+    $upstream->shouldNotReceive('profile');
+    $upstream->shouldNotReceive('quarterlyIncomeStatements');
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    $bars = $provider->historicalDailyBars('NFLX', CarbonImmutable::parse('2026-10-15'), CarbonImmutable::parse('2026-10-15'));
+    $profile = $provider->profile('NFLX');
+    $statements = $provider->quarterlyIncomeStatements('NFLX', 1);
+
+    expect($bars)->toHaveCount(1)
+        ->and($bars[0]['close'])->toBe(608.0)
+        ->and($profile)->not->toBeNull()
+        ->and($profile['name'])->toBe('Netflix, Inc.')
+        ->and($statements)->toHaveCount(1)
+        ->and($statements[0]['revenue'])->toBe(9500000000.0);
+});
+
 test('resolves PersistentMarketDataProvider from service container when driver is fmp or persistent', function (string $driver) {
     config(['market_data.provider' => $driver]);
 
     $resolved = app(MarketDataProvider::class);
     expect($resolved)->toBeInstanceOf(PersistentMarketDataProvider::class);
 })->with(['fmp', 'persistent']);
+
+test('empty responses or unfinished trading days do not permanently prevent later retrieval', function () {
+    $today = CarbonImmutable::today();
+    $upstream = Mockery::mock(MarketDataProvider::class);
+
+    // 1. First call on unfinished trading day returns empty (e.g. pre-market)
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('UNF', Mockery::on(fn ($c) => $c->toDateString() === $today->toDateString()), Mockery::on(fn ($c) => $c->toDateString() === $today->toDateString()))
+        ->andReturn([]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $bars = $provider->historicalDailyBars('UNF', $today, $today);
+    expect($bars)->toBeEmpty();
+
+    // Stored payload was created with empty payload
+    $payload = MarketDataPayload::where('symbol', 'UNF')->where('data_type', 'bars')->first();
+    expect($payload)->not->toBeNull()
+        ->and($payload->payload)->toBeEmpty();
+
+    // 2. Simulate time passing past the 15-minute unfinished freshness window
+    $payload->update(['retrieved_at' => now()->subMinutes(20)]);
+    Cache::flush();
+
+    // 3. Upstream should be queried again when called later
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('UNF', Mockery::on(fn ($c) => $c->toDateString() === $today->toDateString()), Mockery::on(fn ($c) => $c->toDateString() === $today->toDateString()))
+        ->andReturn([
+            ['date' => $today->toDateString(), 'open' => 50.0, 'high' => 52.0, 'low' => 49.5, 'close' => 51.5, 'adj_close' => 51.5, 'volume' => 500000],
+        ]);
+
+    $freshBars = $provider->historicalDailyBars('UNF', $today, $today);
+    expect($freshBars)->toHaveCount(1)
+        ->and($freshBars[0]['close'])->toBe(51.5)
+        ->and(StockDailyBar::where('symbol', 'UNF')->where('bar_date', $today->toDateString())->exists())->toBeTrue();
+});
+
+test('overlapping historical ranges preserve previously stored prices and only query missing gap', function () {
+    // Seed days 1 to 3 with known prices
+    StockDailyBar::create([
+        'symbol' => 'OVL',
+        'bar_date' => '2026-10-01',
+        'open' => 100.0,
+        'high' => 105.0,
+        'low' => 99.0,
+        'close' => 104.0,
+        'adj_close' => 104.0,
+        'volume' => 1000000,
+        'retrieved_at' => now(),
+    ]);
+    StockDailyBar::create([
+        'symbol' => 'OVL',
+        'bar_date' => '2026-10-02',
+        'open' => 104.0,
+        'high' => 106.0,
+        'low' => 103.0,
+        'close' => 105.0,
+        'adj_close' => 105.0,
+        'volume' => 1100000,
+        'retrieved_at' => now(),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // When requesting 2026-10-02 to 2026-10-04, upstream is ONLY called for the later gap: 2026-10-03 to 2026-10-04
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('OVL', Mockery::on(fn ($c) => $c->toDateString() === '2026-10-03'), Mockery::on(fn ($c) => $c->toDateString() === '2026-10-04'))
+        ->andReturn([
+            ['date' => '2026-10-03', 'open' => 105.0, 'close' => 107.0, 'volume' => 900000],
+            ['date' => '2026-10-04', 'open' => 107.0, 'close' => 108.0, 'volume' => 950000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $from = CarbonImmutable::parse('2026-10-02');
+    $to = CarbonImmutable::parse('2026-10-04');
+
+    $bars = $provider->historicalDailyBars('OVL', $from, $to);
+    expect($bars)->toHaveCount(3)
+        ->and($bars[0]['date'])->toBe('2026-10-02')
+        ->and($bars[0]['close'])->toBe(105.0)
+        ->and($bars[1]['date'])->toBe('2026-10-03')
+        ->and($bars[2]['date'])->toBe('2026-10-04');
+
+    // Previously stored day 1 price remains completely intact
+    expect(StockDailyBar::where('symbol', 'OVL')->where('bar_date', '2026-10-01')->first()->close)->toEqual(104.0);
+});
+
+test('intraday caching distinguishes different time windows on the same day and merges incrementally', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+
+    $from1 = CarbonImmutable::parse('2026-10-15 09:30:00');
+    $to1 = CarbonImmutable::parse('2026-10-15 11:30:00');
+
+    $from2 = CarbonImmutable::parse('2026-10-15 13:00:00');
+    $to2 = CarbonImmutable::parse('2026-10-15 16:00:00');
+
+    // First call queries upstream for morning window
+    $upstream->shouldReceive('historicalIntradayBars')
+        ->once()
+        ->with('INTRA', '15min', Mockery::on(fn ($c) => $c->format('H:i') === '09:30'), Mockery::on(fn ($c) => $c->format('H:i') === '11:30'))
+        ->andReturn([
+            ['date' => '2026-10-15 09:30:00', 'open' => 100.0, 'close' => 101.0, 'volume' => 10000],
+            ['date' => '2026-10-15 10:00:00', 'open' => 101.0, 'close' => 102.0, 'volume' => 12000],
+        ]);
+
+    // Second call queries upstream for afternoon window
+    $upstream->shouldReceive('historicalIntradayBars')
+        ->once()
+        ->with('INTRA', '15min', Mockery::on(fn ($c) => $c->format('H:i') === '13:00'), Mockery::on(fn ($c) => $c->format('H:i') === '16:00'))
+        ->andReturn([
+            ['date' => '2026-10-15 13:30:00', 'open' => 103.0, 'close' => 104.0, 'volume' => 15000],
+            ['date' => '2026-10-15 15:30:00', 'open' => 104.0, 'close' => 105.0, 'volume' => 16000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Call 1
+    $morningBars = $provider->historicalIntradayBars('INTRA', '15min', $from1, $to1);
+    expect($morningBars)->toHaveCount(2)
+        ->and($morningBars[0]['date'])->toBe('2026-10-15 09:30:00')
+        ->and($morningBars[1]['date'])->toBe('2026-10-15 10:00:00');
+
+    // Call 2
+    $afternoonBars = $provider->historicalIntradayBars('INTRA', '15min', $from2, $to2);
+    expect($afternoonBars)->toHaveCount(2)
+        ->and($afternoonBars[0]['date'])->toBe('2026-10-15 13:30:00')
+        ->and($afternoonBars[1]['date'])->toBe('2026-10-15 15:30:00');
+
+    // Stored composite payload must contain all 4 candles (incremental merge preserved morning candles)
+    $dayPayload = MarketDataPayload::where('symbol', 'INTRA')
+        ->where('data_type', 'intraday_15min')
+        ->where('period', '2026-10-15')
+        ->first();
+
+    expect($dayPayload)->not->toBeNull()
+        ->and($dayPayload->payload)->toHaveCount(4);
+});
+
+test('retrieving quote does not make outdated company profile appear fresh', function () {
+    // 1. Seed company profile older than 24 hours
+    $profile = CompanyProfile::create([
+        'symbol' => 'STALE',
+        'company_name' => 'Stale Corp',
+        'exchange' => 'NYSE',
+        'price' => 50.0,
+        'market_cap' => 1000000000,
+        'retrieved_at' => now()->subHours(36),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('quote')
+        ->once()
+        ->with('STALE')
+        ->andReturn([
+            'symbol' => 'STALE',
+            'price' => 55.0,
+            'market_cap' => 1100000000,
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 2. Fetch quote
+    $quote = $provider->quote('STALE');
+    expect($quote['price'])->toBe(55.0);
+
+    // 3. CompanyProfile price updated, but retrieved_at MUST NOT be refreshed to now!
+    $refreshedProfile = CompanyProfile::where('symbol', 'STALE')->first();
+    expect((float) $refreshedProfile->price)->toBe(55.0)
+        ->and($refreshedProfile->retrieved_at->diffInHours(now()))->toBeGreaterThanOrEqual(35);
+
+    // 4. Calling profile() still calls upstream because the profile remains properly recognized as stale!
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('STALE')
+        ->andReturn([
+            'symbol' => 'STALE',
+            'name' => 'Stale Corp Updated',
+            'exchange' => 'NYSE',
+            'price' => 55.0,
+        ]);
+
+    $freshProfile = $provider->profile('STALE');
+    expect($freshProfile['name'])->toBe('Stale Corp Updated');
+});
+
+test('failed financial statement refresh does not mark old records as freshly verified', function () {
+    // 1. Seed financial record from 48 hours ago
+    $origTime = now()->subHours(48);
+    CompanyFinancial::create([
+        'symbol' => 'FAILCO',
+        'statement_type' => CompanyFinancial::TYPE_INCOME,
+        'fiscal_date' => '2026-03-31',
+        'period' => 'Q1',
+        'revenue' => 10000000,
+        'net_income' => 2000000,
+        'eps' => 0.50,
+        'retrieved_at' => $origTime,
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream fails with exception
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('FAILCO', 4)
+        ->andThrow(new \RuntimeException('FMP API timeout'));
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Fetch should gracefully fallback to existing stored records
+    $statements = $provider->quarterlyIncomeStatements('FAILCO', 4);
+    expect($statements)->toHaveCount(1);
+
+    // Existing record's retrieved_at must NOT be updated to now()!
+    $stored = CompanyFinancial::where('symbol', 'FAILCO')->first();
+    expect($stored->retrieved_at->diffInHours(now()))->toBeGreaterThanOrEqual(47);
+});
+
+test('companies with limited financial history do not trigger excessive upstream requests', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream has only 2 quarters in existence even though 8 are requested
+    $upstream->shouldReceive('quarterlyIncomeStatements')
+        ->once()
+        ->with('IPO', 8)
+        ->andReturn([
+            ['date' => '2026-06-30', 'revenue' => 15000000.0, 'net_income' => 3000000.0, 'eps' => 0.75, 'period' => 'Q2', 'fiscalYear' => 2026],
+            ['date' => '2026-03-31', 'revenue' => 12000000.0, 'net_income' => 2500000.0, 'eps' => 0.60, 'period' => 'Q1', 'fiscalYear' => 2026],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 1. First call fetches from upstream
+    $res1 = $provider->quarterlyIncomeStatements('IPO', 8);
+    expect($res1)->toHaveCount(2);
+
+    // 2. Clear memory cache to simulate subsequent request in separate lifecycle
+    Cache::flush();
+
+    // 3. Second call for limit 8: upstream should NOT be called again within 24h because limit exhaustion is tracked
+    $res2 = $provider->quarterlyIncomeStatements('IPO', 8);
+    expect($res2)->toHaveCount(2)
+        ->and($res2[0]['revenue'])->toBe(15000000.0);
+});
+
+test('companyScreener serves from storage first when payload is fresh', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('companyScreener')
+        ->once()
+        ->with(['marketCapMoreThan' => 500000000])
+        ->andReturn([
+            ['symbol' => 'SCR1', 'company_name' => 'Screener Stock 1', 'price' => 88.0, 'market_cap' => 600000000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 1. First call fetches and archives
+    $res1 = $provider->companyScreener(['marketCapMoreThan' => 500000000]);
+    expect($res1)->toHaveCount(1)
+        ->and($res1[0]['symbol'])->toBe('SCR1');
+
+    // 2. Clear memory cache
+    Cache::flush();
+
+    // 3. Second call serves from MarketDataPayload without calling upstream
+    $res2 = $provider->companyScreener(['marketCapMoreThan' => 500000000]);
+    expect($res2)->toHaveCount(1)
+        ->and($res2[0]['symbol'])->toBe('SCR1');
+});
+
+test('yesterday daily candle is finalized after market close even if preliminary version was stored', function () {
+    $yesterday = CarbonImmutable::parse('2026-10-20');
+    // Store preliminary bar retrieved at 2:00 PM Eastern on that day
+    $preliminaryTime = CarbonImmutable::parse('2026-10-20 14:00:00', 'America/New_York');
+
+    StockDailyBar::create([
+        'symbol' => 'EOD',
+        'bar_date' => '2026-10-20',
+        'open' => 100.0,
+        'high' => 105.0,
+        'low' => 99.0,
+        'close' => 104.0, // preliminary midday close
+        'volume' => 500000,
+        'retrieved_at' => $preliminaryTime,
+    ]);
+
+    MarketDataPayload::create([
+        'symbol' => 'EOD',
+        'data_type' => 'bars',
+        'period' => '2026-10-20_2026-10-20',
+        'payload' => [['date' => '2026-10-20', 'close' => 104.0]],
+        'retrieved_at' => $preliminaryTime,
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream returns the finalized EOD candle
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('EOD', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
+        ->andReturn([
+            ['date' => '2026-10-20', 'open' => 100.0, 'high' => 106.0, 'low' => 98.5, 'close' => 102.5, 'volume' => 1200000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $bars = $provider->historicalDailyBars('EOD', $yesterday, $yesterday);
+
+    expect($bars)->toHaveCount(1)
+        ->and((float) $bars[0]['close'])->toBe(102.5);
+
+    $updatedBar = StockDailyBar::where('symbol', 'EOD')->where('bar_date', '2026-10-20')->first();
+    expect((float) $updatedBar->close)->toBe(102.5)
+        ->and((int) $updatedBar->volume)->toBe(1200000);
+});
+
+test('memory caching does not prevent unfinished trading days from refreshing', function () {
+    $today = CarbonImmutable::today('America/New_York');
+
+    // Create preliminary bar retrieved 20 minutes ago
+    $retrievedAt = now()->subMinutes(20);
+    StockDailyBar::create([
+        'symbol' => 'UNF',
+        'bar_date' => $today->toDateString(),
+        'open' => 50.0,
+        'high' => 52.0,
+        'low' => 49.0,
+        'close' => 51.0,
+        'volume' => 100000,
+        'retrieved_at' => $retrievedAt,
+    ]);
+
+    // Pre-populate memory cache
+    $v = PersistentMarketDataProvider::getCacheVersion('bars', 'UNF');
+    $cacheKey = "duoasset.v{$v}.bars.UNF.{$today->toDateString()}.{$today->toDateString()}";
+    Cache::put($cacheKey, [
+        ['date' => $today->toDateString(), 'open' => 50.0, 'close' => 51.0, 'volume' => 100000],
+    ], 3600);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->andReturn([
+            ['date' => $today->toDateString(), 'open' => 50.0, 'high' => 53.0, 'low' => 49.0, 'close' => 52.5, 'volume' => 250000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $bars = $provider->historicalDailyBars('UNF', $today, $today);
+
+    expect($bars)->toHaveCount(1)
+        ->and((float) $bars[0]['close'])->toBe(52.5);
+});
+
+test('memory cache lifetimes do not extend beyond underlying record freshness period', function () {
+    // Stored profile retrieved 23 hours ago (intended freshness is 24 hours = 1 hour remaining)
+    $retrievedAt = now()->subHours(23);
+    CompanyProfile::create([
+        'symbol' => 'TTLCO',
+        'company_name' => 'TTL Company',
+        'retrieved_at' => $retrievedAt,
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Call profile() which will put in memory cache with remaining TTL (~3600 seconds, not 86400)
+    $profile = $provider->profile('TTLCO');
+    expect($profile)->not->toBeNull();
+
+    // Check cached value
+    $v = PersistentMarketDataProvider::getCacheVersion('profile', 'TTLCO');
+    $cacheKey = "duoasset.v{$v}.profile.TTLCO";
+    expect(Cache::has($cacheKey))->toBeTrue();
+
+    // Advance time by 2 hours (making the DB record 25 hours old, so memory cache must have expired)
+    \Illuminate\Support\Carbon::setTestNow(now()->addHours(2));
+
+    expect(Cache::has($cacheKey))->toBeFalse();
+    \Illuminate\Support\Carbon::setTestNow(); // reset
+});
+
+test('profile serves complete original response attributes and maintains historical snapshots', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('ATTR')
+        ->andReturn([
+            'symbol' => 'ATTR',
+            'name' => 'Attribute Corp',
+            'exchange' => 'NYSE',
+            'currency' => 'USD',
+            'price' => 120.0,
+            'market_cap' => 5000000000,
+            'description' => 'Complete FMP company description preserved.',
+            'ceo' => 'Jane Doe',
+            'website' => 'https://attribute.com',
+            'beta' => 1.15,
+            'dcf' => 125.40,
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $fresh = $provider->profile('ATTR');
+
+    expect($fresh['description'])->toBe('Complete FMP company description preserved.')
+        ->and($fresh['ceo'])->toBe('Jane Doe')
+        ->and($fresh['beta'])->toBe(1.15);
+
+    // Verify both latest-value caching and historical archival snapshot were created in MarketDataPayload
+    $latest = MarketDataPayload::where('symbol', 'ATTR')->where('data_type', 'profile')->where('period', 'latest')->first();
+    $snapshot = MarketDataPayload::where('symbol', 'ATTR')->where('data_type', 'profile')->where('period', 'like', 'snapshot_%')->first();
+
+    expect($latest)->not->toBeNull()
+        ->and($snapshot)->not->toBeNull()
+        ->and($snapshot->payload['description'])->toBe('Complete FMP company description preserved.');
+
+    // Clear memory cache and re-request: should serve complete attributes from stored payload
+    Cache::flush();
+    $cached = $provider->profile('ATTR');
+    expect($cached['description'])->toBe('Complete FMP company description preserved.')
+        ->and($cached['ceo'])->toBe('Jane Doe');
+});
+
+test('partially collected intraday session is not treated as complete historical session after market close', function () {
+    $date = CarbonImmutable::parse('2026-10-15');
+    // Preliminary midday snapshot retrieved at 11:00 AM Eastern on that trading day
+    $retrievedAt = CarbonImmutable::parse('2026-10-15 11:00:00', 'America/New_York');
+
+    MarketDataPayload::create([
+        'symbol' => 'INTRA',
+        'data_type' => 'intraday_1hour',
+        'period' => '2026-10-15',
+        'payload' => [
+            ['date' => '2026-10-15 09:30:00', 'open' => 20.0, 'close' => 20.5, 'volume' => 1000],
+            ['date' => '2026-10-15 10:30:00', 'open' => 20.5, 'close' => 21.0, 'volume' => 1200],
+        ],
+        'retrieved_at' => $retrievedAt,
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Because the day is now completed and it was only partially collected, upstream MUST be queried to finalize
+    $upstream->shouldReceive('historicalIntradayBars')
+        ->once()
+        ->with('INTRA', '1hour', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
+        ->andReturn([
+            ['date' => '2026-10-15 09:30:00', 'open' => 20.0, 'close' => 20.5, 'volume' => 1000],
+            ['date' => '2026-10-15 10:30:00', 'open' => 20.5, 'close' => 21.0, 'volume' => 1200],
+            ['date' => '2026-10-15 11:30:00', 'open' => 21.0, 'close' => 21.2, 'volume' => 900],
+            ['date' => '2026-10-15 15:30:00', 'open' => 21.2, 'close' => 21.5, 'volume' => 1500],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $bars = $provider->historicalIntradayBars('INTRA', '1hour', $date, $date);
+
+    expect($bars)->toHaveCount(4)
+        ->and($bars[3]['date'])->toBe('2026-10-15 15:30:00');
+});
+
+test('financial statements preserve distinction between missing null values and actual zero values', function () {
+    CompanyFinancial::create([
+        'symbol' => 'ZEROFIN',
+        'statement_type' => CompanyFinancial::TYPE_INCOME,
+        'fiscal_date' => '2026-06-30',
+        'period' => 'Q2',
+        'revenue' => 0.0, // actual zero revenue (e.g. pre-revenue biotech)
+        'net_income' => -500000.0,
+        'eps' => null, // missing EPS value
+        'retrieved_at' => now(),
+    ]);
+
+    CompanyFinancial::create([
+        'symbol' => 'ZEROFIN',
+        'statement_type' => CompanyFinancial::TYPE_CASH_FLOW,
+        'fiscal_date' => '2026-06-30',
+        'period' => 'Q2',
+        'free_cash_flow' => 0.0, // actual zero cash flow
+        'retrieved_at' => now(),
+    ]);
+
+    CompanyFinancial::create([
+        'symbol' => 'NULLFIN',
+        'statement_type' => CompanyFinancial::TYPE_INCOME,
+        'fiscal_date' => '2026-06-30',
+        'period' => 'Q2',
+        'revenue' => null, // missing revenue
+        'net_income' => null, // missing net income
+        'eps' => null,
+        'retrieved_at' => now(),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    $zeroIncome = $provider->quarterlyIncomeStatements('ZEROFIN', 1);
+    expect($zeroIncome[0]['revenue'])->toBe(0.0) // actual zero must be 0.0, not null
+        ->and($zeroIncome[0]['eps'])->toBeNull(); // missing must be null, not 0.0
+
+    $zeroCash = $provider->quarterlyCashFlowStatements('ZEROFIN', 1);
+    expect($zeroCash[0]['free_cash_flow'])->toBe(0.0); // actual zero must be 0.0
+
+    $nullIncome = $provider->quarterlyIncomeStatements('NULLFIN', 1);
+    expect($nullIncome[0]['revenue'])->toBeNull() // missing revenue must be null, not 0.0
+        ->and($nullIncome[0]['net_income'])->toBeNull(); // missing net income must be null, not 0.0
+});
