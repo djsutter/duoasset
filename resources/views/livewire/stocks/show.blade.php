@@ -113,6 +113,7 @@
          x-data="{
              symbol: @js($symbol),
              userId: @js((string)(auth()->id() ?? 'guest')),
+             userTimezone: @js(auth()->user()?->timezone() ?? 'America/New_York'),
              candles: @js($candles),
              workspace: null,
              isFullscreen: false,
@@ -183,6 +184,17 @@
                          timeframe: activeItem.vela,
                          persistKey: persistKey,
                          previousWorkspace: this.workspace,
+                         userId: this.userId,
+                         timezone: this.userTimezone,
+                         onTimezoneChange: (newTz) => {
+                             if (newTz && newTz !== this.userTimezone) {
+                                 this.userTimezone = newTz;
+                                 if (this.$wire && typeof this.$wire.setTimezone === 'function') {
+                                     this.$wire.setTimezone(newTz);
+                                 }
+                                 this.fetchCandles({ refresh: true });
+                             }
+                         },
                      });
                      if (this.candles.length > 0 && !this.workspace) {
                          this.errorMessage = '{{ __('Unable to initialize financial chart display.') }}';
@@ -241,7 +253,7 @@
                  this.savePreferences();
                  this.fetchCandles();
              },
-             async fetchCandles() {
+             async fetchCandles(options = {}) {
                  if (this.activeAbortController) {
                      try { this.activeAbortController.abort(); } catch (e) {}
                  }
@@ -281,7 +293,10 @@
                  const toStr = toDate.toISOString().slice(0, 10);
                  const activeItem = this.intervals.find(i => i.id === this.selectedInterval) || { api: '1day' };
 
-                 const url = `/stocks/${encodeURIComponent(this.symbol)}/candles?interval=${activeItem.api}&from=${fromStr}&to=${toStr}&range=${this.selectedRange}`;
+                 let url = `/stocks/${encodeURIComponent(this.symbol)}/candles?interval=${activeItem.api}&from=${fromStr}&to=${toStr}&range=${this.selectedRange}`;
+                 if (options && options.refresh) {
+                     url += '&refresh=1';
+                 }
 
                  try {
                      const response = await fetch(url, {

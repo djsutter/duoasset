@@ -789,3 +789,82 @@ test('non-stock pages do not load stock chart JS entrypoint', function () {
     $watchlistsResponse->assertOk();
     $watchlistsResponse->assertDontSee('resources/js/stock-chart.js');
 });
+
+test('intraday candle timestamps normalize naive timestamps in America/New_York and explicit offset timestamps correctly', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    // 2026-10-25 14:00:00 naive is 14:00 EDT (UTC-4) -> 18:00:00 UTC = 1792951200
+    // 2026-10-25 19:00:00Z explicit UTC -> 19:00:00 UTC = 1792954800
+    $fake->intradayBars['CMPX'] = [
+        ['date' => '2026-10-25 14:00:00', 'open' => 1.0, 'high' => 1.1, 'low' => 0.9, 'close' => 1.05, 'volume' => 1000],
+        ['date' => '2026-10-25 19:00:00Z', 'open' => 1.05, 'high' => 1.15, 'low' => 1.0, 'close' => 1.10, 'volume' => 1200],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/CMPX/candles?interval=1hour');
+    $response->assertOk();
+
+    $candles = $response->json('candles');
+    expect($candles)->toHaveCount(2);
+
+    // Candle 1: naive New York time converted to UTC epoch
+    $expectedUtc1 = \Carbon\Carbon::parse('2026-10-25 14:00:00', 'America/New_York')->utc()->timestamp;
+    expect($candles[0]['time'])->toBe($expectedUtc1);
+
+    // Candle 2: explicit UTC timestamp preserved
+    $expectedUtc2 = \Carbon\Carbon::parse('2026-10-25 19:00:00Z')->utc()->timestamp;
+    expect($candles[1]['time'])->toBe($expectedUtc2);
+});
+
+test('changing timezone via setTimezone updates user timezone and clears candle cache', function () {
+    $user = User::factory()->create([
+        'email_verified_at' => now(),
+        'timezone' => 'UTC',
+    ]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['CMPX'] = ['symbol' => 'CMPX', 'price' => 0.76];
+    $fake->dailyBars['CMPX'] = [
+        ['date' => '2026-11-02', 'open' => 0.79, 'high' => 0.81, 'low' => 0.75, 'close' => 0.76, 'volume' => 300000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $component = Livewire::actingAs($user)
+        ->test(StockShow::class, ['symbol' => 'CMPX']);
+
+    $component->call('setTimezone', 'America/New_York')
+        ->assertDispatched('timezone-updated', timezone: 'America/New_York');
+
+    expect($user->fresh()->timezone)->toBe('America/New_York');
+});
+
+test('candles json endpoint with refresh parameter forces fresh candles and updates cache', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->dailyBars['CMPX'] = [
+        ['date' => '2026-11-01', 'open' => 0.80, 'high' => 0.82, 'low' => 0.78, 'close' => 0.79, 'volume' => 100000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    // First fetch caches candle with close 0.79
+    $initialResp = $this->actingAs($user)->get('/stocks/CMPX/candles?interval=1day');
+    $initialResp->assertOk();
+    expect($initialResp->json('candles.0.close'))->toBe(0.79);
+
+    // Update provider data
+    $fake->dailyBars['CMPX'] = [
+        ['date' => '2026-11-01', 'open' => 0.80, 'high' => 0.82, 'low' => 0.78, 'close' => 0.95, 'volume' => 100000],
+    ];
+
+    // Regular fetch still returns cached 0.79
+    $cachedResp = $this->actingAs($user)->get('/stocks/CMPX/candles?interval=1day');
+    $cachedResp->assertOk();
+    expect($cachedResp->json('candles.0.close'))->toBe(0.79);
+
+    // Fetch with refresh=1 invalidates cache and returns updated 0.95
+    $refreshedResp = $this->actingAs($user)->get('/stocks/CMPX/candles?interval=1day&refresh=1');
+    $refreshedResp->assertOk();
+    expect($refreshedResp->json('candles.0.close'))->toBe(0.95);
+});

@@ -86,7 +86,8 @@ class StockChartService
         $fromStr = $from->toDateString();
         $toStr = $to->toDateString();
         $cacheTtl = in_array($canonicalInterval, ['1day', '1week', '1month'], true) ? 3600 : 300;
-        $cacheKey = "stock_chart.candles.{$symbol}.{$canonicalInterval}.{$fromStr}.{$toStr}";
+        $version = (int) Cache::get("stock_chart.cache_version.{$symbol}", 1);
+        $cacheKey = "stock_chart.candles.{$symbol}.{$canonicalInterval}.{$fromStr}.{$toStr}.v{$version}";
 
         $cached = Cache::get($cacheKey);
         if (is_array($cached)) {
@@ -126,6 +127,22 @@ class StockChartService
             'count' => count($candles),
             'candles' => $candles,
         ];
+    }
+
+    /**
+     * Clear the candle response cache for a symbol.
+     */
+    public function clearCandlesCache(string $symbol): void
+    {
+        $symbol = strtoupper(trim($symbol));
+        if ($symbol !== '') {
+            $versionKey = "stock_chart.cache_version.{$symbol}";
+            if (! Cache::has($versionKey)) {
+                Cache::forever($versionKey, 2);
+            } else {
+                Cache::increment($versionKey);
+            }
+        }
     }
 
     /**
@@ -197,8 +214,10 @@ class StockChartService
             try {
                 if ($isIntraday) {
                     // FMP intraday market timestamps are reported in US Eastern time (America/New_York).
-                    // If timestamp includes explicit offset/UTC flag, parse directly; otherwise interpret in America/New_York
-                    $c = preg_match('/[Z+\-]\d{2}/', $dateRaw)
+                    // If timestamp includes an explicit offset/UTC flag after the time (e.g. Z, +00:00, -04:00),
+                    // parse directly; otherwise interpret naive timestamp in America/New_York and convert to UTC.
+                    $hasExplicitOffset = (bool) preg_match('/(?:\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(?:Z|[+\-]\d{2}(?::?\d{2})?)$/i', $dateRaw);
+                    $c = $hasExplicitOffset
                         ? Carbon::parse($dateRaw)
                         : Carbon::parse($dateRaw, 'America/New_York');
                     $timestamp = $c->utc()->timestamp;

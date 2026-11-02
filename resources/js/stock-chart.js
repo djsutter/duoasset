@@ -40,7 +40,26 @@ export function initStockChart(containerIdOrEl, options = {}) {
         theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light',
         persistKey = null,
         previousWorkspace = null,
+        userId = null,
+        timezone = null,
+        onTimezoneChange = null,
     } = options;
+
+    const userTzKey = 'duoasset_chart_tz_' + (userId || 'default');
+    let preferredTimezone = null;
+    if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+            preferredTimezone = localStorage.getItem(userTzKey);
+        } catch (e) {
+            // ignore
+        }
+    }
+    if (!preferredTimezone && timezone) {
+        preferredTimezone = timezone;
+    }
+    if (!preferredTimezone) {
+        preferredTimezone = 'America/New_York';
+    }
 
     // Preserve previous workspace state (indicators, drawings, styles) if available
     let savedState = null;
@@ -120,6 +139,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             symbol: symbol,
             timeframe: timeframe,
             data: formattedData,
+            timezone: preferredTimezone,
             // Explicitly enable volume on workspace / chart options
             volume: true,
             // Disable built-in symbol search since DuoAsset uses its own navigation
@@ -160,6 +180,11 @@ export function initStockChart(containerIdOrEl, options = {}) {
                     });
                 }
 
+                // If user has a preferred timezone across charts, make sure it is respected
+                if (preferredTimezone) {
+                    savedState.timezone = preferredTimezone;
+                }
+
                 if (typeof ws.applyState === 'function') {
                     ws.applyState(savedState);
                 }
@@ -168,13 +193,32 @@ export function initStockChart(containerIdOrEl, options = {}) {
             }
         }
 
+        let lastKnownTimezone = preferredTimezone;
+
         // Helper to persist current workspace state (including active indicators and drawings)
         const saveState = () => {
             try {
-                if (!ws.destroyed && typeof ws.getState === 'function' && persistKey && typeof window !== 'undefined' && window.localStorage) {
+                if (!ws.destroyed && typeof ws.getState === 'function' && typeof window !== 'undefined' && window.localStorage) {
                     const currentState = ws.getState();
                     if (currentState) {
-                        localStorage.setItem(persistKey, JSON.stringify(currentState));
+                        if (persistKey) {
+                            localStorage.setItem(persistKey, JSON.stringify(currentState));
+                        }
+
+                        // Track active timezone in workspace state
+                        let tz = currentState.timezone;
+                        if (!tz && Array.isArray(currentState.charts) && currentState.charts[0]?.timezone) {
+                            tz = currentState.charts[0].timezone;
+                        }
+                        if (tz && typeof tz === 'string') {
+                            localStorage.setItem(userTzKey, tz);
+                            if (tz !== lastKnownTimezone) {
+                                lastKnownTimezone = tz;
+                                if (typeof onTimezoneChange === 'function') {
+                                    onTimezoneChange(tz);
+                                }
+                            }
+                        }
                     }
                 }
             } catch (e) {

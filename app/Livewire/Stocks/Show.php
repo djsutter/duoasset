@@ -320,6 +320,31 @@ class Show extends Component
         }
     }
 
+    public function setTimezone(string $timezone, ?StockChartService $chartService = null): void
+    {
+        $timezone = trim($timezone);
+        if ($timezone === 'exchange') {
+            $timezone = 'America/New_York';
+        }
+
+        $user = auth()->user();
+        if ($user && in_array($timezone, timezone_identifiers_list(), true)) {
+            $user->update(['timezone' => $timezone]);
+        }
+
+        $chartService = $chartService ?? app(StockChartService::class);
+        $chartService->clearCandlesCache($this->symbol);
+
+        try {
+            $candleResponse = $chartService->getCandles($this->symbol, '1day');
+            $this->candles = $candleResponse['candles'] ?? [];
+        } catch (\Throwable) {
+            // Keep existing candles if refresh fails
+        }
+
+        $this->dispatch('timezone-updated', timezone: $timezone);
+    }
+
     public function render(): \Illuminate\Contracts\View\View
     {
         return view('livewire.stocks.show');

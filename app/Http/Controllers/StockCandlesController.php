@@ -104,6 +104,10 @@ class StockCandlesController extends Controller
             };
         }
 
+        if ($request->boolean('refresh') || $request->has('refresh')) {
+            $this->chartService->clearCandlesCache($symbol);
+        }
+
         try {
             $result = $this->chartService->getCandles($symbol, $interval, $from, $to);
 
