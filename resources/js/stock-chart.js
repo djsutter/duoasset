@@ -137,6 +137,15 @@ export function initStockChart(containerIdOrEl, options = {}) {
         return null;
     }
 
+    const mapToVelaPreset = (r) => {
+        const u = (r || '').toUpperCase();
+        if (u === 'ALL') return 'ALL';
+        if (u === '7D') return '1W';
+        return u;
+    };
+    const bottombarPreset = (activeRange === 'All' ? 'ALL' : (activeRange || '1Y')).toUpperCase();
+    const velaVisibleRange = mapToVelaPreset(activeRange);
+
     try {
         const workspaceOptions = {
             layout: false, // Single-chart mode
@@ -145,6 +154,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             timeframe: timeframe,
             data: formattedData,
             timezone: preferredTimezone,
+            visibleRange: velaVisibleRange,
             // Explicitly enable volume on workspace / chart options
             volume: true,
             // Disable built-in symbol search since DuoAsset uses its own navigation
@@ -171,6 +181,55 @@ export function initStockChart(containerIdOrEl, options = {}) {
         if (rawContainer) {
             rawContainer.__vela_ws = ws;
         }
+
+        // Highlight active range button in Vela bottombar
+        if (typeof ws.bottombar?.setActiveRange === 'function') {
+            try {
+                ws.bottombar.setActiveRange(bottombarPreset);
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // Intercept range clicks in Vela's bottom bar to fetch and reflect real candle data
+        const onRangeClick = (event) => {
+            const rangeBtn = event.target.closest('.vela-bb-range, .vela-tfd-chip');
+            if (!rangeBtn) return;
+            if (rangeBtn.closest('.vela-tfd-grid')) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            const rawText = rangeBtn.textContent.trim().toUpperCase();
+            const validPresets = ['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'ALL'];
+            if (!validPresets.includes(rawText)) return;
+
+            if (typeof ws.bottombar?.setActiveRange === 'function') {
+                try {
+                    ws.bottombar.setActiveRange(rawText);
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            const mappedRange = rawText === 'ALL' ? 'All' : rawText;
+
+            let suggestedInterval = null;
+            if (rawText === '1D') {
+                suggestedInterval = '5m';
+            } else if (rawText === '7D') {
+                suggestedInterval = '15m';
+            } else if (['1M', '3M', '6M', 'YTD', '1Y', '5Y', 'ALL'].includes(rawText)) {
+                suggestedInterval = '1D';
+            }
+
+            if (typeof onRangeChange === 'function') {
+                onRangeChange(mappedRange, suggestedInterval);
+            }
+        };
+
+        container.addEventListener('click', onRangeClick, true);
 
         // Restore previous chart state (indicators, drawings, settings) if available
         if (savedState) {
@@ -277,6 +336,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             }
             window.removeEventListener('beforeunload', unloadHandler);
             window.removeEventListener('resize', resizeHandler);
+            container.removeEventListener('click', onRangeClick, true);
             try { observer.disconnect(); } catch (e) {}
             containerRegistry.delete(container);
             container.__vela_ws = null;
@@ -286,7 +346,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             return originalDestroy();
         };
 
-        containerRegistry.set(container, { observer, resizeHandler, unloadHandler, unsubState });
+        containerRegistry.set(container, { observer, resizeHandler, unloadHandler, unsubState, onRangeClick });
 
         return ws;
     } catch (e) {
