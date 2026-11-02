@@ -240,7 +240,7 @@ test('chart page renders interactive interval controls, range controls, and stat
 
     // Assert Range controls and all buttons
     $response->assertSeeHtml('data-testid="range-controls"');
-    foreach (['1M', '3M', '6M', '1Y', '5Y', 'All'] as $range) {
+    foreach (['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'] as $range) {
         $response->assertSeeHtml("data-testid=\"range-btn-{$range}\"");
     }
 
@@ -313,7 +313,7 @@ test('candles json endpoint supports range parameter shorthand', function () {
     ];
     app()->instance(MarketDataProvider::class, $fake);
 
-    foreach (['1M', '3M', '6M', '1Y', '5Y', 'All'] as $range) {
+    foreach (['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All', 'ALL'] as $range) {
         $response = $this->actingAs($user)->get("/stocks/ARVN/candles?interval=1day&range={$range}");
         $response->assertOk();
         $data = $response->json();
@@ -867,4 +867,26 @@ test('candles json endpoint with refresh parameter forces fresh candles and upda
     $refreshedResp = $this->actingAs($user)->get('/stocks/CMPX/candles?interval=1day&refresh=1');
     $refreshedResp->assertOk();
     expect($refreshedResp->json('candles.0.close'))->toBe(0.95);
+});
+
+test('stock analysis page renders chart options with active range and range change handler', function () {
+    $user = User::factory()->create(['email_verified_at' => now()]);
+
+    $fake = new FakeMarketDataProvider;
+    $fake->quotes['ARVN'] = ['symbol' => 'ARVN', 'price' => 28.50];
+    $fake->dailyBars['ARVN'] = [
+        ['date' => '2026-10-24', 'open' => 26.50, 'high' => 27.50, 'low' => 26.10, 'close' => 27.25, 'volume' => 700000],
+    ];
+    app()->instance(MarketDataProvider::class, $fake);
+
+    $response = $this->actingAs($user)->get('/stocks/ARVN');
+    $response->assertOk();
+
+    // Verify active range and onRangeChange wiring in Alpine chart initialization
+    $response->assertSee('activeRange: this.selectedRange');
+    $response->assertSee('onRangeChange:');
+    $response->assertSee('data-testid="range-btn-1D"');
+    $response->assertSee('data-testid="range-btn-7D"');
+    $response->assertSee('data-testid="range-btn-5Y"');
+    $response->assertSee('data-testid="range-btn-YTD"');
 });
