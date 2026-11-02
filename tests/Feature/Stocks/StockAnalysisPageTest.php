@@ -885,8 +885,8 @@ test('stock analysis page renders chart options with active range and range chan
     // Verify active range and onRangeChange wiring in Alpine chart initialization
     $response->assertSee('activeRange: this.selectedRange');
     $response->assertSee('onRangeChange:');
-    $response->assertSee('data-testid="range-btn-1D"');
-    $response->assertSee('data-testid="range-btn-7D"');
-    $response->assertSee('data-testid="range-btn-5Y"');
-    $response->assertSee('data-testid="range-btn-YTD"');
+    $response->assertSeeHtml('data-testid="range-btn-1D"');
+    $response->assertSeeHtml('data-testid="range-btn-7D"');
+    $response->assertSeeHtml('data-testid="range-btn-5Y"');
+    $response->assertSeeHtml('data-testid="range-btn-YTD"');
 });
