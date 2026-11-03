@@ -13,6 +13,10 @@ return [
         'rate_limit_per_minute' => (int) env('FMP_RATE_LIMIT_PER_MINUTE', 300),
     ],
 
+    'screener' => [
+        'always_fresh' => env('SCREENER_ALWAYS_FRESH', false),
+    ],
+
     /*
     |----------------------------------------------------------------------
     | EPS Earnings Surprise Scanner

@@ -23,7 +23,9 @@ class ScanBuySetups extends Command
         {--exchange= : restrict screener to one exchange or comma-separated exchanges, e.g. NYSE or NYSE,NASDAQ}
         {--letter= : restrict screener universe to symbols starting with this letter, e.g. A}
         {--limit= : override max symbols per run}
-        {--sync : process synchronously (debug)}';
+        {--sync : process synchronously (debug)}
+        {--fresh : bypass screener cache and fetch a fresh company list from upstream}
+        {--force : alias for --fresh}';
 
     protected $description = 'Scan FMP daily bars for high-volume spikes following tight consolidation bases.';
 
@@ -79,6 +81,9 @@ class ScanBuySetups extends Command
             ];
             if ($letter !== null) {
                 $filters['symbolStartsWith'] = $letter;
+            }
+            if ($this->option('fresh') || $this->option('force') || config('market_data.screener.always_fresh', false)) {
+                $filters['fresh'] = true;
             }
 
             $rows = $provider->companyScreener($filters);

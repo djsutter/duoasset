@@ -18,7 +18,9 @@ class ScanEpsRevisions extends Command
     protected $signature = 'earnings:scan-revisions
         {--symbol=* : restrict to one or more symbols (skips the screener)}
         {--limit= : override max symbols per run}
-        {--sync : process synchronously (debug)}';
+        {--sync : process synchronously (debug)}
+        {--fresh : bypass screener cache and fetch a fresh company list from upstream}
+        {--force : alias for --fresh}';
 
     protected $description = 'Scan FMP analyst EPS estimates and alert on revisions vs previously stored values.';
 
@@ -48,11 +50,15 @@ class ScanEpsRevisions extends Command
             }
         } else {
             $this->info("Loading FMP company-screener (marketCap >= {$minMcap}, exchanges: ".implode(',', $exchanges).')');
-            $rows = $provider->companyScreener([
+            $filters = [
                 'marketCapMoreThan' => $minMcap,
                 'exchange' => $exchanges,
                 'limit' => $limit > 0 ? $limit : null,
-            ]);
+            ];
+            if ($this->option('fresh') || $this->option('force') || config('market_data.screener.always_fresh', false)) {
+                $filters['fresh'] = true;
+            }
+            $rows = $provider->companyScreener($filters);
 
             $this->info('Screener rows: '.count($rows));
 

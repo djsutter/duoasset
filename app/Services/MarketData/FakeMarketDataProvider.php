@@ -61,12 +61,12 @@ class FakeMarketDataProvider implements MarketDataProvider
         $this->errors = [];
     }
 
-    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         return $this->calendarRows;
     }
 
-    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         return $this->surpriseRows;
     }
@@ -116,7 +116,7 @@ class FakeMarketDataProvider implements MarketDataProvider
         return array_slice($rows, 0, $limit);
     }
 
-    public function companyScreener(array $filters = []): array
+    public function companyScreener(array $filters = [], bool $fresh = false): array
     {
         return $this->screenerRows;
     }

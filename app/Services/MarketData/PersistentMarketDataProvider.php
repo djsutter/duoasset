@@ -1207,36 +1207,45 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return $stored && is_array($stored->payload) ? $stored->payload : [];
     }
 
-    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
+        $fresh = $fresh || config('market_data.earnings_scanner.always_fresh', false);
         $key = $from->toDateString() . '_' . $to->toDateString();
         $v = self::getCacheVersion('earnings', 'GLOBAL');
         $cacheKey = "duoasset.v{$v}.earnings_calendar.{$key}";
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
-        }
 
-        $stored = MarketDataPayload::where('symbol', 'GLOBAL')
-            ->where('data_type', 'earnings_calendar')
-            ->where('period', $key)
-            ->first();
+        if (! $fresh) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return $cached;
+            }
 
-        if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
-            $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
-            Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
-            return $stored->payload;
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'earnings_calendar')
+                ->where('period', $key)
+                ->first();
+
+            if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
+                $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
+                Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+                return $stored->payload;
+            }
+        } else {
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'earnings_calendar')
+                ->where('period', $key)
+                ->first();
         }
 
         try {
-            $fresh = $this->upstream->earningsCalendar($from, $to);
-            if (! empty($fresh)) {
+            $freshData = $this->upstream->earningsCalendar($from, $to);
+            if (! empty($freshData)) {
                 MarketDataPayload::updateOrCreate(
                     ['symbol' => 'GLOBAL', 'data_type' => 'earnings_calendar', 'period' => $key],
-                    ['payload' => $fresh, 'retrieved_at' => now()]
+                    ['payload' => $freshData, 'retrieved_at' => now()]
                 );
-                Cache::put($cacheKey, $fresh, now()->addHours(12));
-                return $fresh;
+                Cache::put($cacheKey, $freshData, now()->addHours(12));
+                return $freshData;
             }
         } catch (Throwable $e) {
             Log::warning('persistent_market_data.earnings_calendar_failed', ['error' => $e->getMessage()]);
@@ -1245,36 +1254,45 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return $stored && is_array($stored->payload) ? $stored->payload : [];
     }
 
-    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
+        $fresh = $fresh || config('market_data.earnings_scanner.always_fresh', false);
         $key = $from->toDateString() . '_' . $to->toDateString();
         $v = self::getCacheVersion('earnings', 'GLOBAL');
         $cacheKey = "duoasset.v{$v}.earnings_surprises.{$key}";
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
-        }
 
-        $stored = MarketDataPayload::where('symbol', 'GLOBAL')
-            ->where('data_type', 'earnings_surprises')
-            ->where('period', $key)
-            ->first();
+        if (! $fresh) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return $cached;
+            }
 
-        if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
-            $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
-            Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
-            return $stored->payload;
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'earnings_surprises')
+                ->where('period', $key)
+                ->first();
+
+            if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
+                $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
+                Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+                return $stored->payload;
+            }
+        } else {
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'earnings_surprises')
+                ->where('period', $key)
+                ->first();
         }
 
         try {
-            $fresh = $this->upstream->earningsSurprises($from, $to);
-            if (! empty($fresh)) {
+            $freshData = $this->upstream->earningsSurprises($from, $to);
+            if (! empty($freshData)) {
                 MarketDataPayload::updateOrCreate(
                     ['symbol' => 'GLOBAL', 'data_type' => 'earnings_surprises', 'period' => $key],
-                    ['payload' => $fresh, 'retrieved_at' => now()]
+                    ['payload' => $freshData, 'retrieved_at' => now()]
                 );
-                Cache::put($cacheKey, $fresh, now()->addHours(12));
-                return $fresh;
+                Cache::put($cacheKey, $freshData, now()->addHours(12));
+                return $freshData;
             }
         } catch (Throwable $e) {
             Log::warning('persistent_market_data.earnings_surprises_failed', ['error' => $e->getMessage()]);
@@ -1283,30 +1301,42 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return $stored && is_array($stored->payload) ? $stored->payload : [];
     }
 
-    public function companyScreener(array $filters = []): array
+    public function companyScreener(array $filters = [], bool $fresh = false): array
     {
-        $filterHash = md5(json_encode($filters));
+        $isFresh = $fresh || ! empty($filters['fresh']) || ! empty($filters['force']) || config('market_data.screener.always_fresh', false);
+        $upstreamFilters = $filters;
+        unset($upstreamFilters['fresh'], $upstreamFilters['force']);
+
+        $filterHash = md5(json_encode($upstreamFilters));
         $v = self::getCacheVersion('screener', 'GLOBAL');
         $cacheKey = "duoasset.v{$v}.screener.{$filterHash}";
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
-        }
 
-        // Storage-first: check for cached screener results within 24 hours
-        $stored = MarketDataPayload::where('symbol', 'GLOBAL')
-            ->where('data_type', 'screener')
-            ->where('period', $filterHash)
-            ->first();
+        if (! $isFresh) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return $cached;
+            }
 
-        if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 24) {
-            $remaining = max(1, 86400 - $stored->retrieved_at->diffInSeconds(now()));
-            Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
-            return $stored->payload;
+            // Storage-first: check for cached screener results within 24 hours
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'screener')
+                ->where('period', $filterHash)
+                ->first();
+
+            if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 24) {
+                $remaining = max(1, 86400 - $stored->retrieved_at->diffInSeconds(now()));
+                Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+                return $stored->payload;
+            }
+        } else {
+            $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+                ->where('data_type', 'screener')
+                ->where('period', $filterHash)
+                ->first();
         }
 
         try {
-            $results = $this->upstream->companyScreener($filters);
+            $results = $this->upstream->companyScreener($upstreamFilters);
         } catch (Throwable $e) {
             Log::warning('persistent_market_data.screener_fetch_failed', ['error' => $e->getMessage()]);
             $results = [];

@@ -1173,3 +1173,154 @@ test('historical snapshots are immutable and never overwritten by subsequent fet
     $snapshot = MarketDataPayload::where('symbol', 'IMMUTABLE')->where('data_type', 'profile')->where('period', "snapshot_{$today}")->first();
     expect($snapshot->payload['name'])->toBe('Original Morning Snapshot');
 });
+
+test('historicalDailyBars demonstrates vast performance improvement on second fetch vs first fetch for known stock', function () {
+    // Generate 1 full trading year of daily bars (252 bars)
+    $startDate = CarbonImmutable::parse('2025-10-01');
+    $simulatedBars = [];
+    $cur = $startDate;
+    while (count($simulatedBars) < 252) {
+        if ($cur->isWeekday()) {
+            $simulatedBars[] = [
+                'date' => $cur->toDateString(),
+                'open' => 150.0 + (count($simulatedBars) * 0.1),
+                'high' => 155.0 + (count($simulatedBars) * 0.1),
+                'low' => 148.0 + (count($simulatedBars) * 0.1),
+                'close' => 152.0 + (count($simulatedBars) * 0.1),
+                'adj_close' => 152.0 + (count($simulatedBars) * 0.1),
+                'volume' => 1000000 + (count($simulatedBars) * 1000),
+            ];
+        }
+        $cur = $cur->addDay();
+    }
+    $endDate = CarbonImmutable::parse(end($simulatedBars)['date']);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    // Upstream should only be called ONCE on the first fetch
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->with('PERF_STOCK', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
+        ->andReturnUsing(function () use ($simulatedBars) {
+            // Simulate realistic network latency for external provider API roundtrip (50ms)
+            usleep(50000);
+            return $simulatedBars;
+        });
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 1) First fetch: Cold start, must call external upstream FMP provider
+    $startFirst = microtime(true);
+    $firstResult = $provider->historicalDailyBars('PERF_STOCK', $startDate, $endDate);
+    $firstDuration = microtime(true) - $startFirst;
+
+    expect($firstResult)->toHaveCount(252)
+        ->and(StockDailyBar::where('symbol', 'PERF_STOCK')->count())->toBe(252);
+
+    // 2) Second fetch: Warm cache, served instantly from L1 memory / L2 database with ZERO external calls
+    $startSecond = microtime(true);
+    $secondResult = $provider->historicalDailyBars('PERF_STOCK', $startDate, $endDate);
+    $secondDuration = microtime(true) - $startSecond;
+
+    expect($secondResult)->toHaveCount(252)
+        ->and($secondResult)->toEqual($firstResult);
+
+    // Prove vast performance improvement: second fetch is orders of magnitude faster
+    $speedup = $firstDuration / max(0.0001, $secondDuration);
+    $percentageReduction = (($firstDuration - $secondDuration) / $firstDuration) * 100;
+
+    expect($secondDuration)->toBeLessThan($firstDuration)
+        ->and($speedup)->toBeGreaterThan(5.0) // At least 5x faster
+        ->and($percentageReduction)->toBeGreaterThan(80.0); // At least 80% latency reduction
+
+    // 3) Third fetch: Flush L1 memory cache, proving L2 database is also significantly faster than external API
+    Cache::flush();
+    $startThird = microtime(true);
+    $thirdResult = $provider->historicalDailyBars('PERF_STOCK', $startDate, $endDate);
+    $thirdDuration = microtime(true) - $startThird;
+
+    expect($thirdResult)->toHaveCount(252)
+        ->and($thirdResult)->toEqual($firstResult)
+        ->and($thirdDuration)->toBeLessThan($firstDuration);
+});
+
+test('companyScreener fetches fresh list when requested and discovers new companies for setup and eps runs', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+
+    // Initial state: screener has 2 companies
+    MarketDataPayload::create([
+        'symbol' => 'GLOBAL',
+        'data_type' => 'screener',
+        'period' => md5(json_encode([])),
+        'payload' => [
+            ['symbol' => 'AAPL', 'company_name' => 'Apple Inc.', 'market_cap' => 3000000000000, 'price' => 180.0],
+            ['symbol' => 'MSFT', 'company_name' => 'Microsoft Corp.', 'market_cap' => 2800000000000, 'price' => 400.0],
+        ],
+        'retrieved_at' => now()->subHours(2),
+    ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // 1) Cached read returns existing 2 companies without calling upstream
+    $cached = $provider->companyScreener();
+    expect($cached)->toHaveCount(2)
+        ->and(collect($cached)->pluck('symbol')->all())->toEqual(['AAPL', 'MSFT']);
+
+    // 2) Upstream discovers a new company tomorrow (e.g. IPO, newly listed or matching screener)
+    $upstream->shouldReceive('companyScreener')
+        ->once()
+        ->andReturn([
+            ['symbol' => 'AAPL', 'company_name' => 'Apple Inc.', 'market_cap' => 3000000000000, 'price' => 180.0],
+            ['symbol' => 'MSFT', 'company_name' => 'Microsoft Corp.', 'market_cap' => 2800000000000, 'price' => 400.0],
+            ['symbol' => 'NEWCO', 'company_name' => 'New Discovery Corp.', 'market_cap' => 150000000, 'price' => 15.0],
+        ]);
+
+    // Request fresh company list
+    $freshResults = $provider->companyScreener(['fresh' => true]);
+
+    expect($freshResults)->toHaveCount(3)
+        ->and(collect($freshResults)->pluck('symbol')->all())->toEqual(['AAPL', 'MSFT', 'NEWCO']);
+
+    // Verify new company profile was automatically created
+    $newcoProfile = CompanyProfile::where('symbol', 'NEWCO')->first();
+    expect($newcoProfile)->not->toBeNull()
+        ->and($newcoProfile->company_name)->toBe('New Discovery Corp.')
+        ->and((int) $newcoProfile->market_cap)->toBe(150000000);
+
+    // Verify stored payload was updated with the 3 companies
+    $stored = MarketDataPayload::where('symbol', 'GLOBAL')->where('data_type', 'screener')->first();
+    expect(count($stored->payload))->toBe(3);
+});
+
+test('earningsSurprises and earningsCalendar bypass cached payloads when fresh is requested', function () {
+    $from = CarbonImmutable::parse('2026-11-01');
+    $to = CarbonImmutable::parse('2026-11-02');
+    $key = $from->toDateString() . '_' . $to->toDateString();
+
+    // Pre-populate cache with old data
+    MarketDataPayload::create([
+        'symbol' => 'GLOBAL',
+        'data_type' => 'earnings_surprises',
+        'period' => $key,
+        'payload' => [
+            ['symbol' => 'OLD_EARNING', 'report_date' => '2026-11-01', 'eps_actual' => 1.0, 'eps_surprise_percent' => 10],
+        ],
+        'retrieved_at' => now()->subHours(2),
+    ]);
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('earningsSurprises')
+        ->once()
+        ->with(Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
+        ->andReturn([
+            ['symbol' => 'OLD_EARNING', 'report_date' => '2026-11-01', 'eps_actual' => 1.0, 'eps_surprise_percent' => 10],
+            ['symbol' => 'NEW_SURPRISE', 'report_date' => '2026-11-02', 'eps_actual' => 2.5, 'eps_surprise_percent' => 150],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Requesting with fresh: true bypasses stored payload and updates cache
+    $freshSurprises = $provider->earningsSurprises($from, $to, fresh: true);
+
+    expect($freshSurprises)->toHaveCount(2)
+        ->and(collect($freshSurprises)->pluck('symbol')->all())->toEqual(['OLD_EARNING', 'NEW_SURPRISE']);
+});

@@ -17,7 +17,8 @@ class ScanEarningsSurprises extends Command
     protected $signature = 'earnings:scan-surprises
         {--from= : YYYY-MM-DD (default today - 1)}
         {--to= : YYYY-MM-DD (default today + 1)}
-        {--force : reprocess existing records}';
+        {--fresh : bypass earnings cache and fetch fresh surprises and calendar}
+        {--force : reprocess existing records or force fresh fetch}';
 
     protected $description = 'Scan FMP earnings calendar/surprises and upsert qualifying events.';
 
@@ -31,7 +32,7 @@ class ScanEarningsSurprises extends Command
 
         $from = CarbonImmutable::parse($this->option('from') ?: CarbonImmutable::today()->subDay())->startOfDay();
         $to = CarbonImmutable::parse($this->option('to') ?: CarbonImmutable::today()->addDay())->endOfDay();
-        $force = (bool) $this->option('force');
+        $force = (bool) $this->option('force') || (bool) $this->option('fresh');
 
         $this->info("Scanning earnings from {$from->toDateString()} to {$to->toDateString()}");
 
@@ -42,7 +43,7 @@ class ScanEarningsSurprises extends Command
         // 1) Earnings surprises (preferred — has actuals + computed surprise).
         $surprises = [];
         try {
-            $surprises = $provider->earningsSurprises($from, $to);
+            $surprises = $provider->earningsSurprises($from, $to, $force);
         } catch (Throwable $e) {
             Log::error('earnings.surprises_failed', ['msg' => $e->getMessage()]);
         }
@@ -51,7 +52,7 @@ class ScanEarningsSurprises extends Command
         // 2) Earnings calendar (covers events that don't have a surprise row yet).
         $calendar = [];
         try {
-            $calendar = $provider->earningsCalendar($from, $to);
+            $calendar = $provider->earningsCalendar($from, $to, $force);
         } catch (Throwable $e) {
             Log::error('earnings.calendar_failed', ['msg' => $e->getMessage()]);
         }

@@ -34,7 +34,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         $this->errors = [];
     }
 
-    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         $rows = $this->get('earnings-calendar', [
             'from' => $from->toDateString(),
@@ -47,7 +47,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         )));
     }
 
-    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to): array
+    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         // FMP's stable API does not expose a date-range "earnings-surprises" endpoint;
         // the earnings-calendar endpoint already includes epsActual/epsEstimated and
@@ -285,7 +285,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         });
     }
 
-    public function companyScreener(array $filters = []): array
+    public function companyScreener(array $filters = [], bool $fresh = false): array
     {
         $query = [];
 

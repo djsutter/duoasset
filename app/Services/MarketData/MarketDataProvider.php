@@ -16,7 +16,7 @@ interface MarketDataProvider
      *
      * @return array<int, array<string, mixed>>
      */
-    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to): array;
+    public function earningsCalendar(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array;
 
     /**
      * Return normalized earnings surprise rows in the given date range.
@@ -27,7 +27,7 @@ interface MarketDataProvider
      *
      * @return array<int, array<string, mixed>>
      */
-    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to): array;
+    public function earningsSurprises(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array;
 
     /**
      * Quote for a single symbol or null on failure.
@@ -105,7 +105,7 @@ interface MarketDataProvider
      * @param  array<string, mixed>  $filters
      * @return array<int, array<string, mixed>>
      */
-    public function companyScreener(array $filters = []): array;
+    public function companyScreener(array $filters = [], bool $fresh = false): array;
 
     /**
      * Return normalized daily OHLCV bars for a single symbol over the
