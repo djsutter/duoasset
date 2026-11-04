@@ -109,7 +109,7 @@ test('earnings:scan-surprises with --fresh flag bypasses cached earnings and dis
     $today = CarbonImmutable::parse('2026-11-02');
     $from = $today->subDay();
     $to = $today->addDay();
-    $key = $from->toDateString() . '_' . $to->toDateString();
+    $key = $from->toDateString().'_'.$to->toDateString();
 
     // Stored earnings payload only has OLD_SURPRISE
     MarketDataPayload::create([

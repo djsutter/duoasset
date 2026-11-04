@@ -19,6 +19,16 @@ return [
 
     /*
     |----------------------------------------------------------------------
+    | Financial Statement Storage & Caching
+    |----------------------------------------------------------------------
+    | Controls whether quarterly financial statements (income, balance sheet,
+    | cash flow) are persisted to the database and cached. When false, jobs
+    | and queries fetch directly from upstream without storing or caching.
+    */
+    'financial_storage_enabled' => env('FINANCIAL_STORAGE_ENABLED', true),
+
+    /*
+    |----------------------------------------------------------------------
     | EPS Earnings Surprise Scanner
     |----------------------------------------------------------------------
     | Compares ACTUAL EPS vs ESTIMATED EPS after earnings are released.

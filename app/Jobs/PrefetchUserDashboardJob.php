@@ -31,6 +31,7 @@ class PrefetchUserDashboardJob implements ShouldQueue
         $user = User::find($this->userId);
         if (! $user) {
             $cache->releasePrefetchLock($this->userId);
+
             return;
         }
 

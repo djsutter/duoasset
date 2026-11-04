@@ -47,10 +47,12 @@ class StockBuySetupDetected extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
+        $url = route('stocks.show', $this->alert->symbol);
+
         $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->alert->symbol)
             ->line($this->bodyText())
-            ->action('View in DuoAsset', route('watchlists.stock-buy-setups'));
+            ->action('View in DuoAsset', $url);
 
         $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
             ?: ($notifiable->email ?? null);

@@ -27,7 +27,9 @@ use Illuminate\Database\Eloquent\Model;
 class CompanyFinancial extends Model
 {
     public const TYPE_INCOME = 'income';
+
     public const TYPE_BALANCE_SHEET = 'balance_sheet';
+
     public const TYPE_CASH_FLOW = 'cash_flow';
 
     protected $fillable = [

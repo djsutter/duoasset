@@ -34,7 +34,8 @@ class ClearMarketDataCache extends Command
 
         $allowedTypes = ['all', 'bars', 'financials', 'profile', 'quote', 'intraday', 'estimates', 'screener', 'earnings'];
         if (! in_array($type, $allowedTypes, true)) {
-            $this->error("Invalid --type [{$type}]. Allowed types: " . implode(', ', $allowedTypes));
+            $this->error("Invalid --type [{$type}]. Allowed types: ".implode(', ', $allowedTypes));
+
             return self::FAILURE;
         }
 

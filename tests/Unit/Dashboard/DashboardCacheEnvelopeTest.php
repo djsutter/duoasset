@@ -1,13 +1,12 @@
 <?php
 
 use App\Models\EarningsEvent;
+use App\Models\Stock;
 use App\Models\User;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
-use App\Models\Stock;
 use App\Services\Dashboard\DashboardCacheService;
 use App\Services\Dashboard\DashboardQueryService;
-use App\Services\Dashboard\TradingSessionService;
 use App\Services\MarketData\MarketDataProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,6 +23,7 @@ test('rememberStale creates envelope with data and future stale_at timestamp', f
     $called = 0;
     $envelope = $cacheService->rememberStale('test_swr_key', 900, function () use (&$called) {
         $called++;
+
         return ['metric' => 42];
     });
 
@@ -49,6 +49,7 @@ test('rememberStale returns existing envelope indefinitely even when stale_at ha
     $called = 0;
     $result = $cacheService->rememberStale('test_stale_key', 900, function () use (&$called) {
         $called++;
+
         return ['cached_value' => 'fresh'];
     });
 
@@ -110,7 +111,7 @@ test('highestEpsSurprises SQL query is bounded with limit', function () {
     for ($i = 1; $i <= 60; $i++) {
         EarningsEvent::query()->create([
             'source' => 'fmp',
-            'symbol' => 'SYM' . $i,
+            'symbol' => 'SYM'.$i,
             'report_date' => '2026-10-20',
             'eps_estimated' => 1.0,
             'eps_actual' => 1.0 + ($i * 0.1),

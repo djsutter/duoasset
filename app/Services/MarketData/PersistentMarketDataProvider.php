@@ -23,9 +23,26 @@ use Throwable;
  */
 class PersistentMarketDataProvider implements MarketDataProvider
 {
+    protected FinancialStorageConfigService $financialStorageConfig;
+
     public function __construct(
-        protected MarketDataProvider $upstream
-    ) {}
+        protected MarketDataProvider $upstream,
+        ?FinancialStorageConfigService $financialStorageConfig = null,
+    ) {
+        $this->financialStorageConfig = $financialStorageConfig ?? app(FinancialStorageConfigService::class);
+    }
+
+    public function isFinancialStorageEnabled(): bool
+    {
+        return $this->financialStorageConfig->isEnabled();
+    }
+
+    public function setFinancialStorageEnabled(bool $enabled): self
+    {
+        $this->financialStorageConfig->setEnabled($enabled);
+
+        return $this;
+    }
 
     public function getUpstream(): MarketDataProvider
     {
@@ -73,7 +90,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return $this->upstream->{$method}(...$arguments);
         }
 
-        throw new \BadMethodCallException("Method [{$method}] does not exist on [".static::class."].");
+        throw new \BadMethodCallException("Method [{$method}] does not exist on [".static::class.'].');
     }
 
     public static function getCacheVersion(string $type = 'all', string $symbol = ''): int
@@ -492,7 +509,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     protected function hasQueriedBarInterval(string $symbol, CarbonInterface $from, CarbonInterface $to): bool
     {
-        $period = $from->toDateString() . '_' . $to->toDateString();
+        $period = $from->toDateString().'_'.$to->toDateString();
         $payload = MarketDataPayload::where('symbol', $symbol)
             ->where('data_type', 'bars')
             ->where('period', $period)
@@ -541,6 +558,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 'to' => $to->toDateString(),
                 'error' => $e->getMessage(),
             ]);
+
             return [];
         }
 
@@ -576,7 +594,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             [
                 'symbol' => $symbol,
                 'data_type' => 'bars',
-                'period' => $from->toDateString() . '_' . $to->toDateString(),
+                'period' => $from->toDateString().'_'.$to->toDateString(),
             ],
             [
                 'payload' => $fresh ?: [],
@@ -607,6 +625,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $result = $this->getCompleteStoredProfile($symbol, $stored);
             $remainingSeconds = max(1, 86400 - $stored->retrieved_at->diffInSeconds(now()));
             Cache::put($cacheKey, $result, now()->addSeconds($remainingSeconds));
+
             return $result;
         }
 
@@ -658,11 +677,12 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
             // Historical archival snapshot so older snapshots aren't unintentionally lost (immutable)
             MarketDataPayload::firstOrCreate(
-                ['symbol' => $symbol, 'data_type' => 'profile', 'period' => 'snapshot_' . $now->toDateString()],
+                ['symbol' => $symbol, 'data_type' => 'profile', 'period' => 'snapshot_'.$now->toDateString()],
                 ['payload' => $fresh, 'retrieved_at' => $now]
             );
 
             Cache::put($cacheKey, $fresh, now()->addHours(24));
+
             return $fresh;
         }
 
@@ -693,6 +713,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     $data['mktCap'] = (int) $stored->market_cap;
                 }
             }
+
             return $data;
         }
 
@@ -746,6 +767,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             if ($ageSeconds < $freshnessSeconds) {
                 $remainingSeconds = max(1, $freshnessSeconds - $ageSeconds);
                 Cache::put($cacheKey, $storedPayload->payload, now()->addSeconds($remainingSeconds));
+
                 return $storedPayload->payload;
             }
         }
@@ -762,7 +784,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
                 // Immutable historical snapshot
                 MarketDataPayload::firstOrCreate(
-                    ['symbol' => $symbol, 'data_type' => 'quote', 'period' => 'snapshot_' . $now->toDateString()],
+                    ['symbol' => $symbol, 'data_type' => 'quote', 'period' => 'snapshot_'.$now->toDateString()],
                     ['payload' => $quote, 'retrieved_at' => $now]
                 );
 
@@ -780,6 +802,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 }
 
                 Cache::put($cacheKey, $quote, now()->addSeconds($freshnessSeconds));
+
                 return $quote;
             }
         } catch (Throwable $e) {
@@ -847,6 +870,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $symbol = strtoupper(trim($symbol));
         if ($symbol === '') {
             return [];
+        }
+
+        if (! $this->isFinancialStorageEnabled()) {
+            return $this->fetchUpstreamIncomeStatementsWithoutStorage($symbol, $limit);
         }
 
         $existing = CompanyFinancial::query()
@@ -959,6 +986,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return [];
         }
 
+        if (! $this->isFinancialStorageEnabled()) {
+            return $this->fetchUpstreamBalanceSheetsWithoutStorage($symbol, $limit);
+        }
+
         $existing = CompanyFinancial::query()
             ->where('symbol', $symbol)
             ->where('statement_type', CompanyFinancial::TYPE_BALANCE_SHEET)
@@ -1060,6 +1091,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $symbol = strtoupper(trim($symbol));
         if ($symbol === '') {
             return [];
+        }
+
+        if (! $this->isFinancialStorageEnabled()) {
+            return $this->fetchUpstreamCashFlowStatementsWithoutStorage($symbol, $limit);
         }
 
         $existing = CompanyFinancial::query()
@@ -1165,6 +1200,113 @@ class PersistentMarketDataProvider implements MarketDataProvider
             ->all();
     }
 
+    /**
+     * Fetch income statements directly from upstream without database storage or caching.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fetchUpstreamIncomeStatementsWithoutStorage(string $symbol, int $limit = 8): array
+    {
+        try {
+            $fresh = $this->upstream->quarterlyIncomeStatements($symbol, $limit);
+            if (! is_array($fresh)) {
+                return [];
+            }
+
+            return array_map(function ($row) {
+                if (! is_array($row)) {
+                    return $row;
+                }
+
+                return array_merge($row, [
+                    'date' => isset($row['date']) ? substr((string) $row['date'], 0, 10) : null,
+                    'revenue' => isset($row['revenue']) && is_numeric($row['revenue']) ? (float) $row['revenue'] : ($row['revenue'] ?? null),
+                    'net_income' => isset($row['net_income']) && is_numeric($row['net_income']) ? (float) $row['net_income'] : ($row['net_income'] ?? null),
+                    'eps' => isset($row['eps']) && is_numeric($row['eps']) ? (float) $row['eps'] : ($row['eps'] ?? null),
+                    'raw' => $row['raw'] ?? $row,
+                ]);
+            }, array_slice($fresh, 0, $limit));
+        } catch (Throwable $e) {
+            Log::warning('persistent_market_data.income_fetch_failed_nostorage', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Fetch balance sheets directly from upstream without database storage or caching.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fetchUpstreamBalanceSheetsWithoutStorage(string $symbol, int $limit = 8): array
+    {
+        try {
+            $fresh = $this->upstream->quarterlyBalanceSheets($symbol, $limit);
+            if (! is_array($fresh)) {
+                return [];
+            }
+
+            return array_map(function ($row) {
+                if (! is_array($row)) {
+                    return $row;
+                }
+
+                return array_merge($row, [
+                    'date' => isset($row['date']) ? substr((string) $row['date'], 0, 10) : null,
+                    'stockholders_equity' => isset($row['stockholders_equity']) && is_numeric($row['stockholders_equity']) ? (float) $row['stockholders_equity'] : ($row['stockholders_equity'] ?? null),
+                    'raw' => $row['raw'] ?? $row,
+                ]);
+            }, array_slice($fresh, 0, $limit));
+        } catch (Throwable $e) {
+            Log::warning('persistent_market_data.balance_fetch_failed_nostorage', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Fetch cash flow statements directly from upstream without database storage or caching.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fetchUpstreamCashFlowStatementsWithoutStorage(string $symbol, int $limit = 8): array
+    {
+        try {
+            $fresh = $this->upstream->quarterlyCashFlowStatements($symbol, $limit);
+            if (! is_array($fresh)) {
+                return [];
+            }
+
+            return array_map(function ($row) {
+                if (! is_array($row)) {
+                    return $row;
+                }
+
+                return array_merge($row, [
+                    'date' => isset($row['date']) ? substr((string) $row['date'], 0, 10) : null,
+                    'free_cash_flow' => isset($row['free_cash_flow']) && is_numeric($row['free_cash_flow']) ? (float) $row['free_cash_flow'] : ($row['free_cash_flow'] ?? null),
+                    'fiscal_year' => isset($row['fiscal_year']) ? (int) $row['fiscal_year'] : (isset($row['fiscalYear']) ? (int) $row['fiscalYear'] : null),
+                    'period' => $row['period'] ?? null,
+                    'reported_currency' => $row['reported_currency'] ?? null,
+                    'raw' => $row['raw'] ?? $row,
+                ]);
+            }, array_slice($fresh, 0, $limit));
+        } catch (Throwable $e) {
+            Log::warning('persistent_market_data.cash_flow_fetch_failed_nostorage', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
     public function analystEstimates(string $symbol, string $period = 'quarter'): array
     {
         $symbol = strtoupper(trim($symbol));
@@ -1187,6 +1329,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
         if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 24) {
             $remaining = max(1, 86400 - $stored->retrieved_at->diffInSeconds(now()));
             Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+
             return $stored->payload;
         }
 
@@ -1198,6 +1341,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     ['payload' => $fresh, 'retrieved_at' => now()]
                 );
                 Cache::put($cacheKey, $fresh, now()->addHours(24));
+
                 return $fresh;
             }
         } catch (Throwable $e) {
@@ -1210,7 +1354,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
     public function earningsCalendar(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         $fresh = $fresh || config('market_data.earnings_scanner.always_fresh', false);
-        $key = $from->toDateString() . '_' . $to->toDateString();
+        $key = $from->toDateString().'_'.$to->toDateString();
         $v = self::getCacheVersion('earnings', 'GLOBAL');
         $cacheKey = "duoasset.v{$v}.earnings_calendar.{$key}";
 
@@ -1228,6 +1372,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
                 $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
                 Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+
                 return $stored->payload;
             }
         } else {
@@ -1245,6 +1390,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     ['payload' => $freshData, 'retrieved_at' => now()]
                 );
                 Cache::put($cacheKey, $freshData, now()->addHours(12));
+
                 return $freshData;
             }
         } catch (Throwable $e) {
@@ -1257,7 +1403,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
     public function earningsSurprises(CarbonInterface $from, CarbonInterface $to, bool $fresh = false): array
     {
         $fresh = $fresh || config('market_data.earnings_scanner.always_fresh', false);
-        $key = $from->toDateString() . '_' . $to->toDateString();
+        $key = $from->toDateString().'_'.$to->toDateString();
         $v = self::getCacheVersion('earnings', 'GLOBAL');
         $cacheKey = "duoasset.v{$v}.earnings_surprises.{$key}";
 
@@ -1275,6 +1421,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 12) {
                 $remaining = max(1, 43200 - $stored->retrieved_at->diffInSeconds(now()));
                 Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+
                 return $stored->payload;
             }
         } else {
@@ -1292,6 +1439,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     ['payload' => $freshData, 'retrieved_at' => now()]
                 );
                 Cache::put($cacheKey, $freshData, now()->addHours(12));
+
                 return $freshData;
             }
         } catch (Throwable $e) {
@@ -1326,6 +1474,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             if ($stored && is_array($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 24) {
                 $remaining = max(1, 86400 - $stored->retrieved_at->diffInSeconds(now()));
                 Cache::put($cacheKey, $stored->payload, now()->addSeconds($remaining));
+
                 return $stored->payload;
             }
         } else {
@@ -1417,7 +1566,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
         // Distinguish time-window periods from full day queries
         $period = $hasTime
-            ? ($from->format('Y-m-d_H:i') . '_' . $to->format('Y-m-d_H:i'))
+            ? ($from->format('Y-m-d_H:i').'_'.$to->format('Y-m-d_H:i'))
             : ($fromDay === $toDay ? $fromDay : "{$fromDay}_{$toDay}");
 
         // 1. Check exact period payload
@@ -1477,8 +1626,9 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $filtered = array_values(array_filter($existingCandles, function ($c) use ($from, $to, $hasTime) {
                 $cDate = $c['date'] ?? '';
                 if (! $hasTime) {
-                    return $cDate >= $from->toDateString() && $cDate <= ($to->toDateString() . ' 23:59:59');
+                    return $cDate >= $from->toDateString() && $cDate <= ($to->toDateString().' 23:59:59');
                 }
+
                 return $cDate >= $from->format('Y-m-d H:i:s') && $cDate <= $to->format('Y-m-d H:i:s');
             }));
 
@@ -1490,6 +1640,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 ? now()->addHours(12)
                 : now()->addSeconds(max(1, 300 - ($stored && $stored->retrieved_at ? $stored->retrieved_at->diffInSeconds(now()) : 0)));
             Cache::put($cacheKey, $filtered, $ttl);
+
             return $filtered;
         }
 
@@ -1579,8 +1730,9 @@ class PersistentMarketDataProvider implements MarketDataProvider
         $filtered = array_values(array_filter($mergedAll, function ($c) use ($from, $to, $hasTime) {
             $cDate = $c['date'] ?? '';
             if (! $hasTime) {
-                return $cDate >= $from->toDateString() && $cDate <= ($to->toDateString() . ' 23:59:59');
+                return $cDate >= $from->toDateString() && $cDate <= ($to->toDateString().' 23:59:59');
             }
+
             return $cDate >= $from->format('Y-m-d H:i:s') && $cDate <= $to->format('Y-m-d H:i:s');
         }));
 

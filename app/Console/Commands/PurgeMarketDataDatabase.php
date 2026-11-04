@@ -48,7 +48,8 @@ class PurgeMarketDataDatabase extends Command
 
         $allowedTypes = ['all', 'bars', 'financials', 'profile', 'quote', 'intraday', 'estimates', 'screener', 'earnings'];
         if (! in_array($type, $allowedTypes, true)) {
-            $this->error("Invalid --type [{$type}]. Allowed types: " . implode(', ', $allowedTypes));
+            $this->error("Invalid --type [{$type}]. Allowed types: ".implode(', ', $allowedTypes));
+
             return self::FAILURE;
         }
 
@@ -56,6 +57,7 @@ class PurgeMarketDataDatabase extends Command
         if (! $this->option('force')) {
             if (! $this->input->isInteractive()) {
                 $this->error('Permanent deletion in non-interactive environments requires explicit authorization with the --force flag.');
+
                 return self::FAILURE;
             }
 
@@ -64,11 +66,13 @@ class PurgeMarketDataDatabase extends Command
 
                 if ($confirm !== 'PURGE') {
                     $this->warn('Permanent deletion cancelled. Confirmation string did not match.');
+
                     return self::SUCCESS;
                 }
             } else {
                 if (! $this->confirm("Are you sure you want to PERMANENTLY delete market data records ({$type}) for [{$symbol}] from the database?")) {
                     $this->info('Permanent deletion cancelled.');
+
                     return self::SUCCESS;
                 }
             }

@@ -58,6 +58,7 @@ class DashboardCacheService
         $key = self::prefetchLockKey($userId);
         try {
             $lock = Cache::lock($key, $seconds);
+
             return (bool) $lock->get();
         } catch (\Throwable) {
             return (bool) Cache::add($key, true, $seconds);
@@ -101,6 +102,7 @@ class DashboardCacheService
         if ($this->isUserDashboardStale($user)) {
             if ($this->acquirePrefetchLock($user->id, 60)) {
                 PrefetchUserDashboardJob::dispatch($user->id);
+
                 return true;
             }
         }
@@ -112,7 +114,8 @@ class DashboardCacheService
      * Stale-while-revalidate cache envelope wrapper.
      *
      * @template T
-     * @param \Closure(): T $callback
+     *
+     * @param  \Closure(): T  $callback
      * @return array{data: T, stale_at: int}
      */
     public function rememberStale(string $key, int $ttlSeconds, \Closure $callback): array
@@ -131,7 +134,8 @@ class DashboardCacheService
      * Store payload into a cache envelope with indefinite retention.
      *
      * @template T
-     * @param T $data
+     *
+     * @param  T  $data
      * @return array{data: T, stale_at: int}
      */
     public function putEnvelope(string $key, mixed $data, int $ttlSeconds): array

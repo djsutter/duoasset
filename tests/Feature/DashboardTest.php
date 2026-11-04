@@ -171,7 +171,7 @@ test('stock mode dashboard displays top 2 highest percentage gaining stocks sinc
     WatchlistItem::factory()->create(['watchlist_id' => $watchlist->id, 'stock_id' => $stockB->id, 'created_at' => now()->subDays(20)]);
     WatchlistItem::factory()->create(['watchlist_id' => $watchlist->id, 'stock_id' => $stockC->id, 'created_at' => now()->subDays(10)]);
 
-    $fakeProvider = new FakeMarketDataProvider();
+    $fakeProvider = new FakeMarketDataProvider;
     $fakeProvider->dailyBars['WIN1'] = [
         ['date' => now()->subDays(30)->toDateString(), 'close' => 10.0],
         ['date' => now()->toDateString(), 'close' => 15.0],
@@ -319,7 +319,6 @@ test('dashboard respects crypto view mode and renders crypto dashboard instead o
         ->assertDontSee('The Top Scoring Setups')
         ->assertDontSee('Money Flow Gainers');
 });
-
 
 function makeAlert(string $symbol, int $score, string $type, string $spikeDate, ?string $company = null, string $source = 'test'): StockBuySetupAlert
 {

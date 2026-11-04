@@ -1203,6 +1203,7 @@ test('historicalDailyBars demonstrates vast performance improvement on second fe
         ->andReturnUsing(function () use ($simulatedBars) {
             // Simulate realistic network latency for external provider API roundtrip (50ms)
             usleep(50000);
+
             return $simulatedBars;
         });
 
@@ -1294,7 +1295,7 @@ test('companyScreener fetches fresh list when requested and discovers new compan
 test('earningsSurprises and earningsCalendar bypass cached payloads when fresh is requested', function () {
     $from = CarbonImmutable::parse('2026-11-01');
     $to = CarbonImmutable::parse('2026-11-02');
-    $key = $from->toDateString() . '_' . $to->toDateString();
+    $key = $from->toDateString().'_'.$to->toDateString();
 
     // Pre-populate cache with old data
     MarketDataPayload::create([

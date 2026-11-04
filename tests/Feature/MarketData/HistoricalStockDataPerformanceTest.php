@@ -38,7 +38,7 @@ test('proves vast performance improvement in second fetch vs first fetch of hist
     $upstream->shouldReceive('historicalDailyBars')
         ->once()
         ->with('ARVN', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
-       ->andReturn($simulatedBars);
+        ->andReturn($simulatedBars);
 
     $provider = new PersistentMarketDataProvider($upstream);
 
@@ -102,6 +102,7 @@ test('proves end-to-end HTTP candle endpoint performance improvement on second f
         ->with('ARVN', Mockery::type(CarbonImmutable::class), Mockery::type(CarbonImmutable::class))
         ->andReturnUsing(function () use ($simulatedBars) {
             usleep(40000); // 40ms simulated network latency
+
             return $simulatedBars;
         });
 

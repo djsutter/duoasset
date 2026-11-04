@@ -223,7 +223,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         $limit = max(4, min(40, $limit));
         $cacheKey = "fmp.income_quarter.v2.$symbol.$limit";
 
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
+        $fetcher = function () use ($symbol, $limit) {
             $rows = $this->get('income-statement', [
                 'symbol' => $symbol,
                 'period' => 'quarter',
@@ -234,7 +234,13 @@ class FmpMarketDataProvider implements MarketDataProvider
                 fn ($row) => $this->normalizeIncomeStatementRow($row),
                 is_array($rows) ? $rows : [],
             )));
-        });
+        };
+
+        if (! $this->isFinancialCachingEnabled()) {
+            return $fetcher();
+        }
+
+        return Cache::remember($cacheKey, now()->addHours(12), $fetcher);
     }
 
     public function quarterlyBalanceSheets(string $symbol, int $limit = 8): array
@@ -247,7 +253,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         $limit = max(4, min(40, $limit));
         $cacheKey = "fmp.balance_quarter.$symbol.$limit";
 
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
+        $fetcher = function () use ($symbol, $limit) {
             $rows = $this->get('balance-sheet-statement', [
                 'symbol' => $symbol,
                 'period' => 'quarter',
@@ -258,7 +264,13 @@ class FmpMarketDataProvider implements MarketDataProvider
                 fn ($row) => $this->normalizeBalanceSheetRow($row),
                 is_array($rows) ? $rows : [],
             )));
-        });
+        };
+
+        if (! $this->isFinancialCachingEnabled()) {
+            return $fetcher();
+        }
+
+        return Cache::remember($cacheKey, now()->addHours(12), $fetcher);
     }
 
     public function quarterlyCashFlowStatements(string $symbol, int $limit = 8): array
@@ -271,7 +283,7 @@ class FmpMarketDataProvider implements MarketDataProvider
         $limit = max(4, min(40, $limit));
         $cacheKey = "fmp.cash_flow_quarter.v2.$symbol.$limit";
 
-        return Cache::remember($cacheKey, now()->addHours(12), function () use ($symbol, $limit) {
+        $fetcher = function () use ($symbol, $limit) {
             $rows = $this->get('cash-flow-statement', [
                 'symbol' => $symbol,
                 'period' => 'quarter',
@@ -282,7 +294,22 @@ class FmpMarketDataProvider implements MarketDataProvider
                 fn ($row) => $this->normalizeCashFlowStatementRow($row),
                 is_array($rows) ? $rows : [],
             )));
-        });
+        };
+
+        if (! $this->isFinancialCachingEnabled()) {
+            return $fetcher();
+        }
+
+        return Cache::remember($cacheKey, now()->addHours(12), $fetcher);
+    }
+
+    protected function isFinancialCachingEnabled(): bool
+    {
+        try {
+            return app(FinancialStorageConfigService::class)->isEnabled();
+        } catch (Throwable) {
+            return true;
+        }
     }
 
     public function companyScreener(array $filters = [], bool $fresh = false): array

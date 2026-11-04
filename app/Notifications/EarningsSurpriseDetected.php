@@ -49,7 +49,7 @@ class EarningsSurpriseDetected extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $url = route('watchlists.earnings-surprises');
+        $url = route('stocks.show', $this->event->symbol);
 
         $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->event->symbol)

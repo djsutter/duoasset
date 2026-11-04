@@ -54,7 +54,7 @@ class EpsTargetRevised extends Notification
         $mail = (new MailMessage)
             ->subject($this->emoji().' '.$this->label().': '.$this->alert->symbol)
             ->line($this->bodyText())
-            ->action('View in DuoAsset', route('watchlists.eps-revisions'));
+            ->action('View in DuoAsset', route('stocks.show', $this->alert->symbol));
 
         $recipientEmail = (method_exists($notifiable, 'routeNotificationFor') ? $notifiable->routeNotificationFor('mail') : null)
             ?: ($notifiable->email ?? null);

@@ -3,11 +3,14 @@
 namespace App\Livewire\Admin;
 
 use App\Enums\UserRole;
+use App\Models\CompanyFinancial;
+use App\Models\MarketDataPayload;
 use App\Models\StockBuySetupRun;
 use App\Models\User;
 use App\Models\UserCredit;
 use App\Notifications\AdminTestNotification;
 use App\Services\Admin\LogReaderService;
+use App\Services\MarketData\FinancialStorageConfigService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
@@ -19,6 +22,8 @@ class Configuration extends Component
     public ?string $testEmailStatus = null;
 
     public ?string $testEmailError = null;
+
+    public ?string $financialStorageStatus = null;
 
     protected $queryString = [
         'tab' => ['except' => 'overview'],
@@ -35,9 +40,46 @@ class Configuration extends Component
 
     public function setTab(string $tab): void
     {
-        if (in_array($tab, ['overview', 'accounts', 'logs', 'setup-run'], true)) {
+        if (in_array($tab, ['overview', 'accounts', 'logs', 'setup-run', 'storage'], true)) {
             $this->tab = $tab;
         }
+    }
+
+    public function toggleFinancialStorage(): void
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+        if (! $user || ! $user->isAdmin()) {
+            abort(403, 'Unauthorized. Administrator access required.');
+        }
+
+        $service = app(FinancialStorageConfigService::class);
+        $newState = $service->toggle();
+
+        $this->financialStorageStatus = $newState
+            ? __('Financial statement storage and caching has been ENABLED application-wide.')
+            : __('Financial statement storage and caching has been DISABLED application-wide (bypassing storage non-destructively).');
+    }
+
+    public function setFinancialStorage(bool $enabled): void
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+        if (! $user || ! $user->isAdmin()) {
+            abort(403, 'Unauthorized. Administrator access required.');
+        }
+
+        $service = app(FinancialStorageConfigService::class);
+        $service->setEnabled($enabled);
+
+        $this->financialStorageStatus = $enabled
+            ? __('Financial statement storage and caching has been ENABLED application-wide.')
+            : __('Financial statement storage and caching has been DISABLED application-wide (bypassing storage non-destructively).');
+    }
+
+    public function dismissFinancialStorageStatus(): void
+    {
+        $this->financialStorageStatus = null;
     }
 
     public function sendTestEmail(): void
@@ -95,6 +137,17 @@ class Configuration extends Component
         $logService = app(LogReaderService::class);
         $logSummary = $logService->getLogs(null, LogReaderService::TYPE_ALL, LogReaderService::LEVEL_ALL, '', 1)['summary'];
 
+        $financialStorageService = app(FinancialStorageConfigService::class);
+        $financialStorageEnabled = $financialStorageService->isEnabled();
+        $storedFinancialCount = CompanyFinancial::count();
+        $storedPayloadCount = MarketDataPayload::whereIn('data_type', [
+            'income', 'balance_sheet', 'cash_flow',
+            'refresh_income', 'refresh_balance_sheet', 'refresh_cash_flow',
+        ])->count();
+        $storedIncomeCount = CompanyFinancial::where('statement_type', CompanyFinancial::TYPE_INCOME)->count();
+        $storedBalanceCount = CompanyFinancial::where('statement_type', CompanyFinancial::TYPE_BALANCE_SHEET)->count();
+        $storedCashFlowCount = CompanyFinancial::where('statement_type', CompanyFinancial::TYPE_CASH_FLOW)->count();
+
         return view('livewire.admin.configuration', [
             'totalUsers' => $totalUsers,
             'adminCount' => $adminCount,
@@ -107,6 +160,12 @@ class Configuration extends Component
             'netOutstandingCredits' => $netOutstandingCredits,
             'lastSetupRun' => $lastSetupRun,
             'logSummary' => $logSummary,
+            'financialStorageEnabled' => $financialStorageEnabled,
+            'storedFinancialCount' => $storedFinancialCount,
+            'storedPayloadCount' => $storedPayloadCount,
+            'storedIncomeCount' => $storedIncomeCount,
+            'storedBalanceCount' => $storedBalanceCount,
+            'storedCashFlowCount' => $storedCashFlowCount,
         ])->layout('components.layouts.app', ['title' => 'Admin Configuration - DuoAsset']);
     }
 }

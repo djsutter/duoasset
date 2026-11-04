@@ -93,6 +93,24 @@
         </div>
     @endif
 
+    {{-- Financial Storage Status Alert --}}
+    @if ($financialStorageStatus)
+        <div class="rounded-lg border border-indigo-300 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-800/60 dark:bg-indigo-950/40 dark:text-indigo-200 shadow-xs flex items-center justify-between"
+             data-testid="financial-storage-flash" role="alert">
+            <div class="flex items-center gap-2">
+                <flux:icon icon="check-circle" variant="mini" class="size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>{{ $financialStorageStatus }}</span>
+            </div>
+            <button type="button"
+                    wire:click="dismissFinancialStorageStatus"
+                    class="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 p-1"
+                    data-testid="dismiss-financial-storage-status-btn"
+                    aria-label="{{ __('Dismiss') }}">
+                <flux:icon icon="x-mark" variant="mini" class="size-4" />
+            </button>
+        </div>
+    @endif
+
     {{-- Tabs Navigation --}}
     <div class="border-b border-zinc-200 dark:border-zinc-800">
         <nav class="-mb-px flex space-x-6" aria-label="Tabs">
@@ -126,6 +144,14 @@
                     data-testid="tab-setup-run">
                 <flux:icon icon="sparkles" variant="mini" class="size-4" />
                 <span>{{ __('Setup Run Report') }}</span>
+            </button>
+
+            <button type="button"
+                    wire:click="setTab('storage')"
+                    class="py-2.5 px-1 inline-flex items-center gap-2 border-b-2 text-sm font-medium transition {{ $tab === 'storage' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300 dark:text-zinc-400 dark:hover:text-zinc-200' }}"
+                    data-testid="tab-storage">
+                <flux:icon icon="circle-stack" variant="mini" class="size-4" />
+                <span>{{ __('Storage & Caching') }}</span>
             </button>
         </nav>
     </div>
@@ -424,6 +450,87 @@
                 </div>
             </div>
         </div>
+
+        {{-- Market Data Storage & Caching Overview Card --}}
+        <div class="da-card space-y-4" data-testid="financial-storage-card">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-zinc-200 dark:border-zinc-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <flux:icon icon="circle-stack" variant="mini" class="size-5 text-indigo-500" />
+                    <h3 class="text-base font-semibold text-zinc-900 dark:text-white">
+                        {{ __('Financial Storage & Caching Control') }}
+                    </h3>
+                </div>
+                <div>
+                    @if ($financialStorageEnabled)
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
+                              data-testid="financial-storage-status-badge">
+                            <span class="size-1.5 rounded-full bg-emerald-500"></span>
+                            {{ __('ENABLED (Storage & Cache Active)') }}
+                        </span>
+                    @else
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                              data-testid="financial-storage-status-badge">
+                            <span class="size-1.5 rounded-full bg-amber-500"></span>
+                            {{ __('DISABLED (Direct Upstream Bypass)') }}
+                        </span>
+                    @endif
+                </div>
+            </div>
+
+            <p class="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                {{ __('Configurable non-destructive toggle for debugging and comparing stock setup scoring runs with and without financial storage/caching. When disabled, scoring jobs and financial queries fetch directly from upstream without writing or reading database records. Existing database records are strictly preserved.') }}
+            </p>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 font-mono text-xs">
+                <div class="flex flex-col">
+                    <span class="text-zinc-500 text-[11px]">{{ __('Income Stmts:') }}</span>
+                    <span class="font-bold text-zinc-900 dark:text-white">{{ number_format($storedIncomeCount) }}</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-zinc-500 text-[11px]">{{ __('Balance Sheets:') }}</span>
+                    <span class="font-bold text-zinc-900 dark:text-white">{{ number_format($storedBalanceCount) }}</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-zinc-500 text-[11px]">{{ __('Cash Flows:') }}</span>
+                    <span class="font-bold text-zinc-900 dark:text-white">{{ number_format($storedCashFlowCount) }}</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-zinc-500 text-[11px]">{{ __('Raw Payloads:') }}</span>
+                    <span class="font-bold text-zinc-900 dark:text-white">{{ number_format($storedPayloadCount) }}</span>
+                </div>
+            </div>
+
+            <div class="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="text-xs text-zinc-500">
+                    <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ __('Current Mode:') }}</span>
+                    {{ $financialStorageEnabled ? __('Relational DB + Provider Cache') : __('Bypass active: Live upstream queries without DB changes') }}
+                </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <button type="button"
+                            wire:click="setTab('storage')"
+                            class="w-full sm:w-auto da-btn da-btn-secondary gap-1.5"
+                            data-testid="config-goto-storage-tab-btn">
+                        <flux:icon icon="adjustments-horizontal" variant="mini" class="size-4" />
+                        <span>{{ __('Details') }}</span>
+                    </button>
+
+                    <button type="button"
+                            wire:click="toggleFinancialStorage"
+                            wire:loading.attr="disabled"
+                            class="w-full sm:w-auto da-btn {{ $financialStorageEnabled ? 'da-btn-secondary border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30' : 'da-btn-primary' }} gap-1.5"
+                            data-testid="toggle-financial-storage-btn">
+                        <flux:icon icon="power" variant="mini" class="size-4" />
+                        <span wire:loading.remove wire:target="toggleFinancialStorage">
+                            {{ $financialStorageEnabled ? __('Disable Financial Storage & Caching') : __('Enable Financial Storage & Caching') }}
+                        </span>
+                        <span wire:loading wire:target="toggleFinancialStorage">
+                            {{ __('Updating...') }}
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
     @elseif ($tab === 'accounts')
         <div data-testid="embedded-manage-accounts">
             <livewire:admin.manage-accounts />
@@ -435,6 +542,92 @@
     @elseif ($tab === 'setup-run')
         <div data-testid="embedded-setup-run-report">
             <livewire:admin.setup-run-report />
+        </div>
+    @elseif ($tab === 'storage')
+        <div class="da-card space-y-6" data-testid="storage-tab-content">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <flux:icon icon="circle-stack" variant="mini" class="size-6 text-indigo-500" />
+                        <span>{{ __('Market Data Storage & Caching Control') }}</span>
+                    </h2>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                        {{ __('Configure application-wide persistence and memory caching for quarterly financial statements and scanner runs.') }}
+                    </p>
+                </div>
+                <div>
+                    @if ($financialStorageEnabled)
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
+                              data-testid="storage-tab-status-badge">
+                            <span class="size-2 rounded-full bg-emerald-500"></span>
+                            {{ __('ENABLED (Database & Memory Active)') }}
+                        </span>
+                    @else
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                              data-testid="storage-tab-status-badge">
+                            <span class="size-2 rounded-full bg-amber-500"></span>
+                            {{ __('DISABLED (Direct Upstream Bypass)') }}
+                        </span>
+                    @endif
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="p-4 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                    <span class="text-xs text-zinc-500 uppercase tracking-wider font-semibold">{{ __('Income Statements') }}</span>
+                    <div class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($storedIncomeCount) }}</div>
+                    <span class="text-[11px] text-zinc-500">{{ __('Stored quarterly reports') }}</span>
+                </div>
+                <div class="p-4 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                    <span class="text-xs text-zinc-500 uppercase tracking-wider font-semibold">{{ __('Balance Sheets') }}</span>
+                    <div class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($storedBalanceCount) }}</div>
+                    <span class="text-[11px] text-zinc-500">{{ __('Stored quarterly reports') }}</span>
+                </div>
+                <div class="p-4 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                    <span class="text-xs text-zinc-500 uppercase tracking-wider font-semibold">{{ __('Cash Flow Statements') }}</span>
+                    <div class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($storedCashFlowCount) }}</div>
+                    <span class="text-[11px] text-zinc-500">{{ __('Stored quarterly reports') }}</span>
+                </div>
+            </div>
+
+            <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-900/50">
+                <h4 class="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                    <flux:icon icon="information-circle" variant="mini" class="size-5 text-indigo-500" />
+                    <span>{{ __('Non-Destructive Debugging & Comparative Analysis') }}</span>
+                </h4>
+                <div class="text-xs text-zinc-600 dark:text-zinc-400 space-y-2 leading-relaxed">
+                    <p>
+                        {{ __('This toggle provides a completely non-destructive mechanism designed specifically to compare stock setup scoring runs with and without storage/caching enabled.') }}
+                    </p>
+                    <ul class="list-disc list-inside space-y-1 pl-1">
+                        <li><span class="font-medium text-zinc-800 dark:text-zinc-200">{{ __('When Enabled (Normal Operation):') }}</span> {{ __('Company financial queries consult the database and memory cache first, updating stale data incrementally from upstream.') }}</li>
+                        <li><span class="font-medium text-zinc-800 dark:text-zinc-200">{{ __('When Disabled (Bypass Mode):') }}</span> {{ __('Scoring jobs and application queries bypass database reads and writes entirely, fetching fresh live statements directly from upstream without altering or removing existing database records.') }}</li>
+                        <li><span class="font-medium text-zinc-800 dark:text-zinc-200">{{ __('Command Jobs Integration:') }}</span> {{ __('When command jobs such as `stocks:scan-buy-setups` or queue workers execute next, they immediately respect this configuration.') }}</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                <div class="text-xs text-zinc-500">
+                    <span class="font-semibold text-zinc-700 dark:text-zinc-300">{{ __('Application-wide Status:') }}</span>
+                    {{ $financialStorageEnabled ? __('Financial caching and database persistence are currently ACTIVE.') : __('Financial caching and database persistence are currently INACTIVE (bypassed).') }}
+                </div>
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <button type="button"
+                            wire:click="toggleFinancialStorage"
+                            wire:loading.attr="disabled"
+                            class="w-full sm:w-auto da-btn {{ $financialStorageEnabled ? 'da-btn-secondary border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30' : 'da-btn-primary' }} gap-2"
+                            data-testid="tab-toggle-financial-storage-btn">
+                        <flux:icon icon="power" variant="mini" class="size-4" />
+                        <span wire:loading.remove wire:target="toggleFinancialStorage">
+                            {{ $financialStorageEnabled ? __('Disable Financial Storage & Caching') : __('Enable Financial Storage & Caching') }}
+                        </span>
+                        <span wire:loading wire:target="toggleFinancialStorage">
+                            {{ __('Updating...') }}
+                        </span>
+                    </button>
+                </div>
+            </div>
         </div>
     @endif
 </div>
