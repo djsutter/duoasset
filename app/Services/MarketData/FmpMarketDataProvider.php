@@ -612,6 +612,13 @@ class FmpMarketDataProvider implements MarketDataProvider
                 'industry' => $row['industry'] ?? null,
                 'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
                 'country' => $row['country'] ?? null,
+                'is_actively_trading' => $this->toBool($row['isActivelyTrading'] ?? $row['is_actively_trading'] ?? null),
+                'is_etf' => $this->toBool($row['isEtf'] ?? $row['is_etf'] ?? null),
+                'is_fund' => $this->toBool($row['isFund'] ?? $row['is_fund'] ?? null),
+                'is_adr' => $this->toBool($row['isAdr'] ?? $row['is_adr'] ?? null),
+                'type' => $row['type'] ?? $row['security_type'] ?? null,
+                'description' => $row['description'] ?? null,
+                'raw' => $row,
             ];
         });
     }
@@ -956,6 +963,11 @@ class FmpMarketDataProvider implements MarketDataProvider
             'industry' => $row['industry'] ?? null,
             'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
             'country' => $row['country'] ?? null,
+            'is_actively_trading' => $this->toBool($row['isActivelyTrading'] ?? $row['is_actively_trading'] ?? null),
+            'is_etf' => $this->toBool($row['isEtf'] ?? $row['is_etf'] ?? null),
+            'is_fund' => $this->toBool($row['isFund'] ?? $row['is_fund'] ?? null),
+            'is_adr' => $this->toBool($row['isAdr'] ?? $row['is_adr'] ?? null),
+            'type' => $row['type'] ?? $row['security_type'] ?? null,
             'raw' => $row,
         ];
     }
@@ -1007,5 +1019,14 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         return is_numeric($v) ? (int) $v : null;
+    }
+
+    protected function toBool(mixed $v): ?bool
+    {
+        if (! is_scalar($v) || $v === '') {
+            return null;
+        }
+
+        return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     }
 }

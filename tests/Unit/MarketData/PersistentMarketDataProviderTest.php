@@ -1325,3 +1325,185 @@ test('earningsSurprises and earningsCalendar bypass cached payloads when fresh i
     expect($freshSurprises)->toHaveCount(2)
         ->and(collect($freshSurprises)->pluck('symbol')->all())->toEqual(['OLD_EARNING', 'NEW_SURPRISE']);
 });
+
+test('profile preserves is_actively_trading, is_etf, is_fund, and instrument type across persistence and produces identical classification fresh vs cached', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('AAPL')
+        ->andReturn([
+            'symbol' => 'AAPL',
+            'name' => 'Apple Inc.',
+            'company_name' => 'Apple Inc.',
+            'exchange' => 'NASDAQ',
+            'price' => 220.50,
+            'market_cap' => 3400000000000,
+            'is_actively_trading' => true,
+            'is_etf' => false,
+            'is_fund' => false,
+            'is_adr' => false,
+            'type' => 'stock',
+        ]);
+
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('SPY')
+        ->andReturn([
+            'symbol' => 'SPY',
+            'name' => 'SPDR S&P 500 ETF Trust',
+            'company_name' => 'SPDR S&P 500 ETF Trust',
+            'exchange' => 'NYSE',
+            'price' => 580.00,
+            'market_cap' => 500000000000,
+            'is_actively_trading' => true,
+            'is_etf' => true,
+            'is_fund' => false,
+            'is_adr' => false,
+            'type' => 'etf',
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $validator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+
+    // 1) Fresh profile fetches from upstream
+    $freshAapl = $provider->profile('AAPL');
+    expect($freshAapl['is_actively_trading'])->toBeTrue()
+        ->and($freshAapl['is_etf'])->toBeFalse()
+        ->and($freshAapl['is_fund'])->toBeFalse()
+        ->and($freshAapl['type'])->toBe('stock');
+
+    $freshAaplValidation = $validator->validate('AAPL', $freshAapl['company_name'], $freshAapl);
+    expect($freshAaplValidation->isValid())->toBeTrue()
+        ->and($freshAaplValidation->isCommonEquity())->toBeTrue()
+        ->and($freshAaplValidation->instrumentType())->toBe(\App\Services\Stocks\EquityValidationResult::TYPE_COMMON_EQUITY);
+
+    $freshSpy = $provider->profile('SPY');
+    expect($freshSpy['is_etf'])->toBeTrue()
+        ->and($freshSpy['type'])->toBe('etf');
+
+    $freshSpyValidation = $validator->validate('SPY', $freshSpy['company_name'], $freshSpy);
+    expect($freshSpyValidation->isValid())->toBeFalse()
+        ->and($freshSpyValidation->instrumentType())->toBe(\App\Services\Stocks\EquityValidationResult::TYPE_FUND_OR_ETF);
+
+    // 2) Verify data was persisted in database
+    $storedAapl = CompanyProfile::where('symbol', 'AAPL')->first();
+    expect($storedAapl)->not->toBeNull()
+        ->and($storedAapl->is_actively_trading)->toBeTrue()
+        ->and($storedAapl->is_etf)->toBeFalse()
+        ->and($storedAapl->is_fund)->toBeFalse()
+        ->and($storedAapl->type)->toBe('stock');
+
+    $storedSpy = CompanyProfile::where('symbol', 'SPY')->first();
+    expect($storedSpy)->not->toBeNull()
+        ->and($storedSpy->is_etf)->toBeTrue()
+        ->and($storedSpy->type)->toBe('etf');
+
+    // 3) Flush L1 memory cache and clear mock to verify retrieval strictly from L2 database
+    Cache::flush();
+
+    // Provider should not call upstream again
+    $cachedAapl = $provider->profile('AAPL');
+    expect($cachedAapl['is_actively_trading'])->toBeTrue()
+        ->and($cachedAapl['is_etf'])->toBeFalse()
+        ->and($cachedAapl['is_fund'])->toBeFalse()
+        ->and($cachedAapl['type'])->toBe('stock');
+
+    $cachedAaplValidation = $validator->validate('AAPL', $cachedAapl['company_name'], $cachedAapl);
+    expect($cachedAaplValidation->isValid())->toBe($freshAaplValidation->isValid())
+        ->and($cachedAaplValidation->isCommonEquity())->toBe($freshAaplValidation->isCommonEquity())
+        ->and($cachedAaplValidation->instrumentType())->toBe($freshAaplValidation->instrumentType())
+        ->and($cachedAaplValidation->status())->toBe($freshAaplValidation->status());
+
+    $cachedSpy = $provider->profile('SPY');
+    expect($cachedSpy['is_etf'])->toBeTrue()
+        ->and($cachedSpy['type'])->toBe('etf');
+
+    $cachedSpyValidation = $validator->validate('SPY', $cachedSpy['company_name'], $cachedSpy);
+    expect($cachedSpyValidation->isValid())->toBe($freshSpyValidation->isValid())
+        ->and($cachedSpyValidation->instrumentType())->toBe($freshSpyValidation->instrumentType())
+        ->and($cachedSpyValidation->status())->toBe($freshSpyValidation->status());
+});
+
+test('profile preserves null for missing and malformed metadata across persistence and retrieval', function () {
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('INCOMP')
+        ->andReturn([
+            'symbol' => 'INCOMP',
+            'name' => 'Incomplete Co.',
+            'company_name' => 'Incomplete Co.',
+            'exchange' => 'NYSE',
+            'price' => 50.00,
+            'market_cap' => 100000000,
+            // is_actively_trading, is_etf, is_fund, is_adr, type are omitted
+        ]);
+
+    $upstream->shouldReceive('profile')
+        ->once()
+        ->with('MALFORM')
+        ->andReturn([
+            'symbol' => 'MALFORM',
+            'name' => 'Malformed Flags Corp.',
+            'company_name' => 'Malformed Flags Corp.',
+            'exchange' => 'NASDAQ',
+            'price' => 75.00,
+            'is_actively_trading' => 'invalid-boolean-string',
+            'is_etf' => 'not_a_bool',
+            'is_fund' => '',
+            'is_adr' => 'bad_value',
+            'type' => null,
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+    $validator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+
+    // 1) Missing metadata remains null on fresh fetch
+    $freshIncomp = $provider->profile('INCOMP');
+    expect($freshIncomp['is_actively_trading'])->toBeNull()
+        ->and($freshIncomp['is_etf'])->toBeNull()
+        ->and($freshIncomp['is_fund'])->toBeNull()
+        ->and($freshIncomp['is_adr'])->toBeNull()
+        ->and($freshIncomp['type'])->toBeNull();
+
+    // 2) Malformed metadata resolves to null
+    $freshMalform = $provider->profile('MALFORM');
+    expect($freshMalform['is_actively_trading'])->toBeNull()
+        ->and($freshMalform['is_etf'])->toBeNull()
+        ->and($freshMalform['is_fund'])->toBeNull()
+        ->and($freshMalform['is_adr'])->toBeNull()
+        ->and($freshMalform['type'])->toBeNull();
+
+    // 3) Persisted in DB as null
+    $storedIncomp = CompanyProfile::where('symbol', 'INCOMP')->first();
+    expect($storedIncomp)->not->toBeNull()
+        ->and($storedIncomp->is_actively_trading)->toBeNull()
+        ->and($storedIncomp->is_etf)->toBeNull()
+        ->and($storedIncomp->is_fund)->toBeNull()
+        ->and($storedIncomp->is_adr)->toBeNull()
+        ->and($storedIncomp->type)->toBeNull();
+
+    $storedMalform = CompanyProfile::where('symbol', 'MALFORM')->first();
+    expect($storedMalform)->not->toBeNull()
+        ->and($storedMalform->is_actively_trading)->toBeNull()
+        ->and($storedMalform->is_etf)->toBeNull()
+        ->and($storedMalform->is_fund)->toBeNull()
+        ->and($storedMalform->is_adr)->toBeNull()
+        ->and($storedMalform->type)->toBeNull();
+
+    // 4) Flush L1 cache and retrieve from L2 database - remains null
+    Cache::flush();
+    $cachedIncomp = $provider->profile('INCOMP');
+    expect($cachedIncomp['is_actively_trading'])->toBeNull()
+        ->and($cachedIncomp['is_etf'])->toBeNull()
+        ->and($cachedIncomp['is_fund'])->toBeNull()
+        ->and($cachedIncomp['is_adr'])->toBeNull()
+        ->and($cachedIncomp['type'])->toBeNull();
+
+    // 5) Validation on incomplete metadata preserves provisional eligibility
+    $incompValidation = $validator->validate('INCOMP', $cachedIncomp['company_name'], $cachedIncomp);
+    expect($incompValidation->isValid())->toBeTrue()
+        ->and($incompValidation->isCommonEquity())->toBeFalse()
+        ->and($incompValidation->isInsufficientMetadata())->toBeTrue()
+        ->and($incompValidation->status())->toBe(\App\Services\Stocks\EquityValidationResult::STATUS_INSUFFICIENT_METADATA);
+});

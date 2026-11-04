@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\EvaluateStockBuySetup;
+use App\Models\StockBuySetupAlert;
 use App\Models\StockBuySetupRun;
 use App\Services\Dashboard\DashboardCacheService;
 use App\Services\MarketData\MarketDataProvider;
@@ -148,10 +149,46 @@ class ScanBuySetups extends Command
             $bar = null;
         }
 
+        $equityValidator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+        $equityValidationEnabled = $configService->isEquityValidationEnabled();
+
         foreach ($rows as $index => $row) {
             $symbol = $row['symbol'] ?? null;
             if (! $symbol) {
                 continue;
+            }
+
+            if (empty($explicit) && $equityValidationEnabled) {
+                $validation = $equityValidator->validate((string) $symbol, $row['company_name'] ?? null, $row);
+                if (! $validation->isValid()) {
+                    // Remove existing false-positive alerts on non-equity instruments
+                    StockBuySetupAlert::where('symbol', $symbol)->delete();
+
+                    $category = StockBuySetupRun::CATEGORY_NON_EQUITY_INSTRUMENT;
+                    $reason = $validation->reason() ?? 'Non-equity instrument';
+
+                    if ($sync) {
+                        $result = [
+                            'symbol' => $symbol,
+                            'status' => 'rejected',
+                            'reason' => $reason,
+                            'category' => $category,
+                            'instrument_type' => $validation->instrumentType(),
+                            'underlying_symbol' => $validation->underlyingSymbol(),
+                        ];
+                        $this->recordSyncResult($result, $summary);
+                        $summary['screener_rejected_count'] = ($summary['screener_rejected_count'] ?? 0) + 1;
+                        if ($verbose) {
+                            $this->renderVerboseResult($index + 1, count($rows), $result);
+                        } elseif ($bar !== null) {
+                            $bar->advance();
+                        }
+                    } else {
+                        StockBuySetupRun::recordScreenerRejection($scanRun->id, (string) $symbol, $reason, $category);
+                    }
+
+                    continue;
+                }
             }
 
             $payload = [
@@ -307,6 +344,13 @@ class ScanBuySetups extends Command
             $summary['reasons'][$reason] = ($summary['reasons'][$reason] ?? 0) + 1;
         }
 
+        $category = ! empty($result['category'])
+            ? (string) $result['category']
+            : ($reason !== '' ? StockBuySetupRun::categorizeReason($reason) : '');
+        if ($category !== '') {
+            $summary['categories'][$category] = ($summary['categories'][$category] ?? 0) + 1;
+        }
+
         foreach ((array) ($result['matches'] ?? []) as $match) {
             $matchStatus = (string) ($match['status'] ?? '');
             if ($matchStatus === 'created') {
@@ -429,6 +473,9 @@ class ScanBuySetups extends Command
         $this->line('Processed: '.$summary['processed']);
         $this->line('Matched:   '.$summary['matched'].'  (created '.$summary['created'].', existing '.$summary['existing'].')');
         $this->line('Rejected:  '.$summary['rejected']);
+        if (! empty($summary['screener_rejected_count'])) {
+            $this->line('  (screener non-equity pre-filtered: '.$summary['screener_rejected_count'].')');
+        }
         $this->line('Errors:    '.$summary['errors']);
         $this->line('Elapsed:   '.$this->formatElapsed($elapsedSeconds));
 

@@ -54,6 +54,36 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
             return;
         }
 
+        $profile = [];
+        try {
+            $profile = (array) $provider->profile($symbol);
+        } catch (Throwable $e) {
+            Log::warning('eps_revision.profile_fetch_failed', [
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $companyName = $this->companyName ?: ($profile['company_name'] ?? $profile['name'] ?? null);
+        $exchange = $this->exchange ?: ($profile['exchange'] ?? null);
+
+        $configService = app(\App\Services\Stocks\BuySetupConfigService::class);
+        if ($configService->isEquityValidationEnabled()) {
+            $validator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+            $validation = $validator->validate($symbol, $companyName, $profile);
+
+            if (! $validation->isValid()) {
+                EpsRevisionAlert::where('symbol', $symbol)->delete();
+                Log::info('eps_revision.skipped_non_equity', [
+                    'symbol' => $symbol,
+                    'reason' => $validation->reason(),
+                    'instrument_type' => $validation->instrumentType(),
+                ]);
+
+                return;
+            }
+        }
+
         $config = config('market_data.revision_scanner');
         $positiveThreshold = (float) ($config['positive_threshold'] ?? 20);
         $negativeThreshold = (float) ($config['negative_threshold'] ?? -20);
@@ -96,7 +126,7 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
 
         // Provision a Stock row for this symbol so it shows up everywhere.
         try {
-            $stocks->findOrCreate($symbol, $this->exchange, $this->companyName);
+            $stocks->findOrCreate($symbol, $exchange, $companyName);
         } catch (Throwable $e) {
             Log::warning('eps_revision.stock_provision_failed', [
                 'symbol' => $symbol,
@@ -159,8 +189,8 @@ class CheckEpsRevisionForSymbol implements ShouldQueue
                     'direction' => $direction,
                 ],
                 [
-                    'company_name' => $this->companyName,
-                    'exchange' => $this->exchange,
+                    'company_name' => $companyName,
+                    'exchange' => $exchange,
                     'previous_estimate' => $previous,
                     'latest_estimate' => $latestEstimate,
                     'revision_percent' => round($revisionPct, 4),

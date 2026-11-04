@@ -642,8 +642,14 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
         if (is_array($fresh) && ! empty($fresh)) {
             $now = now();
+            $fresh['is_actively_trading'] = $this->toBool($fresh['is_actively_trading'] ?? $fresh['isActivelyTrading'] ?? null);
+            $fresh['is_etf'] = $this->toBool($fresh['is_etf'] ?? $fresh['isEtf'] ?? null);
+            $fresh['is_fund'] = $this->toBool($fresh['is_fund'] ?? $fresh['isFund'] ?? null);
+            $fresh['is_adr'] = $this->toBool($fresh['is_adr'] ?? $fresh['isAdr'] ?? null);
+            $fresh['type'] = $fresh['type'] ?? $fresh['security_type'] ?? null;
+
             $nonNullFields = array_filter([
-                'company_name' => $fresh['name'] ?? null,
+                'company_name' => $fresh['name'] ?? $fresh['company_name'] ?? null,
                 'exchange' => $fresh['exchange'] ?? null,
                 'currency' => $fresh['currency'] ?? null,
                 'country' => $fresh['country'] ?? null,
@@ -655,6 +661,11 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 'shares_outstanding' => $fresh['shares_outstanding'] ?? null,
                 'float_shares' => $fresh['float_shares'] ?? null,
                 'free_float' => $fresh['free_float'] ?? null,
+                'is_actively_trading' => $fresh['is_actively_trading'],
+                'is_etf' => $fresh['is_etf'],
+                'is_fund' => $fresh['is_fund'],
+                'is_adr' => $fresh['is_adr'],
+                'type' => $fresh['type'],
             ], fn ($val) => $val !== null && $val !== '');
 
             if ($stored) {
@@ -713,6 +724,21 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     $data['mktCap'] = (int) $stored->market_cap;
                 }
             }
+            if (! array_key_exists('is_actively_trading', $data)) {
+                $data['is_actively_trading'] = $stored->is_actively_trading !== null ? (bool) $stored->is_actively_trading : null;
+            }
+            if (! array_key_exists('is_etf', $data)) {
+                $data['is_etf'] = $stored->is_etf !== null ? (bool) $stored->is_etf : null;
+            }
+            if (! array_key_exists('is_fund', $data)) {
+                $data['is_fund'] = $stored->is_fund !== null ? (bool) $stored->is_fund : null;
+            }
+            if (! array_key_exists('is_adr', $data)) {
+                $data['is_adr'] = $stored->is_adr !== null ? (bool) $stored->is_adr : null;
+            }
+            if (! array_key_exists('type', $data)) {
+                $data['type'] = $stored->type;
+            }
 
             return $data;
         }
@@ -725,6 +751,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return [
             'symbol' => $stored->symbol,
             'name' => $stored->company_name ?? '',
+            'company_name' => $stored->company_name ?? '',
             'exchange' => $stored->exchange ?? '',
             'currency' => $stored->currency ?? '',
             'country' => $stored->country ?? '',
@@ -736,6 +763,11 @@ class PersistentMarketDataProvider implements MarketDataProvider
             'shares_outstanding' => $stored->shares_outstanding !== null ? (int) $stored->shares_outstanding : null,
             'float_shares' => $stored->float_shares !== null ? (int) $stored->float_shares : null,
             'free_float' => $stored->free_float !== null ? (float) $stored->free_float : null,
+            'is_actively_trading' => $stored->is_actively_trading !== null ? (bool) $stored->is_actively_trading : null,
+            'is_etf' => $stored->is_etf !== null ? (bool) $stored->is_etf : null,
+            'is_fund' => $stored->is_fund !== null ? (bool) $stored->is_fund : null,
+            'is_adr' => $stored->is_adr !== null ? (bool) $stored->is_adr : null,
+            'type' => $stored->type,
         ];
     }
 
@@ -1505,6 +1537,11 @@ class PersistentMarketDataProvider implements MarketDataProvider
                         'shares_outstanding' => $item['shares_outstanding'] ?? null,
                         'float_shares' => $item['float_shares'] ?? null,
                         'free_float' => $item['free_float'] ?? null,
+                        'is_actively_trading' => $this->toBool($item['is_actively_trading'] ?? $item['isActivelyTrading'] ?? null),
+                        'is_etf' => $this->toBool($item['is_etf'] ?? $item['isEtf'] ?? null),
+                        'is_fund' => $this->toBool($item['is_fund'] ?? $item['isFund'] ?? null),
+                        'is_adr' => $this->toBool($item['is_adr'] ?? $item['isAdr'] ?? null),
+                        'type' => $item['type'] ?? $item['security_type'] ?? null,
                     ], fn ($v) => $v !== null && $v !== '');
 
                     if ($existing) {
@@ -1758,5 +1795,14 @@ class PersistentMarketDataProvider implements MarketDataProvider
         if (method_exists($this->upstream, 'clearErrors')) {
             $this->upstream->clearErrors();
         }
+    }
+
+    protected function toBool(mixed $v): ?bool
+    {
+        if (! is_scalar($v) || $v === '') {
+            return null;
+        }
+
+        return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Stocks;
 
+use App\Models\StockBuySetupRun;
 use App\Services\Stocks\Algorithms\BuySetupAlgorithmRegistry;
 use Carbon\CarbonImmutable;
 
@@ -30,6 +31,8 @@ class StockBuySetupScanner
 {
     private ?string $lastRejectionReason = null;
 
+    private ?string $lastRejectionCategory = null;
+
     /** @var array<string, string> */
     private array $lastRejectionReasons = [];
 
@@ -43,6 +46,14 @@ class StockBuySetupScanner
     }
 
     /**
+     * Structured rejection category for the most recent non-match.
+     */
+    public function lastRejectionCategory(): ?string
+    {
+        return $this->lastRejectionCategory;
+    }
+
+    /**
      * Rejection reasons broken down by setup type from the most recent evaluation.
      *
      * @return array<string, string>
@@ -52,9 +63,10 @@ class StockBuySetupScanner
         return $this->lastRejectionReasons;
     }
 
-    private function reject(string $reason): null
+    private function reject(string $reason, ?string $category = null): null
     {
         $this->lastRejectionReason = $reason;
+        $this->lastRejectionCategory = $category ?? StockBuySetupRun::categorizeReason($reason);
 
         return null;
     }
@@ -78,9 +90,22 @@ class StockBuySetupScanner
     public function evaluateAll(array $bars, array $benchmarkBars = [], array $context = []): array
     {
         $this->lastRejectionReason = null;
+        $this->lastRejectionCategory = null;
         $this->lastRejectionReasons = [];
 
         $configService = app(BuySetupConfigService::class);
+        $symbol = $context['symbol'] ?? null;
+        if ($symbol !== null && $configService->isEquityValidationEnabled()) {
+            $validator = app(EquitySecurityValidator::class);
+            $validation = $validator->validate((string) $symbol, $context['company_name'] ?? null, $context);
+            if (! $validation->isValid()) {
+                $this->lastRejectionReason = $validation->reason();
+                $this->lastRejectionCategory = StockBuySetupRun::CATEGORY_NON_EQUITY_INSTRUMENT;
+
+                return [];
+            }
+        }
+
         $types = $configService->getSetupTypes();
 
         $results = [];
@@ -114,6 +139,7 @@ class StockBuySetupScanner
                 }
                 $this->lastRejectionReason = implode('; ', $parts);
             }
+            $this->lastRejectionCategory = StockBuySetupRun::CATEGORY_TECHNICAL_CRITERIA_UNMET;
         }
 
         return $results;
@@ -146,10 +172,18 @@ class StockBuySetupScanner
         $n = count($bars);
         // Need at least 252 bars (~52 weeks) for the comparison universe.
         if ($n < 252) {
-            return $this->reject("insufficient history ({$n} < 252 bars)");
+            return $this->reject("insufficient history ({$n} < 252 bars)", StockBuySetupRun::CATEGORY_INSUFFICIENT_HISTORY);
         }
 
         $symbol = strtoupper((string) ($context['symbol'] ?? ''));
+        if ($symbol !== '' && $configService->isEquityValidationEnabled()) {
+            $validator = app(EquitySecurityValidator::class);
+            $validation = $validator->validate($symbol, $context['company_name'] ?? null, $context);
+            if (! $validation->isValid()) {
+                return $this->reject($validation->reason(), StockBuySetupRun::CATEGORY_NON_EQUITY_INSTRUMENT);
+            }
+        }
+
         $marketCap = $context['market_cap'] ?? null;
         // Market-cap eligibility is configurable per setup type (min_market_cap /
         // max_market_cap), inclusive on both ends, so a stock can qualify for
@@ -163,10 +197,10 @@ class StockBuySetupScanner
         if (is_numeric($marketCap)) {
             $marketCapInt = (int) $marketCap;
             if ($marketCapInt < $minMarketCap) {
-                return $this->reject("market cap below setup minimum ({$minMarketCap})");
+                return $this->reject("market cap below setup minimum ({$minMarketCap})", StockBuySetupRun::CATEGORY_BELOW_MIN_MARKET_CAP);
             }
             if ($marketCapInt > $maxMarketCap) {
-                return $this->reject("market cap above setup maximum ({$maxMarketCap})");
+                return $this->reject("market cap above setup maximum ({$maxMarketCap})", StockBuySetupRun::CATEGORY_ABOVE_MAX_MARKET_CAP);
             }
         }
 

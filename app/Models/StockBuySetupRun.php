@@ -26,6 +26,8 @@ class StockBuySetupRun extends Model
 
     public const CATEGORY_TECHNICAL_CRITERIA_UNMET = 'technical_criteria_unmet';
 
+    public const CATEGORY_NON_EQUITY_INSTRUMENT = 'non_equity_instrument';
+
     public const CATEGORY_EXECUTION_ERROR = 'execution_error';
 
     public const CATEGORY_OTHER = 'other';
@@ -86,6 +88,16 @@ class StockBuySetupRun extends Model
         }
 
         if (
+            str_contains($lower, 'non-equity')
+            || str_contains($lower, 'redeemed bond')
+            || str_contains($lower, 'preferred stock')
+            || str_contains($lower, 'warrant')
+            || str_contains($lower, 'inactive security')
+        ) {
+            return self::CATEGORY_NON_EQUITY_INSTRUMENT;
+        }
+
+        if (
             str_contains($lower, 'no enabled setup')
             || str_contains($lower, 'no detector match')
             || str_contains($lower, 'detector')
@@ -117,6 +129,7 @@ class StockBuySetupRun extends Model
             self::CATEGORY_BELOW_MIN_MARKET_CAP => 'Below Market Cap Minimum',
             self::CATEGORY_ABOVE_MAX_MARKET_CAP => 'Above Market Cap Maximum',
             self::CATEGORY_EXCHANGE_MISMATCH => 'Exchange Mismatch',
+            self::CATEGORY_NON_EQUITY_INSTRUMENT => 'Non-Equity / Inactive Instruments',
             self::CATEGORY_TECHNICAL_CRITERIA_UNMET => 'Technical Setup Criteria Unmet',
             self::CATEGORY_EXECUTION_ERROR => 'Processing / API Errors',
             self::CATEGORY_OTHER => 'Other Rejections',
@@ -159,7 +172,9 @@ class StockBuySetupRun extends Model
                 $raw[$reason] = ($raw[$reason] ?? 0) + 1;
                 $run->raw_reasons = $raw;
 
-                $category = static::categorizeReason($reason);
+                $category = ! empty($result['category'])
+                    ? (string) $result['category']
+                    : static::categorizeReason($reason);
                 $cat = $run->categorized_reasons ?? [];
                 $cat[$category] = ($cat[$category] ?? 0) + 1;
                 $run->categorized_reasons = $cat;
@@ -195,10 +210,12 @@ class StockBuySetupRun extends Model
      */
     public function finishSync(array $summary, float $elapsedSeconds): void
     {
-        $categorized = [];
-        foreach (($summary['reasons'] ?? []) as $reason => $count) {
-            $cat = static::categorizeReason((string) $reason);
-            $categorized[$cat] = ($categorized[$cat] ?? 0) + $count;
+        $categorized = $summary['categories'] ?? [];
+        if (empty($categorized)) {
+            foreach (($summary['reasons'] ?? []) as $reason => $count) {
+                $cat = static::categorizeReason((string) $reason);
+                $categorized[$cat] = ($categorized[$cat] ?? 0) + $count;
+            }
         }
 
         $this->update([
@@ -215,8 +232,40 @@ class StockBuySetupRun extends Model
                 'elapsed_seconds' => round($elapsedSeconds, 2),
                 'created' => (int) ($summary['created'] ?? 0),
                 'existing' => (int) ($summary['existing'] ?? 0),
+                'screener_rejected_count' => (int) ($summary['screener_rejected_count'] ?? 0),
             ]),
         ]);
+    }
+
+    /**
+     * Record a candidate rejected during screener pre-filtering (e.g. non-equity instrument).
+     */
+    public static function recordScreenerRejection(int $runId, string $symbol, string $reason, string $category = self::CATEGORY_NON_EQUITY_INSTRUMENT): void
+    {
+        DB::transaction(function () use ($runId, $symbol, $reason, $category) {
+            /** @var StockBuySetupRun|null $run */
+            $run = static::lockForUpdate()->find($runId);
+            if (! $run) {
+                return;
+            }
+
+            $run->rejected_count++;
+            if ($reason !== '') {
+                $raw = $run->raw_reasons ?? [];
+                $raw[$reason] = ($raw[$reason] ?? 0) + 1;
+                $run->raw_reasons = $raw;
+
+                $cat = $run->categorized_reasons ?? [];
+                $cat[$category] = ($cat[$category] ?? 0) + 1;
+                $run->categorized_reasons = $cat;
+            }
+
+            $summaryData = $run->summary_data ?? [];
+            $summaryData['screener_rejected_count'] = ($summaryData['screener_rejected_count'] ?? 0) + 1;
+            $run->summary_data = $summaryData;
+
+            $run->save();
+        });
     }
 
     /**

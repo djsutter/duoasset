@@ -21,6 +21,11 @@ use Illuminate\Database\Eloquent\Model;
  * @property int|null $shares_outstanding
  * @property int|null $float_shares
  * @property float|null $free_float
+ * @property bool|null $is_actively_trading
+ * @property bool|null $is_etf
+ * @property bool|null $is_fund
+ * @property bool|null $is_adr
+ * @property string|null $type
  * @property \Illuminate\Support\Carbon|null $retrieved_at
  */
 class CompanyProfile extends Model
@@ -39,6 +44,11 @@ class CompanyProfile extends Model
         'shares_outstanding',
         'float_shares',
         'free_float',
+        'is_actively_trading',
+        'is_etf',
+        'is_fund',
+        'is_adr',
+        'type',
         'retrieved_at',
     ];
 
@@ -48,6 +58,10 @@ class CompanyProfile extends Model
         'shares_outstanding' => 'integer',
         'float_shares' => 'integer',
         'free_float' => 'float',
+        'is_actively_trading' => 'boolean',
+        'is_etf' => 'boolean',
+        'is_fund' => 'boolean',
+        'is_adr' => 'boolean',
         'retrieved_at' => 'datetime',
     ];
 }

@@ -107,6 +107,42 @@ class EvaluateStockBuySetup implements ShouldQueue
             $freeFloat = $this->freeFloat ?? $this->nullableFloat($profile['free_float'] ?? null);
             $marketCap = \App\Services\MarketData\MarketCap::compute($price, $sharesOutstanding, $this->marketCap ?? ($profile['market_cap'] ?? null));
 
+            // Equity validation gate: exclude redeemed bonds, other inactive securities,
+            // preferred shares, warrants, and other non-equity instruments before
+            // loading historical bars, fundamentals, or calculating setup scores.
+            if ($configService->isEquityValidationEnabled()) {
+                $equityValidator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+                $validation = $equityValidator->validate($symbol, $companyName, $profile);
+
+                if (! $validation->isValid()) {
+                    StockBuySetupAlert::where('symbol', $symbol)->delete();
+
+                    $debug['status'] = 'rejected';
+                    $debug['reason'] = $validation->reason();
+                    $debug['category'] = StockBuySetupRun::CATEGORY_NON_EQUITY_INSTRUMENT;
+                    $debug['instrument_type'] = $validation->instrumentType();
+                    $debug['underlying_symbol'] = $validation->underlyingSymbol();
+                    $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+                    Log::info('buy_setup.rejected', [
+                        'symbol' => $symbol,
+                        'company_name' => $companyName,
+                        'exchange' => $exchange,
+                        'market_cap' => $marketCap,
+                        'reason' => $debug['reason'],
+                        'category' => $debug['category'],
+                        'instrument_type' => $validation->instrumentType(),
+                        'underlying_symbol' => $validation->underlyingSymbol(),
+                    ]);
+
+                    if ($this->scanRunId !== null) {
+                        StockBuySetupRun::recordResult($this->scanRunId, $debug);
+                    }
+
+                    return $debug;
+                }
+            }
+
             $barStats = [];
             $bars = $this->loadBars($provider, $symbol, $lookback, $barStats);
             $debug['bars'] = count($bars);
@@ -115,6 +151,7 @@ class EvaluateStockBuySetup implements ShouldQueue
             if (count($bars) < 252) {
                 $debug['status'] = 'rejected';
                 $debug['reason'] = 'insufficient history ('.count($bars).' < 252 bars)';
+                $debug['category'] = StockBuySetupRun::CATEGORY_INSUFFICIENT_HISTORY;
                 $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 
                 Log::info('buy_setup.rejected', [
@@ -122,6 +159,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'exchange' => $exchange,
                     'market_cap' => $marketCap,
                     'reason' => $debug['reason'],
+                    'category' => $debug['category'],
                 ]);
 
                 if ($this->scanRunId !== null) {
@@ -152,6 +190,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $debug['status'] = 'rejected';
                 $debug['reason'] = $scanner->lastRejectionReason() ?? 'no enabled setup detector matched';
                 $debug['rejection_reasons'] = $scanner->lastRejectionReasons();
+                $debug['category'] = $scanner->lastRejectionCategory() ?? StockBuySetupRun::categorizeReason($debug['reason']);
                 $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 
                 Log::info('buy_setup.rejected', [
@@ -160,6 +199,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'market_cap' => $marketCap,
                     'reason' => $debug['reason'],
                     'rejection_reasons' => $debug['rejection_reasons'],
+                    'category' => $debug['category'],
                 ]);
 
                 if ($this->scanRunId !== null) {
@@ -387,12 +427,14 @@ class EvaluateStockBuySetup implements ShouldQueue
             if (empty($debug['matches'])) {
                 $debug['status'] = 'rejected';
                 $debug['reason'] = 'no detector match was saved';
+                $debug['category'] = StockBuySetupRun::CATEGORY_TECHNICAL_CRITERIA_UNMET;
 
                 Log::info('buy_setup.rejected', [
                     'symbol' => $symbol,
                     'exchange' => $exchange,
                     'market_cap' => $marketCap,
                     'reason' => $debug['reason'],
+                    'category' => $debug['category'],
                 ]);
             } else {
                 $debug['status'] = 'matched';
@@ -426,6 +468,7 @@ class EvaluateStockBuySetup implements ShouldQueue
 
             $debug['status'] = 'error';
             $debug['reason'] = $e->getMessage();
+            $debug['category'] = StockBuySetupRun::CATEGORY_EXECUTION_ERROR;
             $debug['elapsed_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
 
             if ($this->scanRunId !== null) {

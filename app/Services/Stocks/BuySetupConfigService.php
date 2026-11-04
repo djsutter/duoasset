@@ -85,6 +85,7 @@ class BuySetupConfigService
      */
     public const DEFAULT_CONFIG = [
         'scanner_enabled' => true,
+        'equity_validation_enabled' => true,
         'min_setup_score' => 0,
         'notify_min_setup_score' => 50,
         'min_heartbeat_score' => 50,
@@ -314,6 +315,11 @@ class BuySetupConfigService
     public function isScannerEnabled(): bool
     {
         return (bool) ($this->getConfig()['scanner_enabled'] ?? true);
+    }
+
+    public function isEquityValidationEnabled(): bool
+    {
+        return (bool) ($this->getConfig()['equity_validation_enabled'] ?? config('market_data.buy_setup_scanner.equity_validation_enabled', true));
     }
 
     public function getMinSetupScore(): int
@@ -792,6 +798,9 @@ class BuySetupConfigService
         // Fallback to config/env if saved has missing global fields
         $config = [
             'scanner_enabled' => (bool) ($saved['scanner_enabled'] ?? $cfg('market_data.buy_setup_scanner.enabled', $defaults['scanner_enabled'])),
+            'equity_validation_enabled' => (bool) (array_key_exists('equity_validation_enabled', $saved)
+                ? $saved['equity_validation_enabled']
+                : $cfg('market_data.buy_setup_scanner.equity_validation_enabled', $defaults['equity_validation_enabled'])),
             'min_setup_score' => (int) ($saved['min_setup_score'] ?? $cfg('market_data.buy_setup_scanner.min_setup_score', $defaults['min_setup_score'])),
             'notify_min_setup_score' => (int) ($saved['notify_min_setup_score'] ?? $cfg('market_data.buy_setup_scanner.notify_min_setup_score', $defaults['notify_min_setup_score'])),
             'min_heartbeat_score' => (int) ($saved['min_heartbeat_score'] ?? $cfg('market_data.buy_setup_scanner.min_heartbeat_score', $defaults['min_heartbeat_score'])),
@@ -1239,6 +1248,7 @@ class BuySetupConfigService
 
         config([
             'market_data.buy_setup_scanner.enabled' => (bool) $config['scanner_enabled'],
+            'market_data.buy_setup_scanner.equity_validation_enabled' => (bool) ($config['equity_validation_enabled'] ?? true),
             'market_data.buy_setup_scanner.min_setup_score' => (int) $config['min_setup_score'],
             'market_data.buy_setup_scanner.notify_min_setup_score' => (int) $config['notify_min_setup_score'],
             'market_data.buy_setup_scanner.min_heartbeat_score' => (int) $config['min_heartbeat_score'],

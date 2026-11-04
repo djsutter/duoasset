@@ -145,3 +145,138 @@ it('skips the comparison when previous estimate is zero', function () {
     // History was refreshed so the *next* run has a valid denominator.
     expect((float) EpsEstimateHistory::where('symbol', 'ZERO')->first()->eps_estimate)->toBe(2.5);
 });
+
+it('skips non-equity instruments such as redeemed bonds from EPS revision checks and cleans up alerts', function () {
+    $period = now()->addDays(60)->toDateString();
+    fakeAnalystEstimates('BWNB', [
+        ['date' => $period, 'estimatedEpsAvg' => 2.50],
+    ]);
+
+    // Pre-create an existing false-positive alert
+    EpsRevisionAlert::create([
+        'source' => 'fmp',
+        'symbol' => 'BWNB',
+        'next_quarter_end_date' => $period,
+        'alert_type' => 'eps_revision',
+        'direction' => EpsRevisionAlert::DIRECTION_POSITIVE,
+        'previous_estimate' => 1.0,
+        'latest_estimate' => 2.5,
+        'revision_percent' => 150.0,
+        'status' => 'new',
+        'detected_at' => now(),
+    ]);
+    expect(EpsRevisionAlert::where('symbol', 'BWNB')->count())->toBe(1);
+
+    CheckEpsRevisionForSymbol::dispatchSync('BWNB', 'Babcock & Wilcox Enterprises Inc. 6.50% Senior Notes due 2026', 'NYSE', 100_000_000);
+
+    expect(EpsEstimateHistory::where('symbol', 'BWNB')->count())->toBe(0);
+    expect(EpsRevisionAlert::where('symbol', 'BWNB')->count())->toBe(0);
+});
+
+it('rejects explicitly requested inactive securities using structured profile metadata and cleans up alerts', function () {
+    $period = now()->addDays(60)->toDateString();
+
+    // Mock FMP endpoints: profile has isActivelyTrading = false
+    Http::fake(function ($request) use ($period) {
+        $url = (string) $request->url();
+        if (str_contains($url, '/profile')) {
+            return Http::response([
+                [
+                    'symbol' => 'INACT',
+                    'companyName' => 'Inactive Security Corp.',
+                    'exchange' => 'NYSE',
+                    'isActivelyTrading' => false,
+                    'isEtf' => false,
+                    'isFund' => false,
+                    'type' => 'stock',
+                ],
+            ], 200);
+        }
+        if (str_contains($url, '/analyst-estimates')) {
+            return Http::response([
+                ['date' => $period, 'estimatedEpsAvg' => 3.00],
+            ], 200);
+        }
+
+        return Http::response([], 200);
+    });
+
+    // Seed existing alert
+    EpsRevisionAlert::create([
+        'source' => 'fmp',
+        'symbol' => 'INACT',
+        'next_quarter_end_date' => $period,
+        'alert_type' => 'eps_revision',
+        'direction' => EpsRevisionAlert::DIRECTION_POSITIVE,
+        'previous_estimate' => 1.0,
+        'latest_estimate' => 3.0,
+        'revision_percent' => 200.0,
+        'status' => 'new',
+        'detected_at' => now(),
+    ]);
+    expect(EpsRevisionAlert::where('symbol', 'INACT')->count())->toBe(1);
+
+    // Explicit job dispatch
+    CheckEpsRevisionForSymbol::dispatchSync('INACT', 'Inactive Security Corp.', 'NYSE', 100_000_000);
+
+    // Existing alert must be deleted, no history created
+    expect(EpsRevisionAlert::where('symbol', 'INACT')->count())->toBe(0);
+    expect(EpsEstimateHistory::where('symbol', 'INACT')->count())->toBe(0);
+
+    // Verify via command with --symbol=INACT --sync
+    EpsRevisionAlert::create([
+        'source' => 'fmp',
+        'symbol' => 'INACT',
+        'next_quarter_end_date' => $period,
+        'alert_type' => 'eps_revision',
+        'direction' => EpsRevisionAlert::DIRECTION_POSITIVE,
+        'previous_estimate' => 1.0,
+        'latest_estimate' => 3.0,
+        'revision_percent' => 200.0,
+        'status' => 'new',
+        'detected_at' => now(),
+    ]);
+
+    $this->artisan('earnings:scan-revisions', [
+        '--symbol' => ['INACT'],
+        '--sync' => true,
+    ])->assertSuccessful();
+
+    expect(EpsRevisionAlert::where('symbol', 'INACT')->count())->toBe(0);
+    expect(EpsEstimateHistory::where('symbol', 'INACT')->count())->toBe(0);
+});
+
+it('bypasses equity validation across EPS revision command and jobs when disabled', function () {
+    config(['market_data.buy_setup_scanner.equity_validation_enabled' => false]);
+    $period = now()->addDays(60)->toDateString();
+
+    Http::fake(function ($request) use ($period) {
+        $url = (string) $request->url();
+        if (str_contains($url, '/profile')) {
+            return Http::response([
+                [
+                    'symbol' => 'INACT',
+                    'companyName' => 'Inactive Security Corp.',
+                    'exchange' => 'NYSE',
+                    'isActivelyTrading' => false,
+                    'isEtf' => false,
+                    'isFund' => false,
+                    'type' => 'stock',
+                ],
+            ], 200);
+        }
+        if (str_contains($url, '/analyst-estimates')) {
+            return Http::response([
+                ['date' => $period, 'estimatedEpsAvg' => 3.00],
+            ], 200);
+        }
+
+        return Http::response([], 200);
+    });
+
+    // When equity validation is disabled, CheckEpsRevisionForSymbol does not skip INACT
+    CheckEpsRevisionForSymbol::dispatchSync('INACT', 'Inactive Security Corp.', 'NYSE', 100_000_000);
+
+    // Initial snapshot should be created because validation was bypassed
+    expect(EpsEstimateHistory::where('symbol', 'INACT')->count())->toBe(1);
+});

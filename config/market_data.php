@@ -85,6 +85,7 @@ return [
     */
     'buy_setup_scanner' => [
         'enabled' => env('BUY_SETUP_SCANNER_ENABLED', true),
+        'equity_validation_enabled' => env('BUY_SETUP_EQUITY_VALIDATION_ENABLED', true),
         'min_market_cap' => env('BUY_SETUP_MIN_MARKET_CAP', env('EARNINGS_SCANNER_MIN_MARKET_CAP', 50000000)),
         // Fallback/default only. The Buy Setup Scanner's effective
         // eligibility range is configured per setup type (see

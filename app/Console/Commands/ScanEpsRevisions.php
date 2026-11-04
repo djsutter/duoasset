@@ -89,9 +89,18 @@ class ScanEpsRevisions extends Command
         $dispatched = 0;
         $sync = (bool) $this->option('sync');
 
+        $configService = app(\App\Services\Stocks\BuySetupConfigService::class);
+        $equityValidationEnabled = $configService->isEquityValidationEnabled();
+        $equityValidator = app(\App\Services\Stocks\EquitySecurityValidator::class);
+
         foreach ($rows as $row) {
             $symbol = $row['symbol'] ?? null;
             if (! $symbol) {
+                continue;
+            }
+
+            if ($equityValidationEnabled && empty($explicit) && ! $equityValidator->isEligibleEquity((string) $symbol, $row['company_name'] ?? null, $row)) {
+                \App\Models\EpsRevisionAlert::where('symbol', $symbol)->delete();
                 continue;
             }
 

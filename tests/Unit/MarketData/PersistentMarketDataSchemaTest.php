@@ -143,3 +143,46 @@ test('migration rollback protection halts when persistent market data tables con
     expect(fn () => $barsMigration->down())
         ->toThrow(\RuntimeException::class, 'Migration rollback halted: permanent market data table [stock_daily_bars] contains accumulated historical data.');
 });
+
+test('instrument metadata migration adds columns to company_profiles and rolls back cleanly', function () {
+    $metadataMigration = require database_path('migrations/2026_11_04_140000_add_instrument_metadata_to_company_profiles_table.php');
+
+    // Run up (columns already added in test database setup, should be idempotent)
+    $metadataMigration->up();
+
+    expect(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_actively_trading'))->toBeTrue()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_etf'))->toBeTrue()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_fund'))->toBeTrue()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_adr'))->toBeTrue()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'type'))->toBeTrue();
+
+    // Verify model persistence and casts
+    $profile = CompanyProfile::create([
+        'symbol' => 'META',
+        'company_name' => 'Meta Platforms Inc.',
+        'is_actively_trading' => true,
+        'is_etf' => false,
+        'is_fund' => false,
+        'is_adr' => false,
+        'type' => 'stock',
+    ]);
+
+    expect($profile->is_actively_trading)->toBeTrue()
+        ->and($profile->is_etf)->toBeFalse()
+        ->and($profile->is_fund)->toBeFalse()
+        ->and($profile->is_adr)->toBeFalse()
+        ->and($profile->type)->toBe('stock');
+
+    // Verify down() drops the columns cleanly
+    $metadataMigration->down();
+
+    expect(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_actively_trading'))->toBeFalse()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_etf'))->toBeFalse()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_fund'))->toBeFalse()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_adr'))->toBeFalse()
+        ->and(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'type'))->toBeFalse();
+
+    // Restore up()
+    $metadataMigration->up();
+    expect(\Illuminate\Support\Facades\Schema::hasColumn('company_profiles', 'is_actively_trading'))->toBeTrue();
+});
