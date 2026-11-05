@@ -96,13 +96,13 @@ class NotificationOptOut extends Model
 
         $user = User::where('email', $normalizedEmail)->first();
         if ($user) {
-            if ($itemType === self::TYPE_EARNINGS && ! $user->notify_eps_earnings) {
+            if ($itemType === self::TYPE_EARNINGS && (! $user->notify_eps_earnings || ! $user->email_eps_surprise_digest)) {
                 return true;
             }
             if ($itemType === self::TYPE_REVISION && ! $user->notify_eps_revisions) {
                 return true;
             }
-            if ($itemType === self::TYPE_BUY_SETUP && ! $user->notify_stock_buy_setup) {
+            if ($itemType === self::TYPE_BUY_SETUP && (! $user->notify_stock_buy_setup || ! $user->email_setup_scoring_digest)) {
                 return true;
             }
         }
@@ -118,10 +118,12 @@ class NotificationOptOut extends Model
         if ($user) {
             if ($this->item_type === self::TYPE_EARNINGS) {
                 $user->notify_eps_earnings = false;
+                $user->email_eps_surprise_digest = false;
             } elseif ($this->item_type === self::TYPE_REVISION) {
                 $user->notify_eps_revisions = false;
             } elseif ($this->item_type === self::TYPE_BUY_SETUP) {
                 $user->notify_stock_buy_setup = false;
+                $user->email_setup_scoring_digest = false;
             }
             $user->save();
         }
@@ -135,10 +137,12 @@ class NotificationOptOut extends Model
         if ($user) {
             if ($this->item_type === self::TYPE_EARNINGS) {
                 $user->notify_eps_earnings = true;
+                $user->email_eps_surprise_digest = true;
             } elseif ($this->item_type === self::TYPE_REVISION) {
                 $user->notify_eps_revisions = true;
             } elseif ($this->item_type === self::TYPE_BUY_SETUP) {
                 $user->notify_stock_buy_setup = true;
+                $user->email_setup_scoring_digest = true;
             }
             $user->save();
         }

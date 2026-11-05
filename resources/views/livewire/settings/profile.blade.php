@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\NotificationOptOut;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
@@ -9,6 +10,8 @@ use Livewire\Volt\Component;
 new class extends Component {
     public string $name = '';
     public string $email = '';
+    public bool $email_eps_surprise_digest = true;
+    public bool $email_setup_scoring_digest = false;
     public bool $notify_eps_earnings = true;
     public bool $notify_eps_revisions = true;
     public bool $notify_stock_buy_setup = false;
@@ -21,9 +24,31 @@ new class extends Component {
         $user = Auth::user();
         $this->name = $user->name;
         $this->email = $user->email;
-        $this->notify_eps_earnings = (bool) $user->notify_eps_earnings;
+        $this->email_eps_surprise_digest = (bool) ($user->email_eps_surprise_digest ?? $user->notify_eps_earnings);
+        $this->notify_eps_earnings = $this->email_eps_surprise_digest;
         $this->notify_eps_revisions = (bool) $user->notify_eps_revisions;
-        $this->notify_stock_buy_setup = (bool) $user->notify_stock_buy_setup;
+        $this->email_setup_scoring_digest = (bool) ($user->email_setup_scoring_digest ?? $user->notify_stock_buy_setup);
+        $this->notify_stock_buy_setup = $this->email_setup_scoring_digest;
+    }
+
+    public function updatedEmailEpsSurpriseDigest(bool $value): void
+    {
+        $this->notify_eps_earnings = $value;
+    }
+
+    public function updatedNotifyEpsEarnings(bool $value): void
+    {
+        $this->email_eps_surprise_digest = $value;
+    }
+
+    public function updatedEmailSetupScoringDigest(bool $value): void
+    {
+        $this->notify_stock_buy_setup = $value;
+    }
+
+    public function updatedNotifyStockBuySetup(bool $value): void
+    {
+        $this->email_setup_scoring_digest = $value;
     }
 
     /**
@@ -44,10 +69,20 @@ new class extends Component {
                 'max:255',
                 Rule::unique(User::class)->ignore($user->id)
             ],
+            'email_eps_surprise_digest' => ['boolean'],
+            'email_setup_scoring_digest' => ['boolean'],
             'notify_eps_earnings' => ['boolean'],
             'notify_eps_revisions' => ['boolean'],
             'notify_stock_buy_setup' => ['boolean'],
         ]);
+
+        $epsEnabled = (bool) $validated['email_eps_surprise_digest'];
+        $setupEnabled = (bool) $validated['email_setup_scoring_digest'];
+
+        $validated['email_eps_surprise_digest'] = $epsEnabled;
+        $validated['notify_eps_earnings'] = $epsEnabled;
+        $validated['email_setup_scoring_digest'] = $setupEnabled;
+        $validated['notify_stock_buy_setup'] = $setupEnabled;
 
         $user->fill($validated);
 
@@ -56,6 +91,21 @@ new class extends Component {
         }
 
         $user->save();
+
+        // Keep NotificationOptOut rows aligned when the user explicitly updates preferences in Profile.
+        $earningsOptOut = NotificationOptOut::where('email', strtolower(trim($user->email)))
+            ->where('item_type', NotificationOptOut::TYPE_EARNINGS)
+            ->first();
+        if ($earningsOptOut) {
+            $epsEnabled ? $earningsOptOut->optIn() : $earningsOptOut->optOut();
+        }
+
+        $setupOptOut = NotificationOptOut::where('email', strtolower(trim($user->email)))
+            ->where('item_type', NotificationOptOut::TYPE_BUY_SETUP)
+            ->first();
+        if ($setupOptOut) {
+            $setupEnabled ? $setupOptOut->optIn() : $setupOptOut->optOut();
+        }
 
         $this->dispatch('profile-updated', name: $user->name);
     }
@@ -108,26 +158,35 @@ new class extends Component {
                 @endif
             </div>
 
-            <div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-                <p class="text-sm font-medium">{{ __('Email notifications') }}</p>
+            <div class="space-y-4 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                <p class="text-sm font-medium">{{ __('Email Notifications') }}</p>
 
-                <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model="notify_eps_earnings" class="rounded border-zinc-300" />
-                    <span>{{ __('EPS Earnings Surprise alerts (Beat / Miss after reporting)') }}</span>
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" wire:model.live="email_eps_surprise_digest" class="mt-0.5 rounded border-zinc-300" />
+                    <div>
+                        <span class="font-medium block">{{ __('EPS Surprise Notifications') }}</span>
+                        <span class="text-xs text-zinc-500 block">{{ __('Receive personalized summaries of EPS surprises, misses, and top-scoring earnings opportunities.') }}</span>
+                    </div>
                 </label>
 
-                <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model="notify_eps_revisions" class="rounded border-zinc-300" />
-                    <span>{{ __('EPS Revision alerts (analyst Target Raised / Cut)') }}</span>
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" wire:model.live="email_setup_scoring_digest" class="mt-0.5 rounded border-zinc-300" />
+                    <div>
+                        <span class="font-medium block">{{ __('Setup Scoring Notifications') }}</span>
+                        <span class="text-xs text-zinc-500 block">{{ __('Receive personalized summaries of setup score improvements, deteriorations, and other significant scoring notices.') }}</span>
+                    </div>
                 </label>
 
-                <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model="notify_stock_buy_setup" class="rounded border-zinc-300" />
-                    <span>{{ __('Stock Buy Setup alerts (recognized buy setups with high setup scores)') }}</span>
+                <label class="flex items-start gap-3 text-sm">
+                    <input type="checkbox" wire:model="notify_eps_revisions" class="mt-0.5 rounded border-zinc-300" />
+                    <div>
+                        <span class="font-medium block">{{ __('EPS Revision Notifications') }}</span>
+                        <span class="text-xs text-zinc-500 block">{{ __('EPS Revision alerts (analyst Target Raised / Cut)') }}</span>
+                    </div>
                 </label>
 
                 <p class="text-xs text-zinc-500">
-                    {{ __('Each new surprise is emailed once per user. You will never receive the same alert twice.') }}
+                    {{ __('One personalized digest email is sent per completed scanner run for each enabled notification category.') }}
                 </p>
             </div>
 

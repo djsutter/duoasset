@@ -34,7 +34,11 @@ class EnrichEarningsEvent implements ShouldQueue
 
     public int $backoff = 30;
 
-    public function __construct(public int $earningsEventId) {}
+    public function __construct(
+        public int $earningsEventId,
+        public ?int $scanRunId = null,
+        public bool $forceRescan = false,
+    ) {}
 
     public function handle(MarketDataProvider $provider, EarningsSurpriseScorer $scorer, StockProvisioner $stocks): void
     {
@@ -171,6 +175,7 @@ class EnrichEarningsEvent implements ShouldQueue
         $alert = $event->alerts()->firstOrCreate(
             ['alert_type' => 'eps_surprise', 'direction' => $direction],
             [
+                'scan_run_id' => $this->scanRunId ?? $event->scan_run_id,
                 'symbol' => $event->symbol,
                 'score' => $score,
                 'status' => 'new',
@@ -178,8 +183,21 @@ class EnrichEarningsEvent implements ShouldQueue
             ],
         );
 
-        if ($alert->wasRecentlyCreated) {
-            SendEarningsAlert::dispatch($alert->id);
+        $effectiveRunId = $this->scanRunId ?? $event->scan_run_id;
+        $needsSave = false;
+
+        if ($alert->score !== $score) {
+            $alert->score = $score;
+            $needsSave = true;
+        }
+
+        if ($effectiveRunId !== null && ($alert->wasRecentlyCreated || $this->forceRescan || $alert->scan_run_id === null)) {
+            $alert->scan_run_id = $effectiveRunId;
+            $needsSave = true;
+        }
+
+        if ($needsSave) {
+            $alert->save();
         }
     }
 }

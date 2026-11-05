@@ -63,11 +63,13 @@ class EarningsEvent extends Model
         'avg_volume',
         'relative_volume',
         'source',
+        'scan_run_id',
         'raw',
         'detected_at',
     ];
 
     protected $casts = [
+        'scan_run_id' => 'integer',
         'detected_at' => 'datetime',
         'raw' => 'array',
         'eps_estimated' => 'decimal:4',

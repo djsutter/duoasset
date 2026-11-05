@@ -247,6 +247,11 @@ class ScanBuySetups extends Command
 
         if ($sync) {
             $scanRun->finishSync($summary, microtime(true) - $startedAt);
+        } elseif ($dispatched === 0) {
+            $scanRun->update([
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
         }
 
         $this->info(($sync ? 'Processed' : 'Dispatched').": {$dispatched} per-symbol buy-setup evaluations (Run #{$scanRun->id}).");

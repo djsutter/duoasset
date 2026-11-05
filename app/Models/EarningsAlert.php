@@ -23,6 +23,7 @@ class EarningsAlert extends Model
 
     protected $fillable = [
         'earnings_event_id',
+        'scan_run_id',
         'symbol',
         'alert_type',
         'direction',
@@ -33,6 +34,7 @@ class EarningsAlert extends Model
     ];
 
     protected $casts = [
+        'scan_run_id' => 'integer',
         'score' => 'integer',
         'sent_at' => 'datetime',
     ];

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\PrepareScannerRunDigests;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -148,7 +149,9 @@ class StockBuySetupRun extends Model
      */
     public static function recordResult(int $runId, array $result): void
     {
-        DB::transaction(function () use ($runId, $result) {
+        $justCompleted = false;
+
+        DB::transaction(function () use ($runId, $result, &$justCompleted) {
             /** @var StockBuySetupRun|null $run */
             $run = static::lockForUpdate()->find($runId);
             if (! $run) {
@@ -194,13 +197,22 @@ class StockBuySetupRun extends Model
                 }
             }
 
-            if ($run->symbols_considered > 0 && $run->scored_count >= $run->symbols_considered) {
+            $screenerRejected = (int) (($run->summary_data ?? [])['screener_rejected_count'] ?? 0);
+            if ($run->status !== 'completed' && $run->symbols_considered > 0 && ($run->scored_count + $screenerRejected) >= $run->symbols_considered) {
                 $run->status = 'completed';
                 $run->completed_at = now();
+                $justCompleted = true;
             }
 
             $run->save();
         });
+
+        if ($justCompleted) {
+            PrepareScannerRunDigests::dispatch(
+                NotificationDigestDelivery::CATEGORY_SETUP_SCORING,
+                $runId,
+            );
+        }
     }
 
     /**
@@ -235,6 +247,11 @@ class StockBuySetupRun extends Model
                 'screener_rejected_count' => (int) ($summary['screener_rejected_count'] ?? 0),
             ]),
         ]);
+
+        PrepareScannerRunDigests::dispatch(
+            NotificationDigestDelivery::CATEGORY_SETUP_SCORING,
+            $this->id,
+        );
     }
 
     /**

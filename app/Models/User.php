@@ -29,6 +29,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'view_mode' => 'stocks',
         'credit_balance' => 0.00,
         'timezone' => 'America/New_York',
+        'notify_eps_earnings' => true,
+        'email_eps_surprise_digest' => true,
+        'notify_eps_revisions' => true,
+        'notify_stock_buy_setup' => false,
+        'email_setup_scoring_digest' => false,
     ];
 
     /**
@@ -41,8 +46,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'email',
         'password',
         'notify_eps_earnings',
+        'email_eps_surprise_digest',
         'notify_eps_revisions',
         'notify_stock_buy_setup',
+        'email_setup_scoring_digest',
         'role',
         'view_mode',
         'credit_balance',
@@ -86,12 +93,64 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'notify_eps_earnings' => 'boolean',
+            'email_eps_surprise_digest' => 'boolean',
             'notify_eps_revisions' => 'boolean',
             'notify_stock_buy_setup' => 'boolean',
+            'email_setup_scoring_digest' => 'boolean',
             'role' => UserRole::class,
             'credit_balance' => 'decimal:2',
             'two_factor_expires_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $user) {
+            if ($user->isDirty('email_eps_surprise_digest') && ! $user->isDirty('notify_eps_earnings')) {
+                $user->notify_eps_earnings = (bool) $user->email_eps_surprise_digest;
+            } elseif ($user->isDirty('notify_eps_earnings') && ! $user->isDirty('email_eps_surprise_digest')) {
+                $user->email_eps_surprise_digest = (bool) $user->notify_eps_earnings;
+            }
+
+            if ($user->isDirty('email_setup_scoring_digest') && ! $user->isDirty('notify_stock_buy_setup')) {
+                $user->notify_stock_buy_setup = (bool) $user->email_setup_scoring_digest;
+            } elseif ($user->isDirty('notify_stock_buy_setup') && ! $user->isDirty('email_setup_scoring_digest')) {
+                $user->email_setup_scoring_digest = (bool) $user->notify_stock_buy_setup;
+            }
+        });
+    }
+
+    /**
+     * Determine whether this user is currently subscribed to the given digest category,
+     * checking both user preference columns and explicit notification opt-outs.
+     */
+    public function isSubscribedToDigest(string $category): bool
+    {
+        if ($category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE) {
+            if (! $this->email_eps_surprise_digest || ! $this->notify_eps_earnings) {
+                return false;
+            }
+
+            return ! NotificationOptOut::isOptedOut((string) $this->email, NotificationOptOut::TYPE_EARNINGS);
+        }
+
+        if ($category === NotificationDigestDelivery::CATEGORY_SETUP_SCORING) {
+            if (! $this->email_setup_scoring_digest || ! $this->notify_stock_buy_setup) {
+                return false;
+            }
+
+            return ! NotificationOptOut::isOptedOut((string) $this->email, NotificationOptOut::TYPE_BUY_SETUP);
+        }
+
+        return false;
+    }
+
+    /**
+     * Digest deliveries for this user across scanner runs.
+     */
+    public function digestDeliveries(): HasMany
+    {
+        return $this->hasMany(NotificationDigestDelivery::class);
     }
 
     /**

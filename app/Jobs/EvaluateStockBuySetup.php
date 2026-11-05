@@ -209,6 +209,21 @@ class EvaluateStockBuySetup implements ShouldQueue
                 return $debug;
             }
 
+            // Capture the symbol's persisted setup score prior to this scan run so we can
+            // accurately track improvements, drops, and newly scored symbols across runs
+            // without misclassifying multiple setup matches within the same run.
+            $priorAlertsQuery = StockBuySetupAlert::query()->where('symbol', $symbol);
+            if ($this->scanRunId !== null) {
+                $priorAlertsQuery->where(function ($q) {
+                    $q->whereNull('scan_run_id')
+                        ->orWhere('scan_run_id', '!=', $this->scanRunId);
+                });
+            }
+            $hadPriorPersistedScore = (clone $priorAlertsQuery)->exists();
+            $priorSymbolScore = $hadPriorPersistedScore
+                ? (int) $priorAlertsQuery->max('setup_score')
+                : null;
+
             foreach ($results as $result) {
                 $breakdown = $scorer->breakdown(
                     $result,
@@ -283,8 +298,20 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $result->liquidityPenaltyPct = (float) $liquidity['penalty_pct'];
                 $result->liquidityPenaltyPoints = (int) $liquidity['penalty_points'];
 
+                $previousSetupScore = $priorSymbolScore;
+                if ($previousSetupScore === null && $alert->exists && ($this->scanRunId === null || $alert->scan_run_id !== $this->scanRunId)) {
+                    $previousSetupScore = $alert->setup_score !== null ? (int) $alert->setup_score : null;
+                }
+                $scoreDelta = $previousSetupScore !== null
+                    ? ($result->setupScore - $previousSetupScore)
+                    : null;
+
                 $alert->fill([
+                    'scan_run_id' => $this->scanRunId,
+                    'first_scan_run_id' => $alert->first_scan_run_id ?? ($previousSetupScore === null ? $this->scanRunId : null),
                     'setup_score' => $result->setupScore,
+                    'previous_setup_score' => $previousSetupScore,
+                    'score_delta' => $scoreDelta,
                     'raw_setup_score' => $result->rawSetupScore,
                     'company_name' => $result->companyName,
                     'exchange' => $result->exchange,
@@ -351,48 +378,18 @@ class EvaluateStockBuySetup implements ShouldQueue
 
                 $shouldNotify = $result->setupScore >= $notifyMinScore;
 
-                // Provision a Stock row & propagate to opted-in users' Setup watchlist
-                // only when the result clears the notification threshold. Lower-scoring
-                // detector matches are still saved for review and UI filtering.
+                // Ensure a Stock row exists for dashboard routing when the result clears
+                // the notification threshold. Individual emails and automatic watchlist
+                // pollution are omitted; run-level personalized digests handle notifications.
                 if ($shouldNotify) {
                     try {
-                        $stock = $stocks->findOrCreate($symbol, $exchange, $companyName);
-
-                        User::query()
-                            ->where('notify_stock_buy_setup', true)
-                            ->chunkById(100, function ($users) use ($stock, $alert) {
-                                foreach ($users as $user) {
-                                    $watchlist = Watchlist::firstOrCreate(
-                                        ['user_id' => $user->id, 'name' => 'Setup'],
-                                        [
-                                            'description' => 'Auto-created from Stock Buy Setup scanner.',
-                                            'is_default' => false,
-                                        ],
-                                    );
-
-                                    WatchlistItem::firstOrCreate(
-                                        [
-                                            'watchlist_id' => $watchlist->id,
-                                            'stock_id' => $stock->id,
-                                        ],
-                                        [
-                                            'currency' => $stock->currency->value,
-                                            'moat_level' => MoatLevel::Medium->value,
-                                            'notes' => 'Buy setup ['.$alert->setup_type.'] ('.$alert->setup_score.'/100): '.$alert->reason_summary,
-                                        ],
-                                    );
-                                }
-                            });
+                        $stocks->findOrCreate($symbol, $exchange, $companyName);
                     } catch (Throwable $e) {
-                        Log::warning('buy_setup.watchlist_provision_failed', [
+                        Log::warning('buy_setup.stock_provision_failed', [
                             'symbol' => $symbol,
                             'error' => $e->getMessage(),
                         ]);
                     }
-                }
-
-                if ($shouldNotify && $wasRecentlyCreated) {
-                    SendStockBuySetupAlert::dispatch($alert->id);
                 }
 
                 $debug['matches'][] = [

@@ -3,7 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Jobs\EnrichEarningsEvent;
+use App\Jobs\PrepareScannerRunDigests;
+use App\Models\EarningsAlert;
 use App\Models\EarningsEvent;
+use App\Models\EarningsScanRun;
+use App\Models\NotificationDigestDelivery;
 use App\Services\Dashboard\DashboardCacheService;
 use App\Services\Earnings\EarningsSurpriseScorer;
 use App\Services\MarketData\MarketDataProvider;
@@ -80,8 +84,17 @@ class ScanEarningsSurprises extends Command
 
         $merged = $this->mergeRows($surprises, $calendar);
 
+        $scanRun = EarningsScanRun::create([
+            'started_at' => now(),
+            'status' => EarningsScanRun::STATUS_RUNNING,
+            'trigger' => 'cli',
+            'from_date' => $from->toDateString(),
+            'to_date' => $to->toDateString(),
+        ]);
+
         $processed = 0;
         $dispatched = 0;
+        $errors = 0;
 
         foreach ($merged as $row) {
             try {
@@ -132,6 +145,7 @@ class ScanEarningsSurprises extends Command
                         'report_date' => $row['report_date'],
                     ],
                     array_filter([
+                        'scan_run_id' => $scanRun->id,
                         'company_name' => $row['company_name'] ?? null,
                         'exchange' => $row['exchange'] ?? null,
                         'report_time' => $row['report_time'] ?? null,
@@ -171,9 +185,10 @@ class ScanEarningsSurprises extends Command
                 // are populated immediately — otherwise on a default install
                 // (QUEUE_CONNECTION=database) the jobs pile up until a worker
                 // is started, leaving those columns empty on the watchlist.
-                EnrichEarningsEvent::dispatchSync($event->id);
+                EnrichEarningsEvent::dispatchSync($event->id, $scanRun->id, $force);
                 $dispatched++;
             } catch (Throwable $e) {
+                $errors++;
                 Log::error('earnings.row_failed', [
                     'symbol' => $row['symbol'] ?? null,
                     'msg' => $e->getMessage(),
@@ -181,6 +196,20 @@ class ScanEarningsSurprises extends Command
                 // Continue with next row — never fail the whole command.
             }
         }
+
+        $alertsInRun = EarningsAlert::where('scan_run_id', $scanRun->id)->count();
+        $scanRun->update([
+            'status' => EarningsScanRun::STATUS_COMPLETED,
+            'completed_at' => now(),
+            'events_processed' => $processed,
+            'alerts_created' => $alertsInRun,
+            'error_count' => $errors,
+        ]);
+
+        PrepareScannerRunDigests::dispatch(
+            NotificationDigestDelivery::CATEGORY_EPS_SURPRISE,
+            $scanRun->id,
+        );
 
         $this->info("Processed: $processed, enrichment jobs dispatched: $dispatched");
 

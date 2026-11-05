@@ -105,6 +105,7 @@ return [
         'min_setup_score' => env('BUY_SETUP_MIN_SETUP_SCORE', 0),
         'notify_min_setup_score' => env('BUY_SETUP_NOTIFY_MIN_SETUP_SCORE', env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50)),
         'min_heartbeat_score' => env('BUY_SETUP_MIN_HEARTBEAT_SCORE', 50),
+        'digest_other_notices_limit' => env('BUY_SETUP_DIGEST_OTHER_NOTICES_LIMIT', 50),
         'setup_types' => [
             'heartbeat_consolidation_spike' => [
                 'enabled' => env('BUY_SETUP_TYPE_HEARTBEAT_CONSOLIDATION_SPIKE_ENABLED', true),
