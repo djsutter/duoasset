@@ -25,6 +25,11 @@ class PersistentMarketDataProvider implements MarketDataProvider
 {
     protected FinancialStorageConfigService $financialStorageConfig;
 
+    /**
+     * @var array<int, array{path:string,status:int,body:string}>
+     */
+    protected array $localErrors = [];
+
     public function __construct(
         protected MarketDataProvider $upstream,
         ?FinancialStorageConfigService $financialStorageConfig = null,
@@ -96,6 +101,101 @@ class PersistentMarketDataProvider implements MarketDataProvider
         }
 
         return $stored && is_array($stored->payload) ? $stored->payload : [];
+    }
+
+    /**
+     * Delegate stock/ETF news retrieval to the upstream provider.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function stockNews(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        if (method_exists($this->upstream, 'stockNews')) {
+            return $this->upstream->stockNews($symbols, $from, $to, $limit);
+        }
+
+        $this->recordMissingMethodError('stockNews');
+
+        return [];
+    }
+
+    /**
+     * Delegate forex/commodity news retrieval to the upstream provider.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function forexNews(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        if (method_exists($this->upstream, 'forexNews')) {
+            return $this->upstream->forexNews($symbols, $from, $to, $limit);
+        }
+
+        $this->recordMissingMethodError('forexNews');
+
+        return [];
+    }
+
+    /**
+     * Delegate general market news retrieval to the upstream provider.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function generalNews(?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        if (method_exists($this->upstream, 'generalNews')) {
+            return $this->upstream->generalNews($from, $to, $limit);
+        }
+
+        $this->recordMissingMethodError('generalNews');
+
+        return [];
+    }
+
+    /**
+     * Delegate company press releases retrieval to the upstream provider.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function pressReleases(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 20): array
+    {
+        if (method_exists($this->upstream, 'pressReleases')) {
+            return $this->upstream->pressReleases($symbols, $from, $to, $limit);
+        }
+
+        $this->recordMissingMethodError('pressReleases');
+
+        return [];
+    }
+
+    /**
+     * Delegate macroeconomic calendar retrieval to the upstream provider.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function economicCalendar(CarbonInterface $from, CarbonInterface $to): array
+    {
+        if (method_exists($this->upstream, 'economicCalendar')) {
+            return $this->upstream->economicCalendar($from, $to);
+        }
+
+        $this->recordMissingMethodError('economicCalendar');
+
+        return [];
+    }
+
+    protected function recordMissingMethodError(string $method): void
+    {
+        $upstreamClass = get_class($this->upstream);
+        $err = [
+            'path' => "provider::{$method}",
+            'status' => 501,
+            'body' => "Upstream market data provider [{$upstreamClass}] does not implement [{$method}].",
+        ];
+        $this->localErrors[] = $err;
+        Log::warning('persistent_market_data.missing_upstream_method', $err);
     }
 
     public function lookupOverview(string $symbol): ?array
@@ -1825,13 +1925,16 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     public function lastErrors(): array
     {
-        return method_exists($this->upstream, 'lastErrors')
-            ? $this->upstream->lastErrors()
+        $upstreamErrors = method_exists($this->upstream, 'lastErrors')
+            ? ($this->upstream->lastErrors() ?? [])
             : [];
+
+        return array_values(array_merge($this->localErrors, $upstreamErrors));
     }
 
     public function clearErrors(): void
     {
+        $this->localErrors = [];
         if (method_exists($this->upstream, 'clearErrors')) {
             $this->upstream->clearErrors();
         }

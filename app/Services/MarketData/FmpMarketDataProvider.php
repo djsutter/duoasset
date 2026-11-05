@@ -689,12 +689,20 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $cacheKey = 'fmp.news.stock.'.md5(json_encode([$path, $query]));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($path, $query) {
-            $rows = $this->get($path, $query) ?? [];
+        $rows = $this->get($path, $query);
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
-        });
+        $clean = array_values(array_filter($rows, 'is_array'));
+        Cache::put($cacheKey, $clean, now()->addSeconds((int) config('market_data.news.provider_cache_ttl_seconds', 600)));
+
+        return $clean;
     }
 
     /**
@@ -719,12 +727,20 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $cacheKey = 'fmp.news.forex.'.md5(json_encode([$path, $query]));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($path, $query) {
-            $rows = $this->get($path, $query) ?? [];
+        $rows = $this->get($path, $query);
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
-        });
+        $clean = array_values(array_filter($rows, 'is_array'));
+        Cache::put($cacheKey, $clean, now()->addSeconds((int) config('market_data.news.provider_cache_ttl_seconds', 600)));
+
+        return $clean;
     }
 
     /**
@@ -743,12 +759,20 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $cacheKey = 'fmp.news.general.'.md5(json_encode($query));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($query) {
-            $rows = $this->get('news/general-latest', $query) ?? [];
+        $rows = $this->get('news/general-latest', $query);
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
-        });
+        $clean = array_values(array_filter($rows, 'is_array'));
+        Cache::put($cacheKey, $clean, now()->addSeconds((int) config('market_data.news.provider_cache_ttl_seconds', 600)));
+
+        return $clean;
     }
 
     /**
@@ -773,12 +797,20 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         $cacheKey = 'fmp.news.press.'.md5(json_encode([$path, $query]));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addMinutes(15), function () use ($path, $query) {
-            $rows = $this->get($path, $query) ?? [];
+        $rows = $this->get($path, $query);
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
-        });
+        $clean = array_values(array_filter($rows, 'is_array'));
+        Cache::put($cacheKey, $clean, now()->addMinutes(15));
+
+        return $clean;
     }
 
     /**
@@ -794,12 +826,20 @@ class FmpMarketDataProvider implements MarketDataProvider
         ];
 
         $cacheKey = 'fmp.economic_calendar.'.$query['from'].'.'.$query['to'];
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($query) {
-            $rows = $this->get('economic-calendar', $query) ?? [];
+        $rows = $this->get('economic-calendar', $query);
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
-        });
+        $clean = array_values(array_filter($rows, 'is_array'));
+        Cache::put($cacheKey, $clean, now()->addMinutes(30));
+
+        return $clean;
     }
 
     /**

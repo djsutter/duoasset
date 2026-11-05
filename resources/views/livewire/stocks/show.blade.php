@@ -183,6 +183,9 @@
              ranges: ['1D', '7D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'],
 
              // Interactive News Timeline & Chart Sync state
+             newsEnabled: @js($newsEnabled ?? true),
+             newsStatus: @js($newsStatus ?? 'available'),
+             newsStatusMessage: @js($newsStatusMessage ?? null),
              newsItems: @js($newsItems),
              newsMarkers: @js($newsMarkers),
              newsCategories: @js($newsCategories),
@@ -194,18 +197,24 @@
              visibleFromTs: null,
              visibleToTs: null,
              isNewsLoading: false,
+             newsRequestId: 0,
+             newsAbortController: null,
+             newsPollCount: 0,
+             newsPollTimer: null,
              selectedNewsId: null,
              selectedNewsItem: null,
              impactData: null,
              isImpactLoading: false,
              impactError: null,
+             impactRequestId: 0,
+             impactAbortController: null,
              activeComparisonSymbols: @js(array_values(array_map(fn($r) => $r['symbol'], $instrumentMeta['related_symbols'] ?? []))),
              clickedCandle: null,
              candleInvestigation: null,
              includeLookAhead: true,
              viewportDebounceTimer: null,
-             lastFetchedNewsFrom: null,
-             lastFetchedNewsTo: null,
+             lastFetchedNewsFrom: @js($newsFromTimestamp ?? null),
+             lastFetchedNewsTo: @js($newsToTimestamp ?? null),
 
              get filteredNewsItems() {
                  let list = Array.isArray(this.newsItems) ? this.newsItems : [];
@@ -297,6 +306,10 @@
                  if (this.newsItems.length > 0 && !this.selectedNewsItem) {
                      this.selectedNewsItem = this.newsItems[0];
                      this.selectedNewsId = this.newsItems[0].id;
+                 }
+
+                 if (this.newsEnabled && this.newsStatus === 'refreshing') {
+                     this.scheduleNewsPoll();
                  }
 
                  let attempts = 0;
@@ -411,7 +424,7 @@
                  this.visibleFromTs = Math.floor(range.from / 1000);
                  this.visibleToTs = Math.floor(range.to / 1000);
 
-                 if (!this.syncNewsWithChart || this.candleInvestigation) return;
+                 if (!this.newsEnabled || !this.syncNewsWithChart || this.candleInvestigation) return;
 
                  if (this.viewportDebounceTimer) {
                      clearTimeout(this.viewportDebounceTimer);
@@ -419,9 +432,11 @@
                  this.viewportDebounceTimer = setTimeout(() => {
                      const fromIso = new Date(this.visibleFromTs * 1000).toISOString();
                      const toIso = new Date(this.visibleToTs * 1000).toISOString();
-                     // Fetch news for scrolled historical range if outside previously fetched window
-                     if (!this.lastFetchedNewsFrom || this.visibleFromTs < this.lastFetchedNewsFrom) {
-                         this.fetchNews({ from: fromIso, to: toIso });
+                     // Fetch news when navigating backward OR forward outside previously fetched window
+                     const needsEarlier = !this.lastFetchedNewsFrom || (this.visibleFromTs < this.lastFetchedNewsFrom - 3600);
+                     const needsLater = !this.lastFetchedNewsTo || (this.visibleToTs > this.lastFetchedNewsTo + 3600);
+                     if (needsEarlier || needsLater) {
+                         this.fetchNews({ from: fromIso, to: toIso, merge: true });
                      }
                  }, 400);
              },
@@ -507,12 +522,58 @@
                      focusTimeMs: tsMs,
                  });
              },
+             scheduleNewsPoll() {
+                 if (!this.newsEnabled || this.newsPollCount >= 4) return;
+                 if (this.newsPollTimer) {
+                     clearTimeout(this.newsPollTimer);
+                 }
+                 this.newsPollTimer = setTimeout(async () => {
+                     this.newsPollCount++;
+                     await this.fetchNews({ isPoll: true });
+                 }, 1500);
+             },
+             mergeNewsLists(existingList, incomingList) {
+                 const map = new Map();
+                 for (const item of (Array.isArray(existingList) ? existingList : [])) {
+                     if (item && item.id) map.set(String(item.id), item);
+                 }
+                 for (const item of (Array.isArray(incomingList) ? incomingList : [])) {
+                     if (item && item.id) map.set(String(item.id), item);
+                 }
+                 const merged = Array.from(map.values());
+                 merged.sort((a, b) => (b.published_timestamp || 0) - (a.published_timestamp || 0));
+                 return merged;
+             },
+             mergeMarkerLists(existingMarkers, incomingMarkers) {
+                 const map = new Map();
+                 for (const m of (Array.isArray(existingMarkers) ? existingMarkers : [])) {
+                     if (m && m.id) map.set(String(m.id), m);
+                 }
+                 for (const m of (Array.isArray(incomingMarkers) ? incomingMarkers : [])) {
+                     if (m && m.id) map.set(String(m.id), m);
+                 }
+                 const merged = Array.from(map.values());
+                 merged.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                 return merged;
+             },
              async fetchNews(params = {}) {
+                 if (!this.newsEnabled) return;
+                 if (this.newsAbortController) {
+                     try { this.newsAbortController.abort(); } catch (e) {}
+                 }
+                 this.newsAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                 const currentNewsReqId = ++this.newsRequestId;
+
+                 if (!params.isPoll) {
+                     this.newsPollCount = 0;
+                 }
                  this.isNewsLoading = true;
+
                  try {
                      const qs = new URLSearchParams();
                      if (params.from) qs.set('from', params.from);
                      if (params.to) qs.set('to', params.to);
+                     if (params.refresh) qs.set('refresh', '1');
                      if (params.around_timestamp) {
                          qs.set('around_timestamp', params.around_timestamp);
                          qs.set('pre_window_minutes', params.pre_window_minutes || 720);
@@ -521,27 +582,81 @@
                      qs.set('limit', params.limit || 50);
 
                      const resp = await fetch(`${this.apiBasePath}/news?${qs.toString()}`, {
-                         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                         signal: this.newsAbortController ? this.newsAbortController.signal : undefined,
                      });
-                     if (!resp.ok) return;
+
+                     if (currentNewsReqId !== this.newsRequestId) return;
+
+                     if (!resp.ok) {
+                         if (resp.status === 429) {
+                             this.newsStatus = 'rate_limited';
+                             this.newsStatusMessage = '{{ __('News provider rate limit exceeded. Please retry shortly.') }}';
+                         } else if (resp.status === 401 || resp.status === 402 || resp.status === 403) {
+                             this.newsStatus = 'auth_error';
+                             this.newsStatusMessage = '{{ __('News provider authorization or subscription error.') }}';
+                         } else {
+                             this.newsStatus = 'service_unavailable';
+                             this.newsStatusMessage = '{{ __('External news service is temporarily unavailable.') }}';
+                         }
+                         return;
+                     }
+
                      const data = await resp.json();
+                     if (currentNewsReqId !== this.newsRequestId) return;
+
+                     this.newsStatus = data.status || (Array.isArray(data.items) && data.items.length > 0 ? 'available' : 'empty');
+                     this.newsStatusMessage = data.status_message || null;
+
                      if (Array.isArray(data.items)) {
-                         this.newsItems = data.items;
-                         this.newsMarkers = Array.isArray(data.markers) ? data.markers : [];
-                         this.candleInvestigation = data.investigation || null;
-                         this.lastFetchedNewsFrom = data.from_timestamp || null;
-                         this.lastFetchedNewsTo = data.to_timestamp || null;
+                         if (params.merge && !params.around_timestamp) {
+                             this.newsItems = this.mergeNewsLists(this.newsItems, data.items);
+                             this.newsMarkers = this.mergeMarkerLists(this.newsMarkers, Array.isArray(data.markers) ? data.markers : []);
+                             if (data.from_timestamp) {
+                                 this.lastFetchedNewsFrom = this.lastFetchedNewsFrom
+                                     ? Math.min(this.lastFetchedNewsFrom, data.from_timestamp)
+                                     : data.from_timestamp;
+                             }
+                             if (data.to_timestamp) {
+                                 this.lastFetchedNewsTo = this.lastFetchedNewsTo
+                                     ? Math.max(this.lastFetchedNewsTo, data.to_timestamp)
+                                     : data.to_timestamp;
+                             }
+                         } else {
+                             this.newsItems = data.items;
+                             this.newsMarkers = Array.isArray(data.markers) ? data.markers : [];
+                             this.candleInvestigation = data.investigation || null;
+                             this.lastFetchedNewsFrom = data.from_timestamp || null;
+                             this.lastFetchedNewsTo = data.to_timestamp || null;
+                         }
 
                          if (this.newsItems.length > 0 && (!this.selectedNewsId || !this.newsItems.some(i => i.id === this.selectedNewsId))) {
                              this.selectedNewsItem = this.newsItems[0];
                              this.selectedNewsId = this.newsItems[0].id;
+                         } else if (this.selectedNewsId) {
+                             const updatedSelected = this.newsItems.find(i => i.id === this.selectedNewsId);
+                             if (updatedSelected) {
+                                 this.selectedNewsItem = updatedSelected;
+                             }
                          }
                          this.workspace?.syncNewsMarkers?.(this.newsMarkers, this.showNewsMarkers, this.selectedNewsId);
                      }
+
+                     if (this.newsStatus === 'refreshing') {
+                         this.scheduleNewsPoll();
+                     }
                  } catch (e) {
+                     if (e?.name === 'AbortError') return;
+                     if (currentNewsReqId !== this.newsRequestId) return;
                      console.warn('Error fetching news timeline:', e);
+                     if (this.newsItems.length === 0) {
+                         this.newsStatus = 'service_unavailable';
+                         this.newsStatusMessage = '{{ __('External news service is temporarily unavailable. Please retry.') }}';
+                     }
                  } finally {
-                     this.isNewsLoading = false;
+                     if (currentNewsReqId === this.newsRequestId) {
+                         this.isNewsLoading = false;
+                     }
                  }
              },
              async fetchNewsImpact(item) {
@@ -551,22 +666,36 @@
                  await this.fetchImpactByTimestamp(ts);
              },
              async fetchImpactByTimestamp(ts) {
+                 if (this.impactAbortController) {
+                     try { this.impactAbortController.abort(); } catch (e) {}
+                 }
+                 this.impactAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                 const currentImpactReqId = ++this.impactRequestId;
+
                  this.isImpactLoading = true;
                  this.impactError = null;
                  try {
                      const compareParam = this.activeComparisonSymbols.join(',');
                      const resp = await fetch(`${this.apiBasePath}/news-impact?timestamp=${encodeURIComponent(ts)}&compare=${encodeURIComponent(compareParam)}`, {
-                         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                         signal: this.impactAbortController ? this.impactAbortController.signal : undefined,
                      });
+                     if (currentImpactReqId !== this.impactRequestId) return;
                      if (!resp.ok) {
                          throw new Error(`HTTP ${resp.status}`);
                      }
-                     this.impactData = await resp.json();
+                     const data = await resp.json();
+                     if (currentImpactReqId !== this.impactRequestId) return;
+                     this.impactData = data;
                  } catch (e) {
+                     if (e?.name === 'AbortError') return;
+                     if (currentImpactReqId !== this.impactRequestId) return;
                      this.impactError = '{{ __('Price impact data unavailable for this event.') }}';
                      this.impactData = null;
                  } finally {
-                     this.isImpactLoading = false;
+                     if (currentImpactReqId === this.impactRequestId) {
+                         this.isImpactLoading = false;
+                     }
                  }
              },
              toggleComparisonSymbol(sym) {
@@ -744,6 +873,11 @@
              initChart();
              if (typeof $cleanup === 'function') {
                  $cleanup(() => {
+                     if (activeAbortController) { try { activeAbortController.abort(); } catch (e) {} }
+                     if (newsAbortController) { try { newsAbortController.abort(); } catch (e) {} }
+                     if (impactAbortController) { try { impactAbortController.abort(); } catch (e) {} }
+                     if (viewportDebounceTimer) { clearTimeout(viewportDebounceTimer); }
+                     if (newsPollTimer) { clearTimeout(newsPollTimer); }
                      if (workspace && typeof workspace.destroy === 'function') {
                          try { workspace.destroy(); } catch (e) {}
                          workspace = null;
@@ -845,15 +979,18 @@
                 </div>
 
                 {{-- News Markers Toggle --}}
-                <button type="button"
-                        x-on:click="toggleNewsMarkers()"
-                        :class="showNewsMarkers ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300' : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400'"
-                        class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
-                        title="{{ __('Toggle News Event Markers on Chart') }}"
-                        data-testid="toggle-news-markers">
-                    <span class="size-2 rounded-full" :class="showNewsMarkers ? 'bg-amber-500' : 'bg-zinc-400'"></span>
-                    <span x-text="showNewsMarkers ? '{{ __('News Markers: On') }}' : '{{ __('News Markers: Off') }}'"></span>
-                </button>
+                @if ($newsEnabled ?? true)
+                    <button type="button"
+                            x-show="newsEnabled"
+                            x-on:click="toggleNewsMarkers()"
+                            :class="showNewsMarkers ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300' : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400'"
+                            class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+                            title="{{ __('Toggle News Event Markers on Chart') }}"
+                            data-testid="toggle-news-markers">
+                        <span class="size-2 rounded-full" :class="showNewsMarkers ? 'bg-amber-500' : 'bg-zinc-400'"></span>
+                        <span x-text="showNewsMarkers ? '{{ __('News Markers: On') }}' : '{{ __('News Markers: Off') }}'"></span>
+                    </button>
+                @endif
 
                 {{-- Loading Indicator --}}
                 <div x-show="isLoading"
@@ -956,7 +1093,8 @@
         </div>
 
         {{-- Interactive News Timeline & Event Price-Impact Analysis --}}
-        <div class="da-card bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs" data-testid="news-timeline-panel">
+        @if ($newsEnabled ?? true)
+        <div x-show="newsEnabled" class="da-card bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xs" data-testid="news-timeline-panel" :data-news-status="newsStatus">
             {{-- Header & Controls --}}
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">
                 <div class="flex items-center gap-3">
@@ -969,6 +1107,13 @@
                             <span class="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-xs font-mono font-semibold text-zinc-600 dark:text-zinc-300"
                                   x-text="filteredNewsItems.length"
                                   data-testid="news-timeline-count"></span>
+                            <span x-show="isNewsLoading || newsStatus === 'refreshing'"
+                                  x-cloak
+                                  class="inline-flex items-center gap-1 rounded-full bg-sky-100 dark:bg-sky-950/80 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300"
+                                  data-testid="news-refreshing-badge">
+                                <flux:icon icon="arrow-path" variant="mini" class="size-3 animate-spin" />
+                                <span>{{ __('Refreshing...') }}</span>
+                            </span>
                         </h2>
                         <p class="text-xs text-zinc-500 dark:text-zinc-400">
                             {{ __('Synchronized with the Vela chart. Click any headline to navigate the chart and inspect post-event price behavior, or click a chart marker/candle to filter stories.') }}
@@ -992,6 +1137,17 @@
                         <span x-text="syncNewsWithChart ? '{{ __('Follow Chart Range: On') }}' : '{{ __('Follow Chart Range: Off') }}'"></span>
                     </button>
 
+                    {{-- Manual Refresh News Button --}}
+                    <button type="button"
+                            x-on:click="fetchNews({ refresh: true })"
+                            :disabled="isNewsLoading"
+                            class="inline-flex items-center gap-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
+                            title="{{ __('Refresh News Feed') }}"
+                            data-testid="refresh-news-btn">
+                        <flux:icon icon="arrow-path" variant="mini" class="size-3.5" ::class="isNewsLoading ? 'animate-spin text-sky-500' : ''" />
+                        <span>{{ __('Refresh') }}</span>
+                    </button>
+
                     {{-- Look-ahead toggle during candle investigation --}}
                     <button type="button"
                             x-show="candleInvestigation"
@@ -1003,6 +1159,31 @@
                         <span x-text="includeLookAhead ? '{{ __('Look-Ahead (+2h): Shown') }}' : '{{ __('Look-Ahead (+2h): Hidden') }}'"></span>
                     </button>
                 </div>
+            </div>
+
+            {{-- Provider Status / Error Banner (Auth, Rate Limit, Service Unavailable) --}}
+            <div x-show="['auth_error', 'rate_limited', 'service_unavailable'].includes(newsStatus)"
+                 x-cloak
+                 class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-xs"
+                 :class="newsStatus === 'rate_limited'
+                     ? 'border-amber-300 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'
+                     : 'border-rose-300 dark:border-rose-800 bg-rose-50/90 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200'"
+                 data-testid="news-error-state"
+                 :data-status="newsStatus">
+                <div class="flex items-center gap-2.5">
+                    <flux:icon icon="exclamation-triangle" variant="mini" class="size-4 shrink-0" />
+                    <div>
+                        <span class="font-bold uppercase tracking-wide mr-1.5"
+                              x-text="newsStatus === 'auth_error' ? '{{ __('Provider Authorization / Subscription Error:') }}' : (newsStatus === 'rate_limited' ? '{{ __('Rate Limit Exceeded:') }}' : '{{ __('News Service Unavailable:') }}')"></span>
+                        <span x-text="newsStatusMessage || '{{ __('Unable to retrieve news from external provider.') }}'"></span>
+                    </div>
+                </div>
+                <button type="button"
+                        x-on:click="fetchNews({ refresh: true })"
+                        class="da-btn da-btn-secondary text-xs px-3 py-1 shrink-0"
+                        data-testid="news-retry-btn">
+                    {{ __('Retry') }}
+                </button>
             </div>
 
             {{-- Category Filter Chips & Search --}}
@@ -1073,6 +1254,16 @@
 
                             <p x-show="item.summary" class="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2" x-text="item.summary"></p>
 
+                            <template x-if="item.ai_enriched && item.ai_rationale">
+                                <div class="rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-900/60 px-2.5 py-1.5 text-[11px] text-indigo-900 dark:text-indigo-200 flex items-start gap-1.5"
+                                     data-testid="news-ai-rationale">
+                                    <span class="font-mono text-[10px] font-bold uppercase tracking-wider rounded bg-indigo-200/80 dark:bg-indigo-900 px-1.5 py-0.2 shrink-0">
+                                        {{ __('AI Note (Unverified)') }}
+                                    </span>
+                                    <span x-text="item.ai_rationale"></span>
+                                </div>
+                            </template>
+
                             <div class="flex items-center justify-between pt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
                                 <span class="font-mono text-[10px]" x-text="'Relevance: ' + item.relevance_score + '/100'"></span>
                                 <div class="flex items-center gap-3">
@@ -1094,20 +1285,43 @@
                         </div>
                     </template>
 
-                    <div x-show="filteredNewsItems.length === 0 && !isNewsLoading"
+                    <div x-show="filteredNewsItems.length === 0 && !isNewsLoading && newsStatus !== 'refreshing'"
                          x-cloak
                          class="py-10 text-center text-zinc-500 dark:text-zinc-400 space-y-2"
                          data-testid="news-empty-state">
-                        <p class="text-sm font-semibold">{{ __('No matching news events in the selected window') }}</p>
-                        <p class="text-xs text-zinc-400">
-                            {{ __('Try expanding the chart date range, toggling off "Follow Chart Range", or selecting "All Topics".') }}
-                        </p>
-                        <button type="button"
-                                x-show="syncNewsWithChart"
-                                x-on:click="toggleSyncNewsWithChart()"
-                                class="mt-2 da-btn da-btn-secondary text-xs px-3 py-1">
-                            {{ __('Show All Loaded News') }}
-                        </button>
+                        <template x-if="newsItems.length > 0">
+                            <div class="space-y-2">
+                                <p class="text-sm font-semibold">{{ __('No matching news events in the current filter window') }}</p>
+                                <p class="text-xs text-zinc-400">
+                                    <span x-text="newsItems.length + ' relevant articles are loaded for ' + symbol + ', but none match the current chart range (' + visibleRangeLabel + ') or active topic filter.'"></span>
+                                </p>
+                                <div class="flex items-center justify-center gap-2 pt-1">
+                                    <button type="button"
+                                            x-show="syncNewsWithChart"
+                                            x-on:click="toggleSyncNewsWithChart()"
+                                            class="da-btn da-btn-secondary text-xs px-3 py-1">
+                                        {{ __('Show All Loaded News') }}
+                                    </button>
+                                    <button type="button"
+                                            x-show="selectedCategory !== 'all' || newsSearch !== ''"
+                                            x-on:click="selectedCategory = 'all'; newsSearch = ''"
+                                            class="da-btn da-btn-secondary text-xs px-3 py-1">
+                                        {{ __('Clear Topic / Search Filters') }}
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="newsItems.length === 0 && !['auth_error', 'rate_limited', 'service_unavailable'].includes(newsStatus)">
+                            <div class="space-y-2">
+                                <p class="text-sm font-semibold">{{ __('No relevant news articles found') }}</p>
+                                <p class="text-xs text-zinc-400" x-text="newsStatusMessage || '{{ __('No relevant articles were returned by the configured news sources for this instrument and date window.') }}'"></p>
+                                <button type="button"
+                                        x-on:click="fetchNews({ refresh: true })"
+                                        class="mt-2 da-btn da-btn-secondary text-xs px-3 py-1">
+                                    {{ __('Refresh News') }}
+                                </button>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -1259,6 +1473,7 @@
                 </div>
             </div>
         </div>
+        @endif
     </div>
 
     {{-- DuoAsset Setup Score Panel --}}

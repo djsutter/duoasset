@@ -183,13 +183,50 @@ class InstrumentClassifier
             ];
         }
 
-        $currency = (string) ($profile['currency'] ?? $quote['currency'] ?? 'USD');
+        $localProfile = null;
+        $localStock = null;
+        try {
+            $localProfile = CompanyProfile::where('symbol', $upper)->first();
+            $localStock = Stock::where('symbol', $upper)->first();
+        } catch (\Throwable) {
+            // Ignore database unavailability
+        }
+
+        if ($profile === null && $localProfile === null && ($localStock === null || empty($localStock->company_name))) {
+            try {
+                $profile = $this->provider->profile($upper);
+            } catch (\Throwable) {
+                $profile = null;
+            }
+        }
+
+        $currency = (string) ($profile['currency']
+            ?? $quote['currency']
+            ?? $localProfile?->currency
+            ?? $localStock?->currency?->currency_code
+            ?? 'USD');
+
         $name = $profile['company_name']
             ?? $profile['name']
             ?? $quote['company_name']
             ?? $quote['name']
+            ?? $localProfile?->company_name
+            ?? $localStock?->company_name
             ?? null;
-        $exchange = $profile['exchange'] ?? $quote['exchange'] ?? null;
+
+        $exchange = $profile['exchange']
+            ?? $quote['exchange']
+            ?? $localProfile?->exchange
+            ?? $localStock?->exchange?->value
+            ?? null;
+
+        $sector = $profile['sector']
+            ?? $localProfile?->sector
+            ?? null;
+
+        $industry = $profile['industry']
+            ?? $localProfile?->industry
+            ?? null;
 
         return [
             'symbol' => $upper,
@@ -197,6 +234,8 @@ class InstrumentClassifier
             'asset_type' => self::TYPE_STOCK,
             'name' => $name,
             'exchange' => $exchange,
+            'sector' => $sector,
+            'industry' => $industry,
             'currency' => $currency,
             'price_unit' => "{$currency} / share",
             'contract_size' => null,

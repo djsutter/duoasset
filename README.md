@@ -5,6 +5,8 @@
 
 - [Market Data Updates](#market-data-updates)
 - [Stock Analysis Pages (Vela)](#stock-analysis-pages-vela)
+- [Interactive News Timeline](#interactive-news-timeline)
+  - See also: [docs/futures-and-news-timeline.md](docs/futures-and-news-timeline.md) — futures market data depth, Vela v0.9.0 API integration & local LLM evaluation
 - [Stock Buy Setup Scanner](#stock-buy-setup-scanner)
   - See also: [README_setup.md](README_setup.md) — algorithm selection & scoring-weight tuning guide
 - [EPS Surprise Tracker (bidirectional)](#eps-surprise-tracker-bidirectional)
@@ -147,6 +149,176 @@ backtesting, full historical scanner annotations, multi-chart workspaces, stream
 and price alerts. Keep AGPL-licensed PineTS/Vela-pinets out of the initial feature.
 Preserve Vela's required on-screen attribution and review licensing before adding a
 scripting engine. See `resources/js/stock-chart.js` for the initial extension note.
+
+## Interactive News Timeline
+
+DuoAsset includes an **Interactive News Timeline** synchronized with the LuxAlgo/Vela
+chart across both equities (`/stock/{symbol}`, `/stocks/{symbol}`) and commodity futures
+(`/futures/{symbol}`, such as `/futures/gcusd`, `/futures/siusd`, `/futures/clusd`,
+`/futures/ngusd`, and `/futures/hgusd`). Detailed notes on FMP futures historical depth,
+Vela v0.9.0 marker APIs, and local LLM benchmarks live in
+[`docs/futures-and-news-timeline.md`](docs/futures-and-news-timeline.md).
+
+### Architecture
+
+1. **Provider Chain (`MarketDataServiceProvider` → `PersistentMarketDataProvider` → `FmpMarketDataProvider`)**:
+   - `MarketDataProvider` resolves to `PersistentMarketDataProvider` wrapping `FmpMarketDataProvider`.
+   - `PersistentMarketDataProvider` delegates `stockNews()`, `forexNews()`, `generalNews()`, `pressReleases()`, and `economicCalendar()` to the upstream FMP client and records a structured `501` diagnostic error if an upstream driver lacks a required method.
+   - `FmpMarketDataProvider` caches valid upstream array responses while refusing to cache `null` error responses (HTTP `401`/`402`/`403`/`429`/`5xx`), ensuring upstream failures are surfaced immediately rather than masked as empty feeds.
+2. **Aggregation, Disambiguation & Relevance Scoring (`InstrumentNewsService`)**:
+   - `InstrumentClassifier::resolve()` enriches stocks with company name, exchange, sector, and industry from local database profiles (`company_profiles` / `stocks`) or FMP `/profile`, and resolves futures metadata from `config/market_data.php` and `/commodities-list`.
+   - Deterministic scoring (`scoreRelevance()`) enforces strict company/ticker identity matching for equities, rejects cross-exchange ticker collisions (e.g., `TSXV: MASS` *Masivo Silver* when viewing `NASDAQ: MASS` *908 Devices*), rejects project/entity name collisions (e.g., *Cronos Gas* when viewing `NASDAQ: CRON` *Cronos Group*), and filters untargeted market roundups.
+   - For futures, `InstrumentNewsService` applies per-commodity relevance profiles (`gold`, `silver`, `crude_oil`, `natural_gas`, `copper`), separates direct commodity proxies (`XAUUSD`, `GLD`, `IAU`) from indirect macro/forex proxies (`EURUSD`, `USDJPY`), and excludes routine foreign-pair technical forecasts unless they directly reference the target commodity.
+   - Syndicated duplicates are merged by canonical URL and headline fingerprint while preserving the **earliest verifiable publication timestamp** (`published_timestamp`) and separating explicit earlier `event_timestamp` values when reported in the text.
+3. **Shared Caching, Persistent Archive & Concurrency Locking**:
+   - Normalized results are cached per `(symbol, window)` in Laravel's shared cache (`duoasset.news.v2.{symbol}.{windowKey}`) and archived in the `instrument_news_articles` table (`App\Models\InstrumentNewsArticle`, unique on `(symbol, article_uid)`).
+   - Concurrent requests for the same symbol and window coordinate via `Cache::lock()`, preventing redundant external searches when multiple users view the same ticker simultaneously.
+4. **Vela Chart Synchronization & Event Price-Impact (`NewsEventImpactService`)**:
+   - Up to `INSTRUMENT_NEWS_MAX_MARKERS` (default `25`) high-relevance markers are rendered on the Vela v0.9.0 chart (`chart.marks`).
+   - Selecting a headline centers the Vela chart on the publication timestamp and computes observed `5m`, `15m`, `30m`, `60m`, and `4h` post-event price changes alongside related market comparisons (`CLUSD`, `SIUSD`, `GCUSD`). Sub-hour horizons (`5m`, `15m`, `30m`) strictly require `5min` candle resolution and post-event bars.
+   - Panning or zooming the chart backward or forward in time updates the visible news window and merges historical articles from `instrument_news_articles` and upstream sources, using `AbortController` and request-sequence validation so stale responses never overwrite newer selections.
+
+### News Sources
+
+| Priority | Source | Default State | Purpose |
+| --- | --- | --- | --- |
+| 1 | **FMP Stock News & Press Releases** (`/stable/news/stock`, `/stable/news/press-releases`) | Enabled | Direct company news, earnings releases, M&A, and corporate filings for equities and commodity ETF proxies. |
+| 2 | **FMP Forex & Commodity News** (`/stable/news/forex`, `/stable/news/forex-latest`) | Enabled | Spot gold (`XAUUSD`), silver (`XAGUSD`), and macro FX coverage for futures instruments. |
+| 3 | **FMP General News & Economic Calendar** (`/stable/news/general-latest`, `/stable/economic-calendar`) | Enabled | Geopolitical developments, oil supply disruptions, and high-impact U.S. macroeconomic releases (CPI, NFP, FOMC, GDP). |
+| 4 | **Federal Reserve & Official RSS Feeds** (`https://www.federalreserve.gov/feeds/press_monetary.xml`) | Enabled | Official Federal Reserve monetary policy announcements and configurable issuer/regulatory RSS feeds (`market_data.news.sources.rss_feeds`). |
+| 5 | **SearXNG Discovery Fallback** (`http://searxng:8080/search?q=<query>&format=json`) | Enabled (fallback when `< 5` primary articles) | Secondary discovery for recent articles when primary coverage is sparse. Never fabricates timestamps for undated search results. |
+| 6 | **Optional Local LLM Enrichment** (`OllamaNewsEnricher` via Ollama `/api/generate`) | Disabled (`INSTRUMENT_NEWS_AI_ENABLED=false`) | Asynchronous, article-cached relevance verification and concise *"Why it matters"* rationale (`AI Note (Unverified)`). |
+
+### Configuration
+
+All settings live in `config/market_data.php` under the `'news'` key and are controlled via `.env`:
+
+```dotenv
+# Core FMP credentials & provider
+MARKET_DATA_PROVIDER=fmp
+FMP_API_KEY=your-fmp-api-key
+FMP_BASE_URL=https://financialmodelingprep.com/stable
+FMP_RATE_LIMIT_PER_MINUTE=300
+
+# Interactive News Timeline core settings
+INSTRUMENT_NEWS_ENABLED=true
+INSTRUMENT_NEWS_DEFAULT_LIMIT=50
+INSTRUMENT_NEWS_MAX_LIMIT=150
+INSTRUMENT_NEWS_MAX_MARKERS=25
+INSTRUMENT_NEWS_DEFAULT_LOOKBACK_DAYS=365
+INSTRUMENT_NEWS_STOCK_MIN_SCORE=25
+INSTRUMENT_NEWS_FUTURES_MIN_SCORE=25
+
+# Shared caching, persistent DB storage & concurrency locks
+INSTRUMENT_NEWS_PERSISTENT_STORAGE_ENABLED=true
+INSTRUMENT_NEWS_CACHE_TTL_RECENT=600
+INSTRUMENT_NEWS_CACHE_TTL_HISTORICAL=43200
+INSTRUMENT_NEWS_PROVIDER_CACHE_TTL=600
+INSTRUMENT_NEWS_RETENTION_DAYS=730
+INSTRUMENT_NEWS_LOCK_TIMEOUT=15
+INSTRUMENT_NEWS_LOCK_WAIT=3
+
+# Asynchronous retrieval & queue settings
+INSTRUMENT_NEWS_ASYNC_ON_LOAD=false
+INSTRUMENT_NEWS_QUEUE_CONNECTION=database
+INSTRUMENT_NEWS_QUEUE_NAME=default
+
+# Individual source toggles
+INSTRUMENT_NEWS_FMP_STOCK_ENABLED=true
+INSTRUMENT_NEWS_FMP_PRESS_ENABLED=true
+INSTRUMENT_NEWS_FMP_FOREX_ENABLED=true
+INSTRUMENT_NEWS_FMP_GENERAL_ENABLED=true
+INSTRUMENT_NEWS_FMP_ECON_CALENDAR_ENABLED=true
+INSTRUMENT_NEWS_FED_RSS_ENABLED=true
+INSTRUMENT_NEWS_FED_RSS_URL=https://www.federalreserve.gov/feeds/press_monetary.xml
+
+# Secondary SearXNG discovery fallback
+INSTRUMENT_NEWS_SEARXNG_ENABLED=true
+SEARXNG_URL=http://searxng:8080
+SEARXNG_TIMEOUT=5
+SEARXNG_FALLBACK_MIN_ARTICLES=5
+
+# Optional local Ollama LLM enrichment (basic news works without AI)
+INSTRUMENT_NEWS_AI_ENABLED=false
+INSTRUMENT_NEWS_AI_ASYNC=true
+OLLAMA_URL=http://127.0.0.1:11434
+INSTRUMENT_NEWS_OLLAMA_MODEL=qwen3:8b
+INSTRUMENT_NEWS_OLLAMA_FALLBACK_MODEL=qwen3.8:27b-q4_K_M
+INSTRUMENT_NEWS_OLLAMA_TIMEOUT=15
+INSTRUMENT_NEWS_OLLAMA_BATCH_SIZE=8
+INSTRUMENT_NEWS_AI_CACHE_TTL_DAYS=30
+```
+
+### Background Processing
+
+- **Shared Cache & Database Persistence**: Recent windows cache for `10 minutes` (`INSTRUMENT_NEWS_CACHE_TTL_RECENT=600`), while historical windows older than 24 hours cache for `12 hours` (`INSTRUMENT_NEWS_CACHE_TTL_HISTORICAL=43200`). Normalized articles are upserted into `instrument_news_articles` so historical chart navigation does not repeat external API queries.
+- **Queued Refresh & AI Jobs**:
+  - `App\Jobs\RefreshInstrumentNewsJob` (`ShouldBeUnique`): Dispatched when `INSTRUMENT_NEWS_ASYNC_ON_LOAD=true` and a cold cache is encountered; the frontend displays `Refreshing...` and polls up to 4 times (every 1.5s) until the shared cache is populated.
+  - `App\Jobs\EnrichInstrumentNewsJob` (`ShouldBeUnique`): Dispatched when `INSTRUMENT_NEWS_AI_ENABLED=true` and `INSTRUMENT_NEWS_AI_ASYNC=true` so genuine news renders immediately while Ollama inference runs in the background and caches results per article (`duoasset.news.ai.v1.{symbol}.{article_id}` and `instrument_news_articles.ai_enrichment`).
+- **Ubuntu Production Queue Worker**:
+  Ensure a queue worker is running under `systemd` or `Supervisor` on Ubuntu production servers:
+  ```bash
+  php artisan queue:work --queue=default --tries=2 --timeout=60
+  ```
+
+### Verification
+
+Administrators can verify the entire news pipeline for any stock or futures symbol using the built-in Artisan diagnostic command:
+
+```bash
+# Verify stock news (Nebius Group, 908 Devices, Cronos Group)
+php artisan news:verify NBIS --fresh --limit=10
+php artisan news:verify MASS --fresh --limit=10
+php artisan news:verify CRON --fresh --limit=10
+
+# Verify gold futures news & macro sources
+php artisan news:verify GCUSD --fresh --limit=10
+
+# Test SearXNG discovery fallback and optional Ollama AI enrichment
+php artisan news:verify NBIS --fresh --searxng --ai
+```
+
+To **distinguish a backend provider problem from a frontend display problem**:
+
+1. Run `php artisan news:verify NBIS --fresh`. If `Status : available` and `Retained Articles > 0` are printed, the backend provider chain, FMP credentials, and relevance filters are working properly.
+2. Query the JSON endpoint directly (authenticated session or via Tinker):
+   ```bash
+   php artisan tinker --execute="dump(app(\App\Services\Stocks\InstrumentNewsService::class)->getNews('NBIS', ['limit' => 5]));"
+   ```
+3. If the backend returns `count > 0` but the browser shows 0 items:
+   - Check the **Follow Chart Range** badge in the news panel header — if the chart is zoomed into a narrow historical window with no news on those dates, click **Follow Chart Range: On** (to toggle it off) or **Show All Loaded News**.
+   - Rebuild frontend assets on the server (`npm run build && php artisan view:clear`).
+
+### Troubleshooting
+
+| Symptom | Cause & Actionable Resolution |
+| --- | --- |
+| **No articles displayed** | Run `php artisan news:verify <SYMBOL> --fresh` to inspect per-source counts and `status`. Check `storage/logs/laravel.log` for `instrument_news.retrieved` or `instrument_news.retrieval_degraded`. |
+| **FMP authentication failures (`status: auth_error`, HTTP 401)** | `FMP_API_KEY` is missing or invalid in `.env`. Verify with `php artisan config:clear` and `php -r 'require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap(); echo strlen((string) config("market_data.fmp.api_key"))."\n";'`. |
+| **Insufficient FMP subscription permissions (`status: auth_error`, HTTP 402/403)** | The configured FMP plan does not permit `/stable/news/*` endpoints. Verify directly with `curl -sS "https://financialmodelingprep.com/stable/news/stock?symbols=AAPL&limit=5&apikey=$FMP_API_KEY"`. |
+| **Missing provider methods (`failure_category: missing_provider_method`)** | Custom `MarketDataProvider` binding does not implement `stockNews()`, `forexNews()`, `generalNews()`, `pressReleases()`, or `economicCalendar()`. Run `php artisan news:verify NBIS` to check `Provider News Methods : OK`. |
+| **Empty provider responses (`status: empty`)** | Upstream sources returned `200 []` for the symbol and window. For thinly covered micro-caps, enable SearXNG fallback (`INSTRUMENT_NEWS_SEARXNG_ENABLED=true`) or widen `INSTRUMENT_NEWS_DEFAULT_LOOKBACK_DAYS`. |
+| **News relevance filters excluding articles (`raw_count > 0`, `retained_count = 0`)** | Lower `INSTRUMENT_NEWS_STOCK_MIN_SCORE` or `INSTRUMENT_NEWS_FUTURES_MIN_SCORE` in `.env`, or add company aliases in `config/market_data.php` under `news.symbol_disambiguation`. |
+| **Chart-range filtering hiding articles** | When `Follow Chart Range: On` is active, only articles inside the Vela chart's visible date range are shown. The empty state displays *"X relevant articles are loaded for SYMBOL, but none match the current chart range"* — click **Show All Loaded News** or zoom out (`1Y` / `All`). |
+| **SearXNG unavailable (`searxng.status: unreachable`)** | Verify the SearXNG container/service is reachable from the app host: `curl -sS "http://searxng:8080/search?q=NBIS&format=json"`. Update `SEARXNG_URL` in `.env` if hosted on a different address or port. |
+| **SearXNG JSON disabled (`searxng.status: json_disabled_or_invalid`)** | SearXNG defaults to HTML-only unless `json` is enabled in SearXNG's `/etc/searxng/settings.yml` under `search: formats: [html, json]`. Enable `json` in `settings.yml` and restart the SearXNG container. |
+| **RSS parsing errors (`instrument_news.rss_parse_error`)** | Check outbound HTTPS connectivity to `https://www.federalreserve.gov/feeds/press_monetary.xml` (`curl -I https://www.federalreserve.gov/feeds/press_monetary.xml`) and ensure the `php-xml` (`SimpleXML`) extension is installed (`php -m \| grep SimpleXML`). |
+| **Queue workers not running** | If `INSTRUMENT_NEWS_ASYNC_ON_LOAD=true` or `INSTRUMENT_NEWS_AI_ASYNC=true`, check pending jobs via `php artisan queue:monitor default` or `SELECT count(*) FROM jobs;` and restart the worker (`sudo systemctl restart duoasset-queue` or `php artisan queue:work --stop-when-empty`). |
+| **Ollama unavailable (`instrument_news.ollama_unavailable`)** | Basic news retrieval continues unaffected. To diagnose Ollama, test `curl -sS "$OLLAMA_URL/api/tags"` and verify the configured model (`qwen3:8b` or `qwen3.8:27b-q4_K_M`) is pulled (`ollama list`). |
+| **Chart markers missing** | Confirm the **News Markers: On** button in the chart toolbar is active, `npm run build` has been executed, and retained articles have timestamps that fall within the loaded candle history range. |
+| **Incorrect publication timestamps** | FMP news timestamps without explicit timezone offsets are reported in `America/New_York` (ET) and normalized to `UTC` by `InstrumentNewsService::parseNewsTimestamp()`. Ensure server system time (`timedatectl`) is synchronized via NTP. |
+
+### Ubuntu Production Deployment & Maintenance Commands
+
+```bash
+cd /path/to/duoasset
+php artisan migrate --force
+php artisan config:clear
+php artisan cache:clear
+npm ci && npm run build
+php artisan news:verify NBIS --fresh
+php artisan news:verify GCUSD --fresh
+```
 
 ## Stock Buy Setup Scanner
 

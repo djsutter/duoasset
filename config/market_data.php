@@ -438,10 +438,12 @@ return [
                 'price_unit' => 'USD / troy oz',
                 'contract_size' => '100 troy oz',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'gold',
                 'related_symbols' => [
                     ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
                     ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
                 ],
+                'direct_proxies' => ['XAUUSD', 'GCUSD', 'MGCUSD', 'GLD', 'IAU'],
                 'news_proxies' => [
                     'forex' => ['XAUUSD', 'EURUSD', 'USDJPY'],
                     'stock' => ['GLD', 'IAU', 'NEM', 'USO', 'TLT', 'UUP'],
@@ -454,10 +456,12 @@ return [
                 'price_unit' => 'USD / troy oz',
                 'contract_size' => '10 troy oz',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'gold',
                 'related_symbols' => [
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
                     ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
                 ],
+                'direct_proxies' => ['XAUUSD', 'GCUSD', 'MGCUSD', 'GLD', 'IAU'],
                 'news_proxies' => [
                     'forex' => ['XAUUSD'],
                     'stock' => ['GLD', 'IAU'],
@@ -470,10 +474,12 @@ return [
                 'price_unit' => 'USD / troy oz',
                 'contract_size' => '5,000 troy oz',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'silver',
                 'related_symbols' => [
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
                     ['symbol' => 'HGUSD', 'name' => 'Copper Futures', 'price_unit' => 'USD / lb'],
                 ],
+                'direct_proxies' => ['XAGUSD', 'SIUSD', 'SILUSD', 'SLV'],
                 'news_proxies' => [
                     'forex' => ['XAGUSD', 'XAUUSD'],
                     'stock' => ['SLV', 'GLD'],
@@ -486,9 +492,15 @@ return [
                 'price_unit' => 'USD / troy oz',
                 'contract_size' => '1,000 troy oz',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'silver',
                 'related_symbols' => [
                     ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'direct_proxies' => ['XAGUSD', 'SIUSD', 'SILUSD', 'SLV'],
+                'news_proxies' => [
+                    'forex' => ['XAGUSD'],
+                    'stock' => ['SLV'],
                 ],
             ],
             'CLUSD' => [
@@ -498,10 +510,12 @@ return [
                 'price_unit' => 'USD / bbl',
                 'contract_size' => '1,000 bbl',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'crude_oil',
                 'related_symbols' => [
                     ['symbol' => 'BZUSD', 'name' => 'Brent Crude Oil', 'price_unit' => 'USD / bbl'],
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
                 ],
+                'direct_proxies' => ['CLUSD', 'BZUSD', 'USO', 'BNO'],
                 'news_proxies' => [
                     'forex' => ['USDCAD'],
                     'stock' => ['USO', 'XLE', 'BNO'],
@@ -514,9 +528,15 @@ return [
                 'price_unit' => 'USD / bbl',
                 'contract_size' => '1,000 bbl',
                 'trade_month' => 'Jan',
+                'commodity_profile' => 'crude_oil',
                 'related_symbols' => [
                     ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'direct_proxies' => ['BZUSD', 'CLUSD', 'BNO', 'USO'],
+                'news_proxies' => [
+                    'forex' => ['USDCAD'],
+                    'stock' => ['BNO', 'USO', 'XLE'],
                 ],
             ],
             'NGUSD' => [
@@ -526,10 +546,12 @@ return [
                 'price_unit' => 'USD / MMBtu',
                 'contract_size' => '10,000 MMBtu',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'natural_gas',
                 'related_symbols' => [
                     ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
                 ],
+                'direct_proxies' => ['NGUSD', 'UNG'],
                 'news_proxies' => [
                     'forex' => [],
                     'stock' => ['UNG', 'XLE'],
@@ -542,10 +564,12 @@ return [
                 'price_unit' => 'USD / lb',
                 'contract_size' => '25,000 lbs',
                 'trade_month' => 'Dec',
+                'commodity_profile' => 'copper',
                 'related_symbols' => [
                     ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
                     ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
                 ],
+                'direct_proxies' => ['HGUSD', 'CPER', 'FCX', 'SCCO'],
                 'news_proxies' => [
                     'forex' => [],
                     'stock' => ['CPER', 'FCX', 'SCCO'],
@@ -612,11 +636,46 @@ return [
     | asset type (futures vs stock) so criteria can be tuned independently.
     */
     'news' => [
-        'enabled' => env('INSTRUMENT_NEWS_ENABLED', true),
-        'fed_rss_enabled' => env('INSTRUMENT_NEWS_FED_RSS_ENABLED', true),
+        'enabled' => (bool) env('INSTRUMENT_NEWS_ENABLED', true),
+        'fed_rss_enabled' => (bool) env('INSTRUMENT_NEWS_FED_RSS_ENABLED', true),
         'fed_rss_url' => env('INSTRUMENT_NEWS_FED_RSS_URL', 'https://www.federalreserve.gov/feeds/press_monetary.xml'),
-        'max_markers_on_chart' => 25,
-        'default_limit' => 50,
+        'max_markers_on_chart' => (int) env('INSTRUMENT_NEWS_MAX_MARKERS', 25),
+        'default_limit' => (int) env('INSTRUMENT_NEWS_DEFAULT_LIMIT', 50),
+        'max_limit' => (int) env('INSTRUMENT_NEWS_MAX_LIMIT', 150),
+        'default_lookback_days' => (int) env('INSTRUMENT_NEWS_DEFAULT_LOOKBACK_DAYS', 365),
+        'persistent_storage_enabled' => (bool) env('INSTRUMENT_NEWS_PERSISTENT_STORAGE_ENABLED', true),
+        'cache_ttl_recent_seconds' => (int) env('INSTRUMENT_NEWS_CACHE_TTL_RECENT', 600),
+        'cache_ttl_historical_seconds' => (int) env('INSTRUMENT_NEWS_CACHE_TTL_HISTORICAL', 43200),
+        'provider_cache_ttl_seconds' => (int) env('INSTRUMENT_NEWS_PROVIDER_CACHE_TTL', 600),
+        'retention_days' => (int) env('INSTRUMENT_NEWS_RETENTION_DAYS', 730),
+        'async_on_page_load' => (bool) env('INSTRUMENT_NEWS_ASYNC_ON_LOAD', false),
+        'queue_connection' => env('INSTRUMENT_NEWS_QUEUE_CONNECTION', env('QUEUE_CONNECTION', 'database')),
+        'queue_name' => env('INSTRUMENT_NEWS_QUEUE_NAME', 'default'),
+        'lock_timeout_seconds' => (int) env('INSTRUMENT_NEWS_LOCK_TIMEOUT', 15),
+        'lock_wait_seconds' => (int) env('INSTRUMENT_NEWS_LOCK_WAIT', 3),
+        'sources' => [
+            'fmp_stock_enabled' => (bool) env('INSTRUMENT_NEWS_FMP_STOCK_ENABLED', true),
+            'fmp_press_releases_enabled' => (bool) env('INSTRUMENT_NEWS_FMP_PRESS_ENABLED', true),
+            'fmp_forex_enabled' => (bool) env('INSTRUMENT_NEWS_FMP_FOREX_ENABLED', true),
+            'fmp_general_enabled' => (bool) env('INSTRUMENT_NEWS_FMP_GENERAL_ENABLED', true),
+            'fmp_economic_calendar_enabled' => (bool) env('INSTRUMENT_NEWS_FMP_ECON_CALENDAR_ENABLED', true),
+            'fed_rss_enabled' => (bool) env('INSTRUMENT_NEWS_FED_RSS_ENABLED', true),
+            'searxng_enabled' => (bool) env('INSTRUMENT_NEWS_SEARXNG_ENABLED', true),
+            'searxng_url' => env('SEARXNG_URL', 'http://searxng:8080'),
+            'searxng_timeout_seconds' => (int) env('SEARXNG_TIMEOUT', 5),
+            'searxng_fallback_min_articles' => (int) env('SEARXNG_FALLBACK_MIN_ARTICLES', 5),
+            'rss_feeds' => [],
+        ],
+        'ai_enrichment' => [
+            'enabled' => (bool) env('INSTRUMENT_NEWS_AI_ENABLED', false),
+            'async' => (bool) env('INSTRUMENT_NEWS_AI_ASYNC', true),
+            'ollama_url' => env('OLLAMA_URL', 'http://127.0.0.1:11434'),
+            'model' => env('INSTRUMENT_NEWS_OLLAMA_MODEL', 'qwen3:8b'),
+            'fallback_model' => env('INSTRUMENT_NEWS_OLLAMA_FALLBACK_MODEL', 'qwen3.8:27b-q4_K_M'),
+            'timeout_seconds' => (int) env('INSTRUMENT_NEWS_OLLAMA_TIMEOUT', 15),
+            'max_batch_size' => (int) env('INSTRUMENT_NEWS_OLLAMA_BATCH_SIZE', 8),
+            'cache_ttl_days' => (int) env('INSTRUMENT_NEWS_AI_CACHE_TTL_DAYS', 30),
+        ],
         'impact_horizons' => [
             ['key' => '5m', 'label' => '5 Minutes', 'minutes' => 5],
             ['key' => '15m', 'label' => '15 Minutes', 'minutes' => 15],
@@ -624,14 +683,28 @@ return [
             ['key' => '60m', 'label' => '60 Minutes', 'minutes' => 60],
             ['key' => '4h', 'label' => '4 Hours', 'minutes' => 240],
         ],
+        'symbol_disambiguation' => [
+            'NBIS' => [
+                'company_aliases' => ['nebius', 'nebius group', 'neocloud'],
+                'exclude_phrases' => [],
+            ],
+            'MASS' => [
+                'company_aliases' => ['908 devices'],
+                'exclude_phrases' => ['masivo silver', 'tsxv: mass', 'tsxv:mass', 'cerro colorado'],
+            ],
+            'CRON' => [
+                'company_aliases' => ['cronos group', 'spinach', 'canadelaar', 'cronos growco'],
+                'exclude_phrases' => ['cronos gas', 'cyprus cronos', 'eni', 'subsea contract', 'subsea production'],
+            ],
+        ],
         'relevance_profiles' => [
             'futures' => [
-                'min_score' => 20,
+                'min_score' => (int) env('INSTRUMENT_NEWS_FUTURES_MIN_SCORE', 25),
                 'themes' => [
                     'gold_precious_metals' => [
                         'label' => 'Gold & Precious Metals',
                         'weight' => 45,
-                        'keywords' => ['gold', 'bullion', 'xau', 'xauusd', 'gcusd', 'precious metal', 'comex', 'silver', 'platinum', 'safe-haven', 'safe haven', 'ounce'],
+                        'keywords' => ['gold', 'bullion', 'xau', 'xauusd', 'gcusd', 'precious metal', 'precious metals', 'comex gold', 'safe-haven', 'safe haven'],
                     ],
                     'central_bank_gold' => [
                         'label' => 'Central Bank Gold',
@@ -641,7 +714,7 @@ return [
                     'fed_monetary_policy' => [
                         'label' => 'Federal Reserve & Policy',
                         'weight' => 40,
-                        'keywords' => ['federal reserve', 'fomc', 'powell', 'fed rate', 'rate cut', 'rate hike', 'monetary policy', 'fed Chair', 'fed governor', 'basis points', 'hawkish', 'dovish', 'interest rate decision'],
+                        'keywords' => ['federal reserve', 'fomc', 'powell', 'fed rate', 'rate cut', 'rate hike', 'monetary policy', 'fed chair', 'fed governor', 'interest rate decision'],
                     ],
                     'inflation_rates' => [
                         'label' => 'Inflation & Interest Rates',
@@ -650,23 +723,23 @@ return [
                     ],
                     'usd_movements' => [
                         'label' => 'US Dollar',
-                        'weight' => 30,
-                        'keywords' => ['u.s. dollar', 'us dollar', 'dxy', 'dollar index', 'greenback', 'weak dollar', 'strong dollar', 'currency'],
+                        'weight' => 25,
+                        'keywords' => ['u.s. dollar', 'us dollar', 'dxy', 'dollar index', 'greenback', 'weak dollar', 'strong dollar'],
                     ],
                     'treasury_yields' => [
                         'label' => 'Treasury Yields',
-                        'weight' => 30,
+                        'weight' => 35,
                         'keywords' => ['treasury yield', '10-year yield', '10-yr yield', 'bond yield', 'treasuries', '2-year yield', 'yield curve', 'bond auction'],
                     ],
                     'geopolitics' => [
                         'label' => 'Geopolitics & Conflict',
                         'weight' => 35,
-                        'keywords' => ['geopolitic', 'strait of hormuz', 'middle east', 'conflict', 'sanction', 'tariff', 'war', 'military', 'missile', 'attack', 'ceasefire', 'escalation'],
+                        'keywords' => ['geopolitic', 'strait of hormuz', 'middle east', 'military conflict', 'armed conflict', 'sanction', 'tariff', 'military strike', 'missile', 'ceasefire', 'escalation'],
                     ],
                     'oil_supply' => [
                         'label' => 'Oil & Energy Supply',
                         'weight' => 30,
-                        'keywords' => ['oil supply', 'crude oil', 'wti', 'brent', 'opec', 'tanker', 'pipeline', 'refinery', 'energy disruption', 'lusd'],
+                        'keywords' => ['oil supply', 'crude oil', 'wti', 'brent', 'opec', 'tanker', 'pipeline', 'refinery', 'energy disruption', 'clusd'],
                     ],
                     'market_liquidity' => [
                         'label' => 'Market Liquidity & Risk',
@@ -674,29 +747,66 @@ return [
                         'keywords' => ['liquidity', 'margin call', 'market sell-off', 'selloff', 'vix', 'volatility spike', 'risk-off', 'banking stress', 'credit crunch'],
                     ],
                 ],
+                'commodity_profiles' => [
+                    'silver' => [
+                        'primary_keywords' => ['silver', 'xag', 'xagusd', 'siusd', 'slv', 'bullion', 'precious metal', 'comex'],
+                        'primary_theme' => [
+                            'key' => 'silver_precious_metals',
+                            'label' => 'Silver & Precious Metals',
+                            'weight' => 50,
+                        ],
+                    ],
+                    'crude_oil' => [
+                        'primary_keywords' => ['crude oil', 'wti', 'brent', 'clusd', 'bzusd', 'opec', 'oil supply', 'petroleum', 'eia', 'tanker', 'refinery', 'pipeline', 'strait of hormuz'],
+                        'primary_theme' => [
+                            'key' => 'oil_supply',
+                            'label' => 'Crude Oil & Energy Supply',
+                            'weight' => 50,
+                        ],
+                        'excluded_themes' => ['gold_precious_metals', 'central_bank_gold'],
+                    ],
+                    'natural_gas' => [
+                        'primary_keywords' => ['natural gas', 'lng', 'henry hub', 'ngusd', 'ung', 'gas storage', 'pipeline', 'heating demand', 'energy'],
+                        'primary_theme' => [
+                            'key' => 'natural_gas_energy',
+                            'label' => 'Natural Gas & LNG',
+                            'weight' => 50,
+                        ],
+                        'excluded_themes' => ['gold_precious_metals', 'central_bank_gold'],
+                    ],
+                    'copper' => [
+                        'primary_keywords' => ['copper', 'hgusd', 'cper', 'comex copper', 'lme copper', 'base metal', 'industrial metal', 'smelter', 'mining'],
+                        'primary_theme' => [
+                            'key' => 'copper_industrial_metals',
+                            'label' => 'Copper & Industrial Metals',
+                            'weight' => 50,
+                        ],
+                        'excluded_themes' => ['gold_precious_metals', 'central_bank_gold'],
+                    ],
+                ],
             ],
             'stock' => [
-                'min_score' => 15,
+                'min_score' => (int) env('INSTRUMENT_NEWS_STOCK_MIN_SCORE', 25),
                 'themes' => [
                     'earnings_financials' => [
                         'label' => 'Earnings & Guidance',
                         'weight' => 45,
-                        'keywords' => ['earnings', 'revenue', 'eps', 'guidance', 'quarter', 'q1', 'q2', 'q3', 'q4', 'beat', 'miss', 'profit', 'margin', 'dividend', 'buyback'],
+                        'keywords' => ['earnings', 'revenue', 'eps', 'guidance', 'quarter', 'q1', 'q2', 'q3', 'q4', 'beat', 'miss', 'profit', 'margin', 'dividend', 'buyback', 'arr', 'outlook', 'financial results'],
                     ],
                     'analyst_ratings' => [
                         'label' => 'Analyst & Price Target',
                         'weight' => 35,
-                        'keywords' => ['upgrade', 'downgrade', 'price target', 'overweight', 'outperform', 'buy rating', 'sell rating', 'analyst', 'initiation'],
+                        'keywords' => ['upgrade', 'downgrade', 'price target', 'overweight', 'outperform', 'buy rating', 'sell rating', 'strong buy', 'analyst', 'initiation', 'zacks rank'],
                     ],
                     'corporate_events' => [
                         'label' => 'Corporate & Regulatory',
                         'weight' => 40,
-                        'keywords' => ['acquisition', 'merger', 'fda', 'clinical trial', 'approval', 'contract', 'partnership', 'launch', 'sec filing', 'ceo', 'cfo', 'insider'],
+                        'keywords' => ['acquisition', 'acquires', 'merger', 'fda', 'clinical trial', 'approval', 'contract', 'partnership', 'partner', 'launch', 'sec filing', '13f', 'ceo', 'cfo', 'insider', 'financing', 'convertible', 'offering', 'investor day', 'conference'],
                     ],
                     'macro_sector' => [
                         'label' => 'Sector & Macro',
                         'weight' => 25,
-                        'keywords' => ['federal reserve', 'inflation', 'tariff', 'sector', 'ai', 'semiconductor', 'biotech', 'regulation'],
+                        'keywords' => ['federal reserve', 'inflation', 'tariff', 'sector', 'ai', 'neocloud', 'data center', 'semiconductor', 'biotech', 'cannabis', 'chemical detection', 'regulation'],
                     ],
                 ],
             ],

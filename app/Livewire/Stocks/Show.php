@@ -57,6 +57,16 @@ class Show extends Component
 
     public array $newsCategories = [];
 
+    public bool $newsEnabled = true;
+
+    public string $newsStatus = InstrumentNewsService::STATUS_AVAILABLE;
+
+    public ?string $newsStatusMessage = null;
+
+    public ?int $newsFromTimestamp = null;
+
+    public ?int $newsToTimestamp = null;
+
     public function mount(
         string $symbol,
         MarketDataProvider $provider,
@@ -117,15 +127,33 @@ class Show extends Component
         }
 
         // 5. Retrieve initial news timeline items and markers
-        try {
-            $newsPayload = $newsService->getNews($this->symbol, ['limit' => 50]);
-            $this->newsItems = $newsPayload['items'] ?? [];
-            $this->newsMarkers = $newsPayload['markers'] ?? [];
-            $this->newsCategories = $newsPayload['available_categories'] ?? [];
-        } catch (\Throwable) {
+        $this->newsEnabled = (bool) config('market_data.news.enabled', true);
+        if (! $this->newsEnabled) {
             $this->newsItems = [];
             $this->newsMarkers = [];
-            $this->newsCategories = $newsService->getAvailableCategories($this->assetType);
+            $this->newsCategories = [];
+            $this->newsStatus = InstrumentNewsService::STATUS_DISABLED;
+            $this->newsStatusMessage = 'Interactive news timeline is disabled by configuration.';
+        } else {
+            try {
+                $newsPayload = $newsService->getNews($this->symbol, [
+                    'limit' => (int) config('market_data.news.default_limit', 50),
+                    'async' => (bool) config('market_data.news.async_on_page_load', false),
+                ]);
+                $this->newsItems = $newsPayload['items'] ?? [];
+                $this->newsMarkers = $newsPayload['markers'] ?? [];
+                $this->newsCategories = $newsPayload['available_categories'] ?? [];
+                $this->newsStatus = (string) ($newsPayload['status'] ?? InstrumentNewsService::STATUS_AVAILABLE);
+                $this->newsStatusMessage = $newsPayload['status_message'] ?? null;
+                $this->newsFromTimestamp = isset($newsPayload['from_timestamp']) ? (int) $newsPayload['from_timestamp'] : null;
+                $this->newsToTimestamp = isset($newsPayload['to_timestamp']) ? (int) $newsPayload['to_timestamp'] : null;
+            } catch (\Throwable) {
+                $this->newsItems = [];
+                $this->newsMarkers = [];
+                $this->newsCategories = $newsService->getAvailableCategories($this->assetType, $this->symbol);
+                $this->newsStatus = InstrumentNewsService::STATUS_SERVICE_UNAVAILABLE;
+                $this->newsStatusMessage = 'External news service is temporarily unavailable. Please retry shortly.';
+            }
         }
 
         // Determine price type indicator

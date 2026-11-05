@@ -157,6 +157,9 @@ class StockCandlesController extends Controller
             'pre_window_minutes' => $request->query('pre_window_minutes', 720),
             'look_ahead_minutes' => $request->query('look_ahead_minutes', 120),
             'category' => $request->query('category'),
+            'refresh' => $request->boolean('refresh'),
+            'async' => $request->boolean('async'),
+            'force_searxng' => $request->boolean('force_searxng'),
         ];
 
         return response()->json($newsService->getNews($symbol, $options));

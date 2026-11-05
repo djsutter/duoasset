@@ -56,19 +56,24 @@ class NewsEventImpactService
         }
 
         $eventCarbon = Carbon::createFromTimestamp($eventTimestamp, 'UTC');
+        $isContinuous = (bool) ($instrument['is_continuous'] ?? false);
 
         return [
             'symbol' => $upperSymbol,
             'name' => $instrument['name'] ?? $upperSymbol,
             'asset_type' => $instrument['asset_type'],
             'price_unit' => $instrument['price_unit'],
+            'is_continuous' => $isContinuous,
+            'rollover_note' => $instrument['rollover_note'] ?? null,
             'event_timestamp' => $eventTimestamp,
             'event_iso' => $eventCarbon->toIso8601String(),
             'event_display' => $eventCarbon->format('M j, Y H:i').' UTC',
             'primary' => $primaryImpact,
             'comparisons' => $comparisons,
             'available_comparisons' => $instrument['related_symbols'] ?? [],
-            'disclaimer' => 'Observed historical price changes following publication timestamp. Coincidence in time does not imply causation.',
+            'disclaimer' => $isContinuous
+                ? 'Observed historical price changes following publication timestamp on an unadjusted continuous futures series. Coincidence in time does not imply causation.'
+                : 'Observed historical price changes following publication timestamp. Coincidence in time does not imply causation.',
         ];
     }
 
@@ -101,8 +106,16 @@ class NewsEventImpactService
             $hourlyCandles = [];
         }
 
-        $baselineBar = $this->findBaselineCandle($fiveMinCandles, $eventTimestamp, maxGapSeconds: 7200)
-            ?? $this->findBaselineCandle($hourlyCandles, $eventTimestamp, maxGapSeconds: 10800);
+        $baselineResolution = null;
+        $baselineBar = $this->findBaselineCandle($fiveMinCandles, $eventTimestamp, maxGapSeconds: 900);
+        if ($baselineBar !== null) {
+            $baselineResolution = '5min';
+        } else {
+            $baselineBar = $this->findBaselineCandle($hourlyCandles, $eventTimestamp, maxGapSeconds: 3600);
+            if ($baselineBar !== null) {
+                $baselineResolution = '1hour';
+            }
+        }
 
         if ($baselineBar === null) {
             $unavailableHorizons = [];
@@ -120,7 +133,8 @@ class NewsEventImpactService
                     'low' => null,
                     'target_timestamp' => null,
                     'target_display' => null,
-                    'reason' => 'Intraday data unavailable for this timestamp',
+                    'actual_elapsed_minutes' => null,
+                    'reason' => 'Market closed or intraday data unavailable for this timestamp',
                 ];
             }
 
@@ -129,6 +143,7 @@ class NewsEventImpactService
                 'name' => $instrument['name'] ?? $symbol,
                 'price_unit' => $instrument['price_unit'] ?? 'USD',
                 'baseline_available' => false,
+                'baseline_resolution' => null,
                 'baseline_price' => null,
                 'baseline_timestamp' => null,
                 'baseline_display' => null,
@@ -142,28 +157,48 @@ class NewsEventImpactService
             ? (float) $baselineBar['open']
             : (float) $baselineBar['close'];
 
+        // Anchor post-event horizon measurement from the later of event timestamp or baseline bar timestamp
+        $anchorTime = max($eventTimestamp, $baselineTime);
+
         $horizons = [];
         foreach ($horizonsConfig as $h) {
             $minutes = (int) $h['minutes'];
-            $targetTimestamp = $baselineTime + ($minutes * 60);
+            $targetTimestamp = $anchorTime + ($minutes * 60);
 
-            // Tolerance scales with horizon so session breaks aren't mismatched across days
+            // Strict per-horizon tolerance so a 15-minute bar is never misreported as a 5-minute reaction
             $toleranceSeconds = match (true) {
-                $minutes <= 15 => 600,   // 10 min tolerance
-                $minutes <= 30 => 900,   // 15 min tolerance
-                $minutes <= 60 => 1800,  // 30 min tolerance
-                default => 5400,         // 90 min tolerance for 4h
+                $minutes <= 5 => 180,    // +/- 3 min tolerance for 5m horizon
+                $minutes <= 15 => 300,   // +/- 5 min tolerance for 15m horizon
+                $minutes <= 30 => 600,   // +/- 10 min tolerance for 30m horizon
+                $minutes <= 60 => 1800,  // +/- 30 min tolerance for 60m horizon
+                default => 5400,         // +/- 90 min tolerance for 4h horizon
             };
 
-            $targetBar = $this->findTargetCandle($fiveMinCandles, $baselineTime, $targetTimestamp, $toleranceSeconds);
-            $seriesUsed = $fiveMinCandles;
+            $targetBar = null;
+            $seriesUsed = [];
 
-            if ($targetBar === null && $minutes >= 60) {
-                $targetBar = $this->findTargetCandle($hourlyCandles, $baselineTime, $targetTimestamp, $toleranceSeconds);
-                $seriesUsed = $hourlyCandles;
+            // Sub-hour horizons (5m, 15m, 30m) strictly require 5-minute candle resolution
+            if ($minutes < 60) {
+                if ($baselineResolution === '5min' && ! empty($fiveMinCandles)) {
+                    $targetBar = $this->findTargetCandle($fiveMinCandles, $baselineTime, $eventTimestamp, $targetTimestamp, $toleranceSeconds);
+                    $seriesUsed = $fiveMinCandles;
+                }
+            } else {
+                if (! empty($fiveMinCandles)) {
+                    $targetBar = $this->findTargetCandle($fiveMinCandles, $baselineTime, $eventTimestamp, $targetTimestamp, $toleranceSeconds);
+                    $seriesUsed = $fiveMinCandles;
+                }
+                if ($targetBar === null && ! empty($hourlyCandles)) {
+                    $targetBar = $this->findTargetCandle($hourlyCandles, $baselineTime, $eventTimestamp, $targetTimestamp, $toleranceSeconds);
+                    $seriesUsed = $hourlyCandles;
+                }
             }
 
             if ($targetBar === null || $baselinePrice <= 0) {
+                $reason = ($minutes < 60 && ($baselineResolution !== '5min' || empty($fiveMinCandles)))
+                    ? '5-minute intraday candles unavailable for this historical date'
+                    : 'Market closed or no intraday bars within horizon window';
+
                 $horizons[] = [
                     'key' => $h['key'],
                     'label' => $h['label'],
@@ -177,7 +212,8 @@ class NewsEventImpactService
                     'low' => null,
                     'target_timestamp' => null,
                     'target_display' => null,
-                    'reason' => 'Intraday bars unavailable for this horizon',
+                    'actual_elapsed_minutes' => null,
+                    'reason' => $reason,
                 ];
 
                 continue;
@@ -186,6 +222,7 @@ class NewsEventImpactService
             $targetPrice = (float) $targetBar['close'];
             $change = round($targetPrice - $baselinePrice, 4);
             $changePct = round((($targetPrice - $baselinePrice) / $baselinePrice) * 100, 3);
+            $actualElapsedMin = round((((int) $targetBar['time']) - $anchorTime) / 60, 1);
 
             $high = max($baselinePrice, $targetPrice);
             $low = min($baselinePrice, $targetPrice);
@@ -209,6 +246,7 @@ class NewsEventImpactService
                 'low' => round($low, 4),
                 'target_timestamp' => (int) $targetBar['time'],
                 'target_display' => Carbon::createFromTimestamp((int) $targetBar['time'], 'UTC')->format('H:i').' UTC',
+                'actual_elapsed_minutes' => $actualElapsedMin,
                 'reason' => null,
             ];
         }
@@ -218,6 +256,7 @@ class NewsEventImpactService
             'name' => $instrument['name'] ?? $symbol,
             'price_unit' => $instrument['price_unit'] ?? 'USD',
             'baseline_available' => true,
+            'baseline_resolution' => $baselineResolution,
             'baseline_price' => round($baselinePrice, 4),
             'baseline_timestamp' => $baselineTime,
             'baseline_display' => Carbon::createFromTimestamp($baselineTime, 'UTC')->format('M j, H:i').' UTC',
@@ -231,7 +270,7 @@ class NewsEventImpactService
      * @param  array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>  $candles
      * @return array{time: int, open: float, high: float, low: float, close: float, volume: float}|null
      */
-    protected function findBaselineCandle(array $candles, int $eventTimestamp, int $maxGapSeconds = 7200): ?array
+    protected function findBaselineCandle(array $candles, int $eventTimestamp, int $maxGapSeconds = 900): ?array
     {
         if (empty($candles)) {
             return null;
@@ -262,13 +301,18 @@ class NewsEventImpactService
     }
 
     /**
-     * Find the candle closest to the target horizon timestamp.
+     * Find the post-event candle closest to the target horizon timestamp within the allowed tolerance.
      *
      * @param  array<int, array{time: int, open: float, high: float, low: float, close: float, volume: float}>  $candles
      * @return array{time: int, open: float, high: float, low: float, close: float, volume: float}|null
      */
-    protected function findTargetCandle(array $candles, int $baselineTime, int $targetTimestamp, int $toleranceSeconds): ?array
-    {
+    protected function findTargetCandle(
+        array $candles,
+        int $baselineTime,
+        int $eventTimestamp,
+        int $targetTimestamp,
+        int $toleranceSeconds
+    ): ?array {
         if (empty($candles)) {
             return null;
         }
@@ -278,7 +322,8 @@ class NewsEventImpactService
 
         foreach ($candles as $bar) {
             $t = (int) $bar['time'];
-            if ($t <= $baselineTime) {
+            // Target candle must strictly follow both the baseline bar and the event timestamp
+            if ($t <= $baselineTime || $t <= $eventTimestamp) {
                 continue;
             }
 

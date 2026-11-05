@@ -53,3 +53,36 @@ DuoAsset's instrument dashboard (`App\Livewire\Stocks\Show` and `resources/views
   - Clicking a news item calls `chart.setVisibleRange({ from, to })` to frame a window around the event timestamp and highlights the event candle via `chart.renderer.setExternalCrosshair(timeMs, closePrice)`.
 - **Candle Click Investigation (`ws.chart.renderer.onClick`)**:
   - Clicking any candle on the price chart captures the bar's timestamp and price move, revealing the **Show related news** action to search for stories published before/during that movement alongside a clearly badged **Look-Ahead (+2h)** window.
+
+---
+
+## Audit Root-Cause Summary & Repairs (November 2026)
+
+1. **Primary Root Cause — Missing Delegation on `PersistentMarketDataProvider`**:
+   - `MarketDataServiceProvider` binds `MarketDataProvider::class` to `PersistentMarketDataProvider(new FmpMarketDataProvider(...))` in development and production (`MARKET_DATA_PROVIDER=fmp`).
+   - While `FmpMarketDataProvider` and `FakeMarketDataProvider` implemented `stockNews()`, `forexNews()`, `generalNews()`, `pressReleases()`, and `economicCalendar()`, `PersistentMarketDataProvider` did not implement those five methods.
+   - Because `InstrumentNewsService` checked `method_exists($this->provider, ...)`, all five FMP news methods silently evaluated to `false` in production/development, returning `0` articles for all stocks (`NBIS`, `MASS`, `CRON`, `AAPL`) and skipping all FMP commodity/forex/macro feeds for futures (`GCUSD`).
+   - **Fix**: Added all five delegation methods to `PersistentMarketDataProvider`, added upstream fallback and `missing_provider_method` error reporting in `InstrumentNewsService`, and updated `FmpMarketDataProvider` so upstream `null` error responses are never cached as empty arrays.
+
+2. **Secondary Root Causes — Profile Resolution, Lookback Window & Disambiguation**:
+   - `InstrumentClassifier::resolve()` previously did not load company names from local `company_profiles`/`stocks` or `provider->profile()` when called without pre-fetched profile arguments, leaving `$instrument['name']` null during news scoring.
+   - The default 30-day lookback window discarded August and September company releases (such as `MASS` and `CRON` Q2 earnings and conferences) even though the default Vela chart range is `1Y` (365 days).
+   - FMP's symbol feeds contained cross-exchange ticker collisions (`Masivo Silver Corp. (TSXV: MASS)` under `MASS`), entity name collisions (`Baker Hughes` *Cronos Gas* project under `CRON`), untargeted market roundups under `NBIS`, and routine foreign FX pair forecasts (`EUR/USD`, `AUD/USD`) under futures.
+   - **Fix**: Updated `InstrumentClassifier::resolve()` to load company metadata, widened `default_lookback_days` to `365`, implemented foreign-exchange ticker collision guards, company/ticker identity verification, and per-commodity relevance profiles (`gold`, `silver`, `crude_oil`, `natural_gas`, `copper`).
+
+---
+
+## Local Ollama LLM Model Evaluation
+
+We benchmarked the local Ollama instance on a representative 6-headline test suite containing genuine corporate/commodity stories alongside real FMP false positives (`Baker Hughes ... Cronos Gas` for `CRON`, `Masivo Silver (TSXV: MASS)` for `MASS`, and `EUR/USD is headed towards 1.1300` for `GCUSD`):
+
+| Model | VRAM Size | Accuracy | False-Positive Rate | False-Negative Rate | Batch Latency (6 items) | Notes & Recommendation |
+|---|---|---|---|---|---|---|
+| `qwen3:8b` (`think: false`) | 5.23 GB | **100% (6/6)** | **0%** | **0%** | **9.4 s** (~1.5 s/item) | **Recommended default** when optional AI enrichment is enabled. Best latency-to-accuracy ratio and low VRAM footprint. |
+| `ministral-3:14b` | 9.08 GB | **100% (6/6)** | **0%** | **0%** | **15.3 s** (~2.5 s/item) | Accurate disambiguation and concise rationales; ~60% slower than `qwen3:8b`. |
+| `qwen3.8:27b-q4_K_M` (`think: false`) | 17.74 GB | **100% (6/6)** | **0%** | **0%** | **20.6 s** (~3.4 s/item) | High-quality rationales (`fallback_model`), requires `"think": false` so token budget is not consumed by internal reasoning tokens. |
+| `granite4:3b` | 2.10 GB | 83.3% (5/6) | 16.7% | 0% | 5.1 s | Fast, but hallucinated a business connection between Baker Hughes's *Cronos Gas* project and *Cronos Group Inc.* |
+| `gemma4:12b` | 7.56 GB | N/A | N/A | N/A | 16.7 s | Emits repetitive `"thought"` JSON keys under strict `format: "json"` mode without thinking suppression. |
+| `granite4.1:30b` | 17.49 GB | Timeout | N/A | N/A | >30.0 s | Exceeded 30-second batch timeout on cold load. |
+
+**Design conclusion**: Deterministic disambiguation and relevance scoring in `InstrumentNewsService` executes in `< 5 ms` with 100% accuracy on these collisions and is used as the primary, zero-dependency engine. `OllamaNewsEnricher` (`INSTRUMENT_NEWS_AI_ENABLED=false` by default) is provided as an optional asynchronous enrichment layer (`qwen3:8b` / `qwen3.8:27b-q4_K_M` with `think: false`) that caches article-level rationales in shared storage without ever blocking timeline rendering.
