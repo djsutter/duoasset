@@ -14,20 +14,33 @@ namespace App\Services\Stocks;
 class EquityValidationResult
 {
     public const TYPE_COMMON_EQUITY = 'common_equity';
+
     public const TYPE_REDEEMED_BOND = 'redeemed_bond';
+
     public const TYPE_BOND = 'bond';
+
     public const TYPE_PREFERRED_STOCK = 'preferred_stock';
+
     public const TYPE_WARRANT = 'warrant';
+
     public const TYPE_RIGHT = 'right';
+
     public const TYPE_UNIT = 'unit';
+
     public const TYPE_FUND_OR_ETF = 'fund_or_etf';
+
     public const TYPE_INACTIVE_SECURITY = 'inactive_security';
+
     public const TYPE_OTHER_NON_EQUITY = 'other_non_equity';
+
     public const TYPE_INSUFFICIENT_METADATA = 'insufficient_metadata';
+
     public const TYPE_UNKNOWN = 'unknown';
 
     public const STATUS_CONFIRMED_EQUITY = 'confirmed_common_equity';
+
     public const STATUS_CONFIRMED_NON_EQUITY = 'confirmed_non_equity';
+
     public const STATUS_INSUFFICIENT_METADATA = 'insufficient_metadata';
 
     /**

@@ -101,6 +101,7 @@ class ScanEpsRevisions extends Command
 
             if ($equityValidationEnabled && empty($explicit) && ! $equityValidator->isEligibleEquity((string) $symbol, $row['company_name'] ?? null, $row)) {
                 \App\Models\EpsRevisionAlert::where('symbol', $symbol)->delete();
+
                 continue;
             }
 

@@ -4,7 +4,6 @@ use App\Jobs\EvaluateStockBuySetup;
 use App\Models\StockBuySetupAlert;
 use App\Models\StockBuySetupRun;
 use App\Services\MarketData\MarketDataProvider;
-use App\Services\Stocks\BuySetupConfigService;
 use App\Services\Stocks\IgnitionExtensionCalculator;
 use App\Services\Stocks\StockBuySetupLiquidityPenalty;
 use App\Services\Stocks\StockBuySetupScanner;

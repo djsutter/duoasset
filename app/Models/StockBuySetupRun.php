@@ -242,7 +242,7 @@ class StockBuySetupRun extends Model
      */
     public static function recordScreenerRejection(int $runId, string $symbol, string $reason, string $category = self::CATEGORY_NON_EQUITY_INSTRUMENT): void
     {
-        DB::transaction(function () use ($runId, $symbol, $reason, $category) {
+        DB::transaction(function () use ($runId, $reason, $category) {
             /** @var StockBuySetupRun|null $run */
             $run = static::lockForUpdate()->find($runId);
             if (! $run) {
