@@ -2,10 +2,15 @@
 
 @php
     $cleanSymbol = trim((string) $symbol);
+    $upperSymbol = strtoupper($cleanSymbol);
+    $isFutures = $cleanSymbol !== '' && array_key_exists($upperSymbol, (array) config('market_data.futures.instruments', []));
+    $targetUrl = ($cleanSymbol !== '' && $cleanSymbol !== '—')
+        ? ($isFutures ? route('futures.show', ['symbol' => strtolower($cleanSymbol)]) : route('stocks.show', ['symbol' => $cleanSymbol]))
+        : null;
 @endphp
 
-@if ($cleanSymbol !== '' && $cleanSymbol !== '—')
-    <a href="{{ route('stocks.show', ['symbol' => $cleanSymbol]) }}"
+@if ($targetUrl !== null)
+    <a href="{{ $targetUrl }}"
        wire:navigate
        x-on:click.stop
        class="inline-flex items-center gap-1 font-mono font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300 hover:underline transition-colors group {{ $class }}"

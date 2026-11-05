@@ -415,4 +415,291 @@ return [
         ],
     ],
 
+    /*
+    |----------------------------------------------------------------------
+    | Futures & Commodity Instruments Metadata
+    |----------------------------------------------------------------------
+    | Metadata and FMP discovery defaults for supported futures contracts.
+    | FMP's /commodities-list endpoint is used dynamically alongside this
+    | catalog to classify symbols, display price units, and configure
+    | related comparison instruments.
+    */
+    'futures' => [
+        'default_market_hours' => 'CME Globex: Sun 18:00 – Fri 17:00 ET (daily maintenance 17:00–18:00 ET)',
+        'default_rollover_note' => 'Continuous front-month futures series (unadjusted). Contract rollovers splice consecutive active delivery months without back-adjusting historical prices.',
+        'supported_intervals' => ['1m', '5m', '15m', '30m', '1h', '4h', '1D', '1W', '1M'],
+        'recommended_intervals' => ['5m', '15m', '1h', '4h', '1D'],
+        'instruments' => [
+            'GCUSD' => [
+                'name' => 'Gold Futures',
+                'exchange' => 'COMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '100 troy oz',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
+                    ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'news_proxies' => [
+                    'forex' => ['XAUUSD', 'EURUSD', 'USDJPY'],
+                    'stock' => ['GLD', 'IAU', 'NEM', 'USO', 'TLT', 'UUP'],
+                ],
+            ],
+            'MGCUSD' => [
+                'name' => 'Micro Gold Futures',
+                'exchange' => 'COMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '10 troy oz',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                    ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'news_proxies' => [
+                    'forex' => ['XAUUSD'],
+                    'stock' => ['GLD', 'IAU'],
+                ],
+            ],
+            'SIUSD' => [
+                'name' => 'Silver Futures',
+                'exchange' => 'COMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '5,000 troy oz',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                    ['symbol' => 'HGUSD', 'name' => 'Copper Futures', 'price_unit' => 'USD / lb'],
+                ],
+                'news_proxies' => [
+                    'forex' => ['XAGUSD', 'XAUUSD'],
+                    'stock' => ['SLV', 'GLD'],
+                ],
+            ],
+            'SILUSD' => [
+                'name' => 'Micro Silver Futures',
+                'exchange' => 'COMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '1,000 troy oz',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+            ],
+            'CLUSD' => [
+                'name' => 'WTI Crude Oil Futures',
+                'exchange' => 'NYMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / bbl',
+                'contract_size' => '1,000 bbl',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'BZUSD', 'name' => 'Brent Crude Oil', 'price_unit' => 'USD / bbl'],
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'news_proxies' => [
+                    'forex' => ['USDCAD'],
+                    'stock' => ['USO', 'XLE', 'BNO'],
+                ],
+            ],
+            'BZUSD' => [
+                'name' => 'Brent Crude Oil Futures',
+                'exchange' => 'ICE / NYMEX',
+                'currency' => 'USD',
+                'price_unit' => 'USD / bbl',
+                'contract_size' => '1,000 bbl',
+                'trade_month' => 'Jan',
+                'related_symbols' => [
+                    ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+            ],
+            'NGUSD' => [
+                'name' => 'Natural Gas Futures',
+                'exchange' => 'NYMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / MMBtu',
+                'contract_size' => '10,000 MMBtu',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'CLUSD', 'name' => 'WTI Crude Oil', 'price_unit' => 'USD / bbl'],
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'news_proxies' => [
+                    'forex' => [],
+                    'stock' => ['UNG', 'XLE'],
+                ],
+            ],
+            'HGUSD' => [
+                'name' => 'Copper Futures',
+                'exchange' => 'COMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / lb',
+                'contract_size' => '25,000 lbs',
+                'trade_month' => 'Dec',
+                'related_symbols' => [
+                    ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+                'news_proxies' => [
+                    'forex' => [],
+                    'stock' => ['CPER', 'FCX', 'SCCO'],
+                ],
+            ],
+            'PLUSD' => [
+                'name' => 'Platinum Futures',
+                'exchange' => 'NYMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '50 troy oz',
+                'trade_month' => 'Jan',
+                'related_symbols' => [
+                    ['symbol' => 'GCUSD', 'name' => 'Gold Futures', 'price_unit' => 'USD / troy oz'],
+                    ['symbol' => 'SIUSD', 'name' => 'Silver Futures', 'price_unit' => 'USD / troy oz'],
+                ],
+            ],
+            'PAUSD' => [
+                'name' => 'Palladium Futures',
+                'exchange' => 'NYMEX / CME',
+                'currency' => 'USD',
+                'price_unit' => 'USD / troy oz',
+                'contract_size' => '100 troy oz',
+                'trade_month' => 'Dec',
+            ],
+            'RBUSD' => ['name' => 'Gasoline RBOB Futures', 'exchange' => 'NYMEX / CME', 'currency' => 'USD', 'price_unit' => 'USD / gal'],
+            'HOUSD' => ['name' => 'Heating Oil Futures', 'exchange' => 'NYMEX / CME', 'currency' => 'USD', 'price_unit' => 'USD / gal'],
+            'DXUSD' => ['name' => 'US Dollar Index Futures', 'exchange' => 'ICE', 'currency' => 'USD', 'price_unit' => 'Index Points'],
+            'ESUSD' => ['name' => 'E-Mini S&P 500 Futures', 'exchange' => 'CME', 'currency' => 'USD', 'price_unit' => 'Index Points'],
+            'NQUSD' => ['name' => 'Nasdaq 100 Futures', 'exchange' => 'CME', 'currency' => 'USD', 'price_unit' => 'Index Points'],
+            'YMUSD' => ['name' => 'Mini Dow Jones Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Index Points'],
+            'RTYUSD' => ['name' => 'Micro E-mini Russell 2000 Futures', 'exchange' => 'CME', 'currency' => 'USD', 'price_unit' => 'Index Points'],
+            'ZBUSD' => ['name' => '30-Year U.S. Treasury Bond Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Points'],
+            'ZNUSD' => ['name' => '10-Year T-Note Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Points'],
+            'ZFUSD' => ['name' => '5-Year US Treasury Note Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Points'],
+            'ZTUSD' => ['name' => '2-Year T-Note Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Points'],
+            'ZQUSD' => ['name' => '30-Day Fed Funds Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'Points'],
+            'ALIUSD' => ['name' => 'Aluminum Futures', 'exchange' => 'COMEX / CME', 'currency' => 'USD', 'price_unit' => 'USD / MT'],
+            'LBUSD' => ['name' => 'Lumber Futures', 'exchange' => 'CME', 'currency' => 'USD', 'price_unit' => 'USD / MBF'],
+            'CCUSD' => ['name' => 'Cocoa Futures', 'exchange' => 'ICE', 'currency' => 'USD', 'price_unit' => 'USD / MT'],
+            'ZMUSD' => ['name' => 'Soybean Meal Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'USD / ton'],
+            'ZRUSD' => ['name' => 'Rough Rice Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USD', 'price_unit' => 'USD / cwt'],
+            'DCUSD' => ['name' => 'Class III Milk Futures', 'exchange' => 'CME', 'currency' => 'USD', 'price_unit' => 'USD / cwt'],
+            'ZSUSX' => ['name' => 'Soybean Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USX', 'price_unit' => 'USX / bu'],
+            'ZCUSX' => ['name' => 'Corn Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USX', 'price_unit' => 'USX / bu'],
+            'KEUSX' => ['name' => 'Wheat Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USX', 'price_unit' => 'USX / bu'],
+            'ZLUSX' => ['name' => 'Soybean Oil Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'ZOUSX' => ['name' => 'Oat Futures', 'exchange' => 'CBOT / CME', 'currency' => 'USX', 'price_unit' => 'USX / bu'],
+            'KCUSX' => ['name' => 'Coffee Futures', 'exchange' => 'ICE', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'CTUSX' => ['name' => 'Cotton Futures', 'exchange' => 'ICE', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'SBUSX' => ['name' => 'Sugar Futures', 'exchange' => 'ICE', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'OJUSX' => ['name' => 'Orange Juice Futures', 'exchange' => 'ICE', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'LEUSX' => ['name' => 'Live Cattle Futures', 'exchange' => 'CME', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'HEUSX' => ['name' => 'Lean Hogs Futures', 'exchange' => 'CME', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+            'GFUSX' => ['name' => 'Feeder Cattle Futures', 'exchange' => 'CME', 'currency' => 'USX', 'price_unit' => 'USX / lb'],
+        ],
+    ],
+
+    /*
+    |----------------------------------------------------------------------
+    | Interactive News Timeline & Relevance Filtering
+    |----------------------------------------------------------------------
+    | Configures news sources, relevance themes, and impact horizons per
+    | asset type (futures vs stock) so criteria can be tuned independently.
+    */
+    'news' => [
+        'enabled' => env('INSTRUMENT_NEWS_ENABLED', true),
+        'fed_rss_enabled' => env('INSTRUMENT_NEWS_FED_RSS_ENABLED', true),
+        'fed_rss_url' => env('INSTRUMENT_NEWS_FED_RSS_URL', 'https://www.federalreserve.gov/feeds/press_monetary.xml'),
+        'max_markers_on_chart' => 25,
+        'default_limit' => 50,
+        'impact_horizons' => [
+            ['key' => '5m', 'label' => '5 Minutes', 'minutes' => 5],
+            ['key' => '15m', 'label' => '15 Minutes', 'minutes' => 15],
+            ['key' => '30m', 'label' => '30 Minutes', 'minutes' => 30],
+            ['key' => '60m', 'label' => '60 Minutes', 'minutes' => 60],
+            ['key' => '4h', 'label' => '4 Hours', 'minutes' => 240],
+        ],
+        'relevance_profiles' => [
+            'futures' => [
+                'min_score' => 20,
+                'themes' => [
+                    'gold_precious_metals' => [
+                        'label' => 'Gold & Precious Metals',
+                        'weight' => 45,
+                        'keywords' => ['gold', 'bullion', 'xau', 'xauusd', 'gcusd', 'precious metal', 'comex', 'silver', 'platinum', 'safe-haven', 'safe haven', 'ounce'],
+                    ],
+                    'central_bank_gold' => [
+                        'label' => 'Central Bank Gold',
+                        'weight' => 45,
+                        'keywords' => ['central bank gold', 'gold reserve', 'sovereign gold', 'pboc', 'central-bank buying', 'central bank purchase', 'imf gold'],
+                    ],
+                    'fed_monetary_policy' => [
+                        'label' => 'Federal Reserve & Policy',
+                        'weight' => 40,
+                        'keywords' => ['federal reserve', 'fomc', 'powell', 'fed rate', 'rate cut', 'rate hike', 'monetary policy', 'fed Chair', 'fed governor', 'basis points', 'hawkish', 'dovish', 'interest rate decision'],
+                    ],
+                    'inflation_rates' => [
+                        'label' => 'Inflation & Interest Rates',
+                        'weight' => 35,
+                        'keywords' => ['inflation', 'cpi', 'pce', 'ppi', 'consumer price', 'real yield', 'interest rate', 'stagflation', 'deflation', 'nonfarm payroll', 'nfp'],
+                    ],
+                    'usd_movements' => [
+                        'label' => 'US Dollar',
+                        'weight' => 30,
+                        'keywords' => ['u.s. dollar', 'us dollar', 'dxy', 'dollar index', 'greenback', 'weak dollar', 'strong dollar', 'currency'],
+                    ],
+                    'treasury_yields' => [
+                        'label' => 'Treasury Yields',
+                        'weight' => 30,
+                        'keywords' => ['treasury yield', '10-year yield', '10-yr yield', 'bond yield', 'treasuries', '2-year yield', 'yield curve', 'bond auction'],
+                    ],
+                    'geopolitics' => [
+                        'label' => 'Geopolitics & Conflict',
+                        'weight' => 35,
+                        'keywords' => ['geopolitic', 'strait of hormuz', 'middle east', 'conflict', 'sanction', 'tariff', 'war', 'military', 'missile', 'attack', 'ceasefire', 'escalation'],
+                    ],
+                    'oil_supply' => [
+                        'label' => 'Oil & Energy Supply',
+                        'weight' => 30,
+                        'keywords' => ['oil supply', 'crude oil', 'wti', 'brent', 'opec', 'tanker', 'pipeline', 'refinery', 'energy disruption', 'lusd'],
+                    ],
+                    'market_liquidity' => [
+                        'label' => 'Market Liquidity & Risk',
+                        'weight' => 25,
+                        'keywords' => ['liquidity', 'margin call', 'market sell-off', 'selloff', 'vix', 'volatility spike', 'risk-off', 'banking stress', 'credit crunch'],
+                    ],
+                ],
+            ],
+            'stock' => [
+                'min_score' => 15,
+                'themes' => [
+                    'earnings_financials' => [
+                        'label' => 'Earnings & Guidance',
+                        'weight' => 45,
+                        'keywords' => ['earnings', 'revenue', 'eps', 'guidance', 'quarter', 'q1', 'q2', 'q3', 'q4', 'beat', 'miss', 'profit', 'margin', 'dividend', 'buyback'],
+                    ],
+                    'analyst_ratings' => [
+                        'label' => 'Analyst & Price Target',
+                        'weight' => 35,
+                        'keywords' => ['upgrade', 'downgrade', 'price target', 'overweight', 'outperform', 'buy rating', 'sell rating', 'analyst', 'initiation'],
+                    ],
+                    'corporate_events' => [
+                        'label' => 'Corporate & Regulatory',
+                        'weight' => 40,
+                        'keywords' => ['acquisition', 'merger', 'fda', 'clinical trial', 'approval', 'contract', 'partnership', 'launch', 'sec filing', 'ceo', 'cfo', 'insider'],
+                    ],
+                    'macro_sector' => [
+                        'label' => 'Sector & Macro',
+                        'weight' => 25,
+                        'keywords' => ['federal reserve', 'inflation', 'tariff', 'sector', 'ai', 'semiconductor', 'biotech', 'regulation'],
+                    ],
+                ],
+            ],
+        ],
+    ],
+
 ];

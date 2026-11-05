@@ -58,6 +58,46 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return [];
     }
 
+    public function commoditiesList(): array
+    {
+        $v = self::getCacheVersion('all', 'GLOBAL');
+        $cacheKey = "duoasset.v{$v}.commodities_list";
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && ! empty($cached)) {
+            return $cached;
+        }
+
+        $stored = MarketDataPayload::where('symbol', 'GLOBAL')
+            ->where('data_type', 'commodities_list')
+            ->where('period', 'latest')
+            ->first();
+
+        if ($stored && is_array($stored->payload) && ! empty($stored->payload) && $stored->retrieved_at && $stored->retrieved_at->diffInHours(now()) < 24) {
+            Cache::put($cacheKey, $stored->payload, now()->addHours(12));
+
+            return $stored->payload;
+        }
+
+        if (method_exists($this->upstream, 'commoditiesList')) {
+            try {
+                $fresh = $this->upstream->commoditiesList();
+                if (is_array($fresh) && ! empty($fresh)) {
+                    MarketDataPayload::updateOrCreate(
+                        ['symbol' => 'GLOBAL', 'data_type' => 'commodities_list', 'period' => 'latest'],
+                        ['payload' => $fresh, 'retrieved_at' => now()]
+                    );
+                    Cache::put($cacheKey, $fresh, now()->addHours(12));
+
+                    return $fresh;
+                }
+            } catch (Throwable $e) {
+                Log::warning('persistent_market_data.commodities_list_failed', ['error' => $e->getMessage()]);
+            }
+        }
+
+        return $stored && is_array($stored->payload) ? $stored->payload : [];
+    }
+
     public function lookupOverview(string $symbol): ?array
     {
         if (method_exists($this->upstream, 'lookupOverview')) {

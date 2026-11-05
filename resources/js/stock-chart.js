@@ -43,8 +43,14 @@ export function initStockChart(containerIdOrEl, options = {}) {
         userId = null,
         timezone = null,
         activeRange = '1Y',
+        newsMarkers = [],
+        showNewsMarkers = true,
+        selectedNewsId = null,
         onTimezoneChange = null,
         onRangeChange = null,
+        onMarkerClick = null,
+        onViewportChange = null,
+        onCandleClick = null,
     } = options;
 
     const userTzKey = 'duoasset_chart_tz_' + (userId || 'default');
@@ -108,6 +114,15 @@ export function initStockChart(containerIdOrEl, options = {}) {
             }
             if (typeof existingRegistration.unsubState === 'function') {
                 existingRegistration.unsubState();
+            }
+            if (typeof existingRegistration.unsubMarkClick === 'function') {
+                existingRegistration.unsubMarkClick();
+            }
+            if (typeof existingRegistration.unsubViewport === 'function') {
+                existingRegistration.unsubViewport();
+            }
+            if (typeof existingRegistration.unsubClick === 'function') {
+                existingRegistration.unsubClick();
             }
             if (existingRegistration.onRangeClick) {
                 container.removeEventListener('click', existingRegistration.onRangeClick, true);
@@ -257,6 +272,164 @@ export function initStockChart(containerIdOrEl, options = {}) {
             }
         }
 
+        const getActiveChart = () => ws.chart || ws.active?.chart || null;
+
+        // Configure News Timeline Marks & Chart Synchronization
+        ws.syncNewsMarkers = (markers = [], visible = true, activeId = null) => {
+            const chart = getActiveChart();
+            if (!chart?.marks) return;
+            try {
+                chart.marks.defineGroup({
+                    id: 'news',
+                    label: 'News Events',
+                    visible: Boolean(visible),
+                });
+                const list = (Array.isArray(markers) ? markers : []).map((m) => {
+                    const isSelected = activeId && String(m.id) === String(activeId);
+                    const timeMs = Number(m.time > 1e11 ? m.time : m.time * 1000);
+                    return {
+                        id: String(m.id),
+                        time: timeMs,
+                        title: m.title || '',
+                        tooltip: m.tooltip || m.title || '',
+                        group: 'news',
+                        glyph: {
+                            shape: isSelected ? 'pin' : 'circle',
+                            color: isSelected ? '#f59e0b' : (m.color || '#0284c7'),
+                            letter: m.letter || 'N',
+                        },
+                    };
+                });
+                chart.marks.set(list);
+                chart.marks.setGroupVisible('news', Boolean(visible));
+            } catch (e) {
+                console.warn('Could not sync Vela news marks:', e);
+            }
+        };
+
+        ws.getVisibleTimeRange = () => {
+            const chart = getActiveChart();
+            try {
+                return chart?.getVisibleRange?.() || null;
+            } catch (e) {
+                return null;
+            }
+        };
+
+        ws.clearHighlight = () => {
+            const chart = getActiveChart();
+            try {
+                chart?.renderer?.setExternalCrosshair?.(null, null);
+            } catch (e) {}
+        };
+
+        ws.focusTimestamp = (targetTimeMs, focusOpts = {}) => {
+            const chart = getActiveChart();
+            if (!chart || formattedData.length === 0) return null;
+
+            const tsMs = Number(targetTimeMs > 1e11 ? targetTimeMs : targetTimeMs * 1000);
+            if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+
+            // Find the candle closest to tsMs
+            let bestIdx = 0;
+            let bestDiff = Infinity;
+            for (let i = 0; i < formattedData.length; i++) {
+                const diff = Math.abs(formattedData[i].time - tsMs);
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestIdx = i;
+                }
+            }
+
+            const targetBar = formattedData[bestIdx];
+            const windowBars = Number(focusOpts.windowBars || 24);
+            const startIdx = Math.max(0, bestIdx - windowBars);
+            const endIdx = Math.min(formattedData.length - 1, bestIdx + windowBars);
+
+            let fromMs = formattedData[startIdx].time;
+            let toMs = formattedData[endIdx].time;
+            if (fromMs >= toMs) {
+                const padMs = 12 * 3600 * 1000;
+                fromMs = tsMs - padMs;
+                toMs = tsMs + padMs;
+            }
+
+            try {
+                if (typeof chart.setVisibleRange === 'function') {
+                    chart.setVisibleRange({ from: fromMs, to: toMs });
+                }
+            } catch (e) {}
+
+            try {
+                chart?.renderer?.setExternalCrosshair?.(targetBar.time, targetBar.close);
+            } catch (e) {}
+
+            return targetBar;
+        };
+
+        // Initialize news markers on mount
+        ws.syncNewsMarkers(newsMarkers, showNewsMarkers, selectedNewsId);
+
+        let unsubMarkClick = null;
+        let unsubViewport = null;
+        let unsubClick = null;
+        const activeChart = getActiveChart();
+
+        if (activeChart && typeof activeChart.on === 'function') {
+            try {
+                unsubMarkClick = activeChart.on('mark:click', (payload) => {
+                    if (typeof onMarkerClick === 'function' && payload) {
+                        onMarkerClick(payload);
+                    }
+                });
+            } catch (e) {}
+
+            try {
+                unsubViewport = activeChart.on('viewport:changed', (range) => {
+                    if (typeof onViewportChange === 'function' && range && Number.isFinite(range.from) && Number.isFinite(range.to)) {
+                        onViewportChange(range);
+                    }
+                });
+            } catch (e) {}
+        }
+
+        if (activeChart?.renderer && typeof activeChart.renderer.onClick === 'function') {
+            try {
+                unsubClick = activeChart.renderer.onClick((clickEvt) => {
+                    if (!clickEvt || clickEvt.time === null || clickEvt.time === undefined) return;
+                    const clickedTimeMs = Number(clickEvt.time > 1e11 ? clickEvt.time : clickEvt.time * 1000);
+                    let bestBar = null;
+                    let minDiff = Infinity;
+                    for (let i = 0; i < formattedData.length; i++) {
+                        const d = Math.abs(formattedData[i].time - clickedTimeMs);
+                        if (d < minDiff) {
+                            minDiff = d;
+                            bestBar = formattedData[i];
+                        }
+                    }
+                    if (bestBar && typeof onCandleClick === 'function') {
+                        const changePct = bestBar.open > 0
+                            ? Number((((bestBar.close - bestBar.open) / bestBar.open) * 100).toFixed(2))
+                            : 0;
+                        const rangePct = bestBar.low > 0
+                            ? Number((((bestBar.high - bestBar.low) / bestBar.low) * 100).toFixed(2))
+                            : 0;
+                        onCandleClick({
+                            time: bestBar.time,
+                            timestamp: Math.floor(bestBar.time / 1000),
+                            open: bestBar.open,
+                            high: bestBar.high,
+                            low: bestBar.low,
+                            close: bestBar.close,
+                            volume: bestBar.volume,
+                            changePct,
+                            rangePct,
+                        });
+                    }
+                });
+            } catch (e) {}
+        }
+
         let lastKnownTimezone = preferredTimezone;
 
         // Helper to persist current workspace state (including active indicators and drawings)
@@ -334,6 +507,15 @@ export function initStockChart(containerIdOrEl, options = {}) {
             if (typeof unsubState === 'function') {
                 try { unsubState(); } catch (e) {}
             }
+            if (typeof unsubMarkClick === 'function') {
+                try { unsubMarkClick(); } catch (e) {}
+            }
+            if (typeof unsubViewport === 'function') {
+                try { unsubViewport(); } catch (e) {}
+            }
+            if (typeof unsubClick === 'function') {
+                try { unsubClick(); } catch (e) {}
+            }
             window.removeEventListener('beforeunload', unloadHandler);
             window.removeEventListener('resize', resizeHandler);
             container.removeEventListener('click', onRangeClick, true);
@@ -346,7 +528,7 @@ export function initStockChart(containerIdOrEl, options = {}) {
             return originalDestroy();
         };
 
-        containerRegistry.set(container, { observer, resizeHandler, unloadHandler, unsubState, onRangeClick });
+        containerRegistry.set(container, { observer, resizeHandler, unloadHandler, unsubState, unsubMarkClick, unsubViewport, unsubClick, onRangeClick });
 
         return ws;
     } catch (e) {

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\MarketDataProviderException;
+use App\Services\Stocks\InstrumentNewsService;
+use App\Services\Stocks\NewsEventImpactService;
 use App\Services\Stocks\StockChartService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +18,7 @@ class StockCandlesController extends Controller
         '15m', '15min', '15minute',
         '30m', '30min', '30minute',
         '1h', '60m', '1hour', '60min',
+        '4h', '4hr', '4hour', '240m', '240min',
         '1d', '1day', 'daily',
         '1w', 'w', 'week', '1week',
         '1mo', 'm', 'month', '1month',
@@ -134,5 +137,71 @@ class StockCandlesController extends Controller
                 'error' => $e->getMessage(),
             ], $httpStatus);
         }
+    }
+
+    /**
+     * Return relevance-filtered news items and timeline markers for an instrument.
+     */
+    public function news(Request $request, string $symbol, InstrumentNewsService $newsService): JsonResponse
+    {
+        $symbol = strtoupper(trim($symbol));
+        if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
+            abort(404, 'Invalid instrument symbol.');
+        }
+
+        $options = [
+            'from' => $request->query('from'),
+            'to' => $request->query('to'),
+            'limit' => $request->query('limit', 50),
+            'around_timestamp' => $request->query('around_timestamp'),
+            'pre_window_minutes' => $request->query('pre_window_minutes', 720),
+            'look_ahead_minutes' => $request->query('look_ahead_minutes', 120),
+            'category' => $request->query('category'),
+        ];
+
+        return response()->json($newsService->getNews($symbol, $options));
+    }
+
+    /**
+     * Return observed historical price-impact across 5m, 15m, 30m, 60m, and 4h horizons
+     * following a news event timestamp, plus related commodity/market comparisons.
+     */
+    public function newsImpact(Request $request, string $symbol, NewsEventImpactService $impactService): JsonResponse
+    {
+        $symbol = strtoupper(trim($symbol));
+        if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
+            abort(404, 'Invalid instrument symbol.');
+        }
+
+        $rawTs = $request->query('timestamp');
+        if ($rawTs === null || $rawTs === '') {
+            abort(422, 'Missing required timestamp parameter.');
+        }
+
+        $timestamp = null;
+        if (is_numeric($rawTs)) {
+            $tsNum = (int) $rawTs;
+            $timestamp = $tsNum > 1e11 ? (int) round($tsNum / 1000) : $tsNum;
+        } else {
+            try {
+                $timestamp = Carbon::parse((string) $rawTs, 'UTC')->timestamp;
+            } catch (\Throwable) {
+                abort(422, 'Invalid timestamp parameter.');
+            }
+        }
+
+        if ($timestamp <= 0) {
+            abort(422, 'Invalid timestamp parameter.');
+        }
+
+        $compareSymbols = null;
+        if ($request->has('compare')) {
+            $rawCompare = trim((string) $request->query('compare'));
+            $compareSymbols = $rawCompare === ''
+                ? []
+                : array_values(array_filter(array_map('trim', explode(',', $rawCompare))));
+        }
+
+        return response()->json($impactService->analyzeImpact($symbol, $timestamp, $compareSymbols));
     }
 }

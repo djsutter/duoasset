@@ -78,8 +78,9 @@ class FmpMarketDataProvider implements MarketDataProvider
             // Any endpoint that fails returns null and is simply skipped; we
             // still try to build a usable response from whatever did come back.
             $quote = $this->quoteRow($symbol) ?? [];
-            $change = $this->priceChange($symbol) ?? [];
-            $profile = $this->profileRaw($symbol) ?? [];
+            $isCommodityQuote = strtoupper((string) ($quote['exchange'] ?? '')) === 'COMMODITY';
+            $change = $isCommodityQuote ? [] : ($this->priceChange($symbol) ?? []);
+            $profile = $isCommodityQuote ? [] : ($this->profileRaw($symbol) ?? []);
 
             if (! $quote && ! $change && ! $profile) {
                 return null;
@@ -151,6 +152,14 @@ class FmpMarketDataProvider implements MarketDataProvider
                     ?? $profile['companyName']
                     ?? $profile['name']
                     ?? null,
+
+                'open' => $this->toFloat($quote['open'] ?? null),
+                'previous_close' => $this->toFloat($quote['previousClose'] ?? null),
+                'day_low' => $this->toFloat($quote['dayLow'] ?? null),
+                'day_high' => $this->toFloat($quote['dayHigh'] ?? null),
+                'year_low' => $this->toFloat($quote['yearLow'] ?? null),
+                'year_high' => $this->toFloat($quote['yearHigh'] ?? null),
+                'timestamp' => $this->toInt($quote['timestamp'] ?? null),
             ];
         });
     }
@@ -620,6 +629,176 @@ class FmpMarketDataProvider implements MarketDataProvider
                 'description' => $row['description'] ?? null,
                 'raw' => $row,
             ];
+        });
+    }
+
+    /**
+     * Fetch the list of FMP supported commodity/futures instruments via /commodities-list.
+     *
+     * @return array<int, array{symbol:string,name:string,exchange:?string,trade_month:?string,currency:string}>
+     */
+    public function commoditiesList(): array
+    {
+        return Cache::remember('fmp.commodities_list', now()->addHours(24), function () {
+            $rows = $this->get('commodities-list') ?? [];
+            if (! is_array($rows)) {
+                return [];
+            }
+
+            $out = [];
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $sym = $this->normalizeSymbol($row['symbol'] ?? '');
+                if ($sym === '') {
+                    continue;
+                }
+                $out[] = [
+                    'symbol' => $sym,
+                    'name' => (string) ($row['name'] ?? $sym),
+                    'exchange' => isset($row['exchange']) && $row['exchange'] !== '' ? (string) $row['exchange'] : 'COMMODITY',
+                    'trade_month' => isset($row['tradeMonth']) && $row['tradeMonth'] !== '' ? (string) $row['tradeMonth'] : null,
+                    'currency' => strtoupper((string) ($row['currency'] ?? 'USD')),
+                ];
+            }
+
+            return $out;
+        });
+    }
+
+    /**
+     * Fetch stock/ETF news from FMP /news/stock or /news/stock-latest.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function stockNews(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        $cleanSymbols = array_values(array_filter(array_map(fn ($s) => $this->normalizeSymbol((string) $s), $symbols)));
+        $path = empty($cleanSymbols) ? 'news/stock-latest' : 'news/stock';
+        $query = ['limit' => max(1, min(250, $limit))];
+        if (! empty($cleanSymbols)) {
+            $query['symbols'] = implode(',', $cleanSymbols);
+        }
+        if ($from) {
+            $query['from'] = $from->toDateString();
+        }
+        if ($to) {
+            $query['to'] = $to->toDateString();
+        }
+
+        $cacheKey = 'fmp.news.stock.'.md5(json_encode([$path, $query]));
+
+        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($path, $query) {
+            $rows = $this->get($path, $query) ?? [];
+
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+        });
+    }
+
+    /**
+     * Fetch forex/commodity news from FMP /news/forex or /news/forex-latest.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function forexNews(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        $cleanSymbols = array_values(array_filter(array_map(fn ($s) => $this->normalizeSymbol((string) $s), $symbols)));
+        $path = empty($cleanSymbols) ? 'news/forex-latest' : 'news/forex';
+        $query = ['limit' => max(1, min(250, $limit))];
+        if (! empty($cleanSymbols)) {
+            $query['symbols'] = implode(',', $cleanSymbols);
+        }
+        if ($from) {
+            $query['from'] = $from->toDateString();
+        }
+        if ($to) {
+            $query['to'] = $to->toDateString();
+        }
+
+        $cacheKey = 'fmp.news.forex.'.md5(json_encode([$path, $query]));
+
+        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($path, $query) {
+            $rows = $this->get($path, $query) ?? [];
+
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+        });
+    }
+
+    /**
+     * Fetch general financial and geopolitical news from FMP /news/general-latest.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function generalNews(?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 50): array
+    {
+        $query = ['limit' => max(1, min(250, $limit))];
+        if ($from) {
+            $query['from'] = $from->toDateString();
+        }
+        if ($to) {
+            $query['to'] = $to->toDateString();
+        }
+
+        $cacheKey = 'fmp.news.general.'.md5(json_encode($query));
+
+        return Cache::remember($cacheKey, now()->addMinutes(10), function () use ($query) {
+            $rows = $this->get('news/general-latest', $query) ?? [];
+
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+        });
+    }
+
+    /**
+     * Fetch company press releases from FMP /news/press-releases.
+     *
+     * @param  array<int, string>  $symbols
+     * @return array<int, array<string, mixed>>
+     */
+    public function pressReleases(array $symbols = [], ?CarbonInterface $from = null, ?CarbonInterface $to = null, int $limit = 20): array
+    {
+        $cleanSymbols = array_values(array_filter(array_map(fn ($s) => $this->normalizeSymbol((string) $s), $symbols)));
+        $path = empty($cleanSymbols) ? 'news/press-releases-latest' : 'news/press-releases';
+        $query = ['limit' => max(1, min(100, $limit))];
+        if (! empty($cleanSymbols)) {
+            $query['symbols'] = implode(',', $cleanSymbols);
+        }
+        if ($from) {
+            $query['from'] = $from->toDateString();
+        }
+        if ($to) {
+            $query['to'] = $to->toDateString();
+        }
+
+        $cacheKey = 'fmp.news.press.'.md5(json_encode([$path, $query]));
+
+        return Cache::remember($cacheKey, now()->addMinutes(15), function () use ($path, $query) {
+            $rows = $this->get($path, $query) ?? [];
+
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+        });
+    }
+
+    /**
+     * Fetch macroeconomic calendar events from FMP /economic-calendar.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function economicCalendar(CarbonInterface $from, CarbonInterface $to): array
+    {
+        $query = [
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
+        ];
+
+        $cacheKey = 'fmp.economic_calendar.'.$query['from'].'.'.$query['to'];
+
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($query) {
+            $rows = $this->get('economic-calendar', $query) ?? [];
+
+            return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
         });
     }
 

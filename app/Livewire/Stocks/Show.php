@@ -6,6 +6,8 @@ use App\Exceptions\MarketDataProviderException;
 use App\Models\Stock;
 use App\Models\StockBuySetupAlert;
 use App\Services\MarketData\MarketDataProvider;
+use App\Services\Stocks\InstrumentClassifier;
+use App\Services\Stocks\InstrumentNewsService;
 use App\Services\Stocks\StockBuySetupScorer;
 use App\Services\Stocks\StockChartService;
 use Carbon\Carbon;
@@ -14,6 +16,12 @@ use Livewire\Component;
 class Show extends Component
 {
     public string $symbol;
+
+    public string $canonicalSymbol = '';
+
+    public string $assetType = InstrumentClassifier::TYPE_STOCK;
+
+    public array $instrumentMeta = [];
 
     public ?Stock $stock = null;
 
@@ -43,34 +51,53 @@ class Show extends Component
 
     public ?string $priceType = null;
 
+    public array $newsItems = [];
+
+    public array $newsMarkers = [];
+
+    public array $newsCategories = [];
+
     public function mount(
         string $symbol,
         MarketDataProvider $provider,
         StockBuySetupScorer $scorer,
-        StockChartService $chartService
+        StockChartService $chartService,
+        ?InstrumentClassifier $classifier = null,
+        ?InstrumentNewsService $newsService = null,
     ): void {
         $this->symbol = strtoupper(trim($symbol));
+        $this->canonicalSymbol = strtolower($this->symbol);
 
         // Reject invalid symbols safely
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $this->symbol)) {
             abort(404, 'Invalid stock symbol.');
         }
 
+        $classifier ??= app(InstrumentClassifier::class);
+        $newsService ??= app(InstrumentNewsService::class);
+
         // 1. Locate local stock record if present
         $this->stock = Stock::where('symbol', $this->symbol)->first();
 
         // 2. Fetch company profile and live/delayed quote from market data provider
         try {
-            $this->profile = $provider->profile($this->symbol);
-        } catch (\Throwable) {
-            $this->profile = null;
-        }
-
-        try {
             $this->quote = $provider->quote($this->symbol);
         } catch (\Throwable) {
             $this->quote = null;
         }
+
+        // Only query /profile when not already known to be a commodity futures symbol
+        $isPreclassifiedFutures = $classifier->isFutures($this->symbol, $this->quote);
+        if (! $isPreclassifiedFutures) {
+            try {
+                $this->profile = $provider->profile($this->symbol);
+            } catch (\Throwable) {
+                $this->profile = null;
+            }
+        }
+
+        $this->instrumentMeta = $classifier->resolve($this->symbol, $this->quote, $this->profile);
+        $this->assetType = $this->instrumentMeta['asset_type'] ?? InstrumentClassifier::TYPE_STOCK;
 
         // 3. Retrieve latest persisted setup alert and alerts by setup type
         $this->loadSetupAlerts($scorer);
@@ -89,8 +116,29 @@ class Show extends Component
             $this->candleError = 'Failed to load chart data.';
         }
 
+        // 5. Retrieve initial news timeline items and markers
+        try {
+            $newsPayload = $newsService->getNews($this->symbol, ['limit' => 50]);
+            $this->newsItems = $newsPayload['items'] ?? [];
+            $this->newsMarkers = $newsPayload['markers'] ?? [];
+            $this->newsCategories = $newsPayload['available_categories'] ?? [];
+        } catch (\Throwable) {
+            $this->newsItems = [];
+            $this->newsMarkers = [];
+            $this->newsCategories = $newsService->getAvailableCategories($this->assetType);
+        }
+
         // Determine price type indicator
-        if ($this->quote && isset($this->quote['price']) && is_numeric($this->quote['price'])) {
+        if ($this->assetType === InstrumentClassifier::TYPE_FUTURES) {
+            $unit = $this->priceUnit;
+            if ($this->quote && isset($this->quote['price']) && is_numeric($this->quote['price'])) {
+                $this->priceType = "Futures Quote ({$unit})";
+            } elseif (! empty($this->candles)) {
+                $this->priceType = "Continuous Futures ({$unit})";
+            } else {
+                $this->priceType = "Futures ({$unit})";
+            }
+        } elseif ($this->quote && isset($this->quote['price']) && is_numeric($this->quote['price'])) {
             $currency = $this->currencyCode;
             $this->priceType = "Market Quote ({$currency})";
         } elseif ($this->stock && $this->stock->last_price) {
@@ -102,10 +150,16 @@ class Show extends Component
         }
     }
 
+    public function getPriceUnitProperty(): string
+    {
+        return (string) ($this->instrumentMeta['price_unit'] ?? ($this->currencyCode.' / share'));
+    }
+
     public function getCurrencyCodeProperty(): string
     {
         return (string) ($this->profile['currency']
             ?? $this->quote['currency']
+            ?? $this->instrumentMeta['currency']
             ?? $this->stock?->currency?->currency_code
             ?? 'USD');
     }
@@ -120,6 +174,10 @@ class Show extends Component
         $quoteName = $this->quote['company_name'] ?? $this->quote['name'] ?? null;
         if (! empty($quoteName)) {
             return $quoteName;
+        }
+
+        if (! empty($this->instrumentMeta['name'])) {
+            return $this->instrumentMeta['name'];
         }
 
         if ($this->stock && ! empty($this->stock->company_name)) {
@@ -144,6 +202,10 @@ class Show extends Component
         $quoteEx = $this->quote['exchange'] ?? null;
         if (! empty($quoteEx)) {
             return $quoteEx;
+        }
+
+        if (! empty($this->instrumentMeta['exchange'])) {
+            return $this->instrumentMeta['exchange'];
         }
 
         if ($this->stock && $this->stock->exchange) {

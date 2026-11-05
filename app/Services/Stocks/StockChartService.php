@@ -54,6 +54,7 @@ class StockChartService
                 '5min' => $to->copy()->subDays(15),
                 '15min', '30min' => $to->copy()->subDays(30),
                 '1hour' => $to->copy()->subDays(60),
+                '4hour' => $to->copy()->subDays(120),
                 '1week' => $to->copy()->subYears(5),
                 '1month' => $to->copy()->subYears(10),
                 default => $to->copy()->subDays(365), // 1day default ~1 year
@@ -72,6 +73,7 @@ class StockChartService
             '5min' => 60,
             '15min', '30min' => 90,
             '1hour' => 180,
+            '4hour' => 365,
             default => null,
         };
 
@@ -165,7 +167,7 @@ class StockChartService
                 : $this->aggregateToMonthly($normalizedDaily);
         }
 
-        if (in_array($interval, ['1min', '5min', '15min', '30min', '1hour'], true)) {
+        if (in_array($interval, ['1min', '5min', '15min', '30min', '1hour', '4hour'], true)) {
             $rawBars = $this->provider->historicalIntradayBars($symbol, $interval, $from, $to);
 
             return $this->normalizeRawBars($rawBars, isIntraday: true, from: $from, to: $to);
@@ -357,6 +359,7 @@ class StockChartService
             '15m', '15min', '15minute' => '15min',
             '30m', '30min', '30minute' => '30min',
             '1h', '60m', '1hour', '60min' => '1hour',
+            '4h', '4hr', '4hour', '240m', '240min' => '4hour',
             '1w', 'w', 'week', '1week' => '1week',
             '1mo', 'm', 'month', '1month' => '1month',
             default => '1day',

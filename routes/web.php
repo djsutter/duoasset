@@ -77,9 +77,44 @@ Route::middleware([
         Route::get('/stocks/{symbol}/candles', [\App\Http\Controllers\StockCandlesController::class, 'candles'])
             ->where('symbol', '[A-Za-z0-9_.\-]+')
             ->name('stocks.candles');
+        Route::get('/stocks/{symbol}/news', [\App\Http\Controllers\StockCandlesController::class, 'news'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stocks.news');
+        Route::get('/stocks/{symbol}/news-impact', [\App\Http\Controllers\StockCandlesController::class, 'newsImpact'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stocks.news-impact');
         Route::get('/stocks/{symbol}', \App\Livewire\Stocks\Show::class)
+            ->middleware(\App\Http\Middleware\EnsureCanonicalInstrumentRoute::class.':stock')
             ->where('symbol', '[A-Za-z0-9_.\-]+')
             ->name('stocks.show');
+
+        Route::get('/stock/{symbol}/candles', [\App\Http\Controllers\StockCandlesController::class, 'candles'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stock.candles');
+        Route::get('/stock/{symbol}/news', [\App\Http\Controllers\StockCandlesController::class, 'news'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stock.news');
+        Route::get('/stock/{symbol}/news-impact', [\App\Http\Controllers\StockCandlesController::class, 'newsImpact'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stock.news-impact');
+        Route::get('/stock/{symbol}', \App\Livewire\Stocks\Show::class)
+            ->middleware(\App\Http\Middleware\EnsureCanonicalInstrumentRoute::class.':stock')
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('stock.show');
+
+        Route::get('/futures/{symbol}/candles', [\App\Http\Controllers\StockCandlesController::class, 'candles'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('futures.candles');
+        Route::get('/futures/{symbol}/news', [\App\Http\Controllers\StockCandlesController::class, 'news'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('futures.news');
+        Route::get('/futures/{symbol}/news-impact', [\App\Http\Controllers\StockCandlesController::class, 'newsImpact'])
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('futures.news-impact');
+        Route::get('/futures/{symbol}', \App\Livewire\Stocks\Show::class)
+            ->middleware(\App\Http\Middleware\EnsureCanonicalInstrumentRoute::class.':futures')
+            ->where('symbol', '[A-Za-z0-9_.\-]+')
+            ->name('futures.show');
 
         Route::get('/money-flows', \App\Livewire\MoneyFlows\Index::class)->name('money-flows.index');
 
