@@ -4,6 +4,9 @@ namespace App\Models;
 
 use App\Models\Concerns\HasComputedMarketCap;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 /**
  * Alert row produced by the Stock Buy Setup scanner — a high-volume spike
@@ -210,4 +213,106 @@ class StockBuySetupAlert extends Model
         'detected_at' => 'datetime',
         'sent_at' => 'datetime',
     ];
+
+    /**
+     * @var array<string, bool>
+     */
+    protected static array $runTrackingColumnCache = [];
+
+    public static function clearSchemaCache(): void
+    {
+        self::$runTrackingColumnCache = [];
+    }
+
+    /**
+     * Check whether a run-tracking or score-history column exists on stock_buy_setup_alerts.
+     */
+    public static function hasRunTrackingColumn(string $column = 'scan_run_id'): bool
+    {
+        $connection = static::query()->getConnection()->getName();
+        $cacheKey = $connection.':'.$column;
+
+        if (array_key_exists($cacheKey, self::$runTrackingColumnCache)) {
+            return self::$runTrackingColumnCache[$cacheKey];
+        }
+
+        try {
+            $exists = Schema::hasTable('stock_buy_setup_alerts')
+                && Schema::hasColumn('stock_buy_setup_alerts', $column);
+
+            return self::$runTrackingColumnCache[$cacheKey] = $exists;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Idempotently ensure that the run-tracking and score-history columns exist
+     * on stock_buy_setup_alerts (self-heals environments where migrations have not yet run).
+     */
+    public static function ensureRunTrackingSchema(): bool
+    {
+        try {
+            self::clearSchemaCache();
+
+            if (! Schema::hasTable('stock_buy_setup_alerts')) {
+                return false;
+            }
+
+            $missingScanRunId = ! Schema::hasColumn('stock_buy_setup_alerts', 'scan_run_id');
+            $missingFirstScanRunId = ! Schema::hasColumn('stock_buy_setup_alerts', 'first_scan_run_id');
+            $missingPreviousScore = ! Schema::hasColumn('stock_buy_setup_alerts', 'previous_setup_score');
+            $missingScoreDelta = ! Schema::hasColumn('stock_buy_setup_alerts', 'score_delta');
+
+            if (! $missingScanRunId && ! $missingFirstScanRunId && ! $missingPreviousScore && ! $missingScoreDelta) {
+                return self::hasRunTrackingColumn('scan_run_id');
+            }
+
+            Schema::table('stock_buy_setup_alerts', function (Blueprint $table) use (
+                $missingScanRunId,
+                $missingFirstScanRunId,
+                $missingPreviousScore,
+                $missingScoreDelta,
+            ) {
+                if ($missingScanRunId) {
+                    $table->unsignedBigInteger('scan_run_id')->nullable()->after('source');
+                }
+                if ($missingFirstScanRunId) {
+                    $table->unsignedBigInteger('first_scan_run_id')->nullable()->after('scan_run_id');
+                }
+                if ($missingPreviousScore) {
+                    $table->integer('previous_setup_score')->nullable()->after('setup_score');
+                }
+                if ($missingScoreDelta) {
+                    $table->integer('score_delta')->nullable()->after('previous_setup_score');
+                }
+            });
+
+            if ($missingScanRunId) {
+                try {
+                    Schema::table('stock_buy_setup_alerts', function (Blueprint $table) {
+                        $table->index(['scan_run_id', 'symbol'], 'stock_buy_setup_alerts_run_symbol_index');
+                    });
+                } catch (Throwable) {
+                }
+            }
+
+            if ($missingFirstScanRunId) {
+                try {
+                    Schema::table('stock_buy_setup_alerts', function (Blueprint $table) {
+                        $table->index('first_scan_run_id', 'stock_buy_setup_alerts_first_run_index');
+                    });
+                } catch (Throwable) {
+                }
+            }
+
+            self::clearSchemaCache();
+
+            return self::hasRunTrackingColumn('scan_run_id');
+        } catch (Throwable) {
+            self::clearSchemaCache();
+
+            return false;
+        }
+    }
 }

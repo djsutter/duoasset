@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 /**
  * Persisted company profile metadata.
@@ -64,4 +66,35 @@ class CompanyProfile extends Model
         'is_adr' => 'boolean',
         'retrieved_at' => 'datetime',
     ];
+
+    /**
+     * Filter an attribute array to only include instrument metadata columns
+     * when those columns exist on company_profiles.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    public static function filterPersistedAttributes(array $attributes): array
+    {
+        $metadataColumns = ['is_actively_trading', 'is_etf', 'is_fund', 'is_adr', 'type'];
+        $hasAnyMetadata = array_intersect_key($attributes, array_flip($metadataColumns));
+        if (empty($hasAnyMetadata)) {
+            return $attributes;
+        }
+
+        try {
+            if (! Schema::hasTable('company_profiles')) {
+                return $attributes;
+            }
+
+            foreach ($metadataColumns as $column) {
+                if (array_key_exists($column, $attributes) && ! Schema::hasColumn('company_profiles', $column)) {
+                    unset($attributes[$column]);
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return $attributes;
+    }
 }

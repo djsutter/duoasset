@@ -348,10 +348,17 @@ class LogReaderService
         $entry['stack_trace'] = $stack;
         unset($entry['stack_lines']);
 
-        // Extract symbol if available in context
+        // Extract symbol if available in context, SQL payload, or run context
         $symbol = null;
+        $searchText = ($entry['message'] ?? '').' '.($entry['context_raw'] ?? '');
         if (! empty($entry['context']['symbol'])) {
             $symbol = strtoupper(trim((string) $entry['context']['symbol']));
+        } elseif (preg_match('/`symbol`\s*=\s*[\'"]?([A-Z0-9.\-\^]{1,12})[\'"]?/i', $searchText, $m)) {
+            $symbol = strtoupper(trim($m[1]));
+        } elseif (! empty($entry['context']['scan_run_id'])) {
+            $symbol = 'RUN #'.(int) $entry['context']['scan_run_id'];
+        } elseif (preg_match('/`scan_run_id`\s*=\s*(\d+)/i', $searchText, $m)) {
+            $symbol = 'RUN #'.$m[1];
         } elseif (preg_match('/(?:\b|\"|\')([A-Z]{1,5})(?:\b|\"|\')/', $entry['message'], $m)) {
             // Only if message looks like a symbol mention
             if (in_array(strtoupper($m[1]), ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'FEO', 'IGNT', 'PEAK'], true)) {

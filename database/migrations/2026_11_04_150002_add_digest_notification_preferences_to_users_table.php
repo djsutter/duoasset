@@ -9,9 +9,17 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (! Schema::hasTable('users')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
-            $table->boolean('email_eps_surprise_digest')->default(true)->after('notify_eps_earnings');
-            $table->boolean('email_setup_scoring_digest')->default(false)->after('notify_stock_buy_setup');
+            if (! Schema::hasColumn('users', 'email_eps_surprise_digest')) {
+                $table->boolean('email_eps_surprise_digest')->default(true)->after('notify_eps_earnings');
+            }
+            if (! Schema::hasColumn('users', 'email_setup_scoring_digest')) {
+                $table->boolean('email_setup_scoring_digest')->default(false)->after('notify_stock_buy_setup');
+            }
         });
 
         // Preserve existing explicit opt-in / opt-out preferences.
@@ -60,11 +68,23 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn([
-                'email_eps_surprise_digest',
-                'email_setup_scoring_digest',
-            ]);
-        });
+        if (! Schema::hasTable('users')) {
+            return;
+        }
+
+        $columns = [
+            'email_eps_surprise_digest',
+            'email_setup_scoring_digest',
+        ];
+        $existing = array_values(array_filter(
+            $columns,
+            fn (string $col) => Schema::hasColumn('users', $col),
+        ));
+
+        if (! empty($existing)) {
+            Schema::table('users', function (Blueprint $table) use ($existing) {
+                $table->dropColumn($existing);
+            });
+        }
     }
 };

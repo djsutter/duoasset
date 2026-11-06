@@ -11,6 +11,8 @@ FROM_DATE="$(date -d "$TO_DATE -70 days" +%F)"
 
 cd "$APP_DIR"
 
+"$PHP" artisan migrate --force
+
 exec "$PHP" artisan earnings:scan-surprises -vvv \
   --from="$FROM_DATE" \
   --to="$TO_DATE"

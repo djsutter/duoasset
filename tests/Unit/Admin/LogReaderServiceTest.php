@@ -109,3 +109,18 @@ test('log reader service gracefully handles non-existent or empty log files', fu
     expect($result['entries'])->toBeEmpty();
     expect($result['summary']['total_scanned'])->toBe(0);
 });
+
+test('log reader service extracts symbol or run identifier from sql query errors when context lacks symbol', function () {
+    $service = new LogReaderService;
+
+    $logContent = <<<'LOG'
+[2026-11-05 09:38:15] local.ERROR: buy_setup.evaluate_failed {"msg":"SQLSTATE[42S22]: Column not found: 1054 Unknown column 'scan_run_id' in 'WHERE' (SQL: select exists(select * from `stock_buy_setup_alerts` where `symbol` = ZOMD.V and (`scan_run_id` is null or `scan_run_id` != 1059)) as `exists`)"}
+[2026-11-05 09:39:16] local.ERROR: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'scan_run_id' in 'WHERE' (Connection: mysql, Host: 127.0.0.1, Port: 3306, Database: c1duoasset, SQL: select * from `stock_buy_setup_alerts` where `scan_run_id` = 1059) {"exception":"[object] (Illuminate\\Database\\QueryException(code: 42S22))"}
+LOG;
+
+    $parsed = $service->parseLogContent($logContent);
+
+    expect($parsed)->toHaveCount(2)
+        ->and($parsed[0]['symbol'])->toBe('RUN #1059')
+        ->and($parsed[1]['symbol'])->toBe('ZOMD.V');
+});

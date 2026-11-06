@@ -4,8 +4,10 @@ namespace App\Services\Notifications;
 
 use App\Models\EarningsAlert;
 use App\Models\EarningsScanRun;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class EpsSurpriseDigestBuilder
 {
@@ -32,13 +34,13 @@ class EpsSurpriseDigestBuilder
      */
     public function buildAndStoreRunSnapshot(int $scanRunId): array
     {
-        $run = EarningsScanRun::find($scanRunId);
+        try {
+            $run = EarningsScanRun::find($scanRunId);
+        } catch (QueryException) {
+            $run = null;
+        }
 
-        $alerts = EarningsAlert::query()
-            ->with('earningsEvent')
-            ->where('scan_run_id', $scanRunId)
-            ->where('alert_type', 'eps_surprise')
-            ->get();
+        $alerts = $this->queryAlertsForRun($scanRunId, $run);
 
         $snapshot = $this->compileMarketSnapshotFromAlerts(
             $scanRunId,
@@ -70,7 +72,11 @@ class EpsSurpriseDigestBuilder
             return $cached;
         }
 
-        $run = EarningsScanRun::find($scanRunId);
+        try {
+            $run = EarningsScanRun::find($scanRunId);
+        } catch (QueryException) {
+            $run = null;
+        }
         if ($run && isset($run->summary_data['digest_snapshot']) && is_array($run->summary_data['digest_snapshot'])) {
             $snapshot = $run->summary_data['digest_snapshot'];
             Cache::put(self::cacheKey($scanRunId), $snapshot, now()->addHours(2));
@@ -105,12 +111,7 @@ class EpsSurpriseDigestBuilder
 
         if ($hasWatchlist) {
             // Query ONLY the user's watched symbols for this scanner run.
-            $watchedAlerts = EarningsAlert::query()
-                ->with('earningsEvent')
-                ->where('scan_run_id', $scanRunId)
-                ->where('alert_type', 'eps_surprise')
-                ->whereIn('symbol', $normalizedWatchlist)
-                ->get();
+            $watchedAlerts = $this->queryAlertsForRun($scanRunId, null, $normalizedWatchlist);
 
             $dedupedByDir = $this->deduplicateBySymbolAndDirection($watchedAlerts);
 
@@ -396,5 +397,63 @@ class EpsSurpriseDigestBuilder
 
             return strcmp($a['symbol'], $b['symbol']);
         });
+    }
+
+    /**
+     * Query earnings alerts associated with a scanner run, falling back gracefully
+     * to the run's execution window if scan_run_id has not yet been migrated.
+     *
+     * @param  list<string>|null  $symbols
+     * @return Collection<int, EarningsAlert>
+     */
+    private function queryAlertsForRun(int $scanRunId, ?EarningsScanRun $run = null, ?array $symbols = null): Collection
+    {
+        if (EarningsScanRun::hasAlertScanRunColumn()) {
+            try {
+                $query = EarningsAlert::query()
+                    ->with('earningsEvent')
+                    ->where('scan_run_id', $scanRunId)
+                    ->where('alert_type', 'eps_surprise');
+
+                if ($symbols !== null) {
+                    $query->whereIn('symbol', $symbols);
+                }
+
+                return $query->get();
+            } catch (QueryException $e) {
+                EarningsScanRun::clearSchemaCache();
+                if (! str_contains($e->getMessage(), 'scan_run_id')) {
+                    if (! Schema::hasTable('earnings_alerts')) {
+                        return collect();
+                    }
+
+                    throw $e;
+                }
+            }
+        } elseif (! Schema::hasTable('earnings_alerts')) {
+            return collect();
+        }
+
+        $run ??= Schema::hasTable('earnings_scan_runs')
+            ? EarningsScanRun::find($scanRunId)
+            : null;
+
+        if (! $run || ! $run->started_at) {
+            return collect();
+        }
+
+        $windowStart = $run->started_at->copy()->subSeconds(5);
+        $windowEnd = ($run->completed_at ?? now())->copy()->addSeconds(5);
+
+        $query = EarningsAlert::query()
+            ->with('earningsEvent')
+            ->where('alert_type', 'eps_surprise')
+            ->whereBetween('updated_at', [$windowStart, $windowEnd]);
+
+        if ($symbols !== null) {
+            $query->whereIn('symbol', $symbols);
+        }
+
+        return $query->get();
     }
 }

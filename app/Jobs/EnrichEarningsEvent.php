@@ -15,6 +15,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 /**
@@ -171,19 +172,25 @@ class EnrichEarningsEvent implements ShouldQueue
 
         $score = $scorer->score($event);
 
+        $hasAlertScanRunCol = Schema::hasTable('earnings_alerts') && Schema::hasColumn('earnings_alerts', 'scan_run_id');
+        $effectiveRunId = $this->scanRunId ?? ($hasAlertScanRunCol ? $event->scan_run_id : null);
+
+        $createAttributes = [
+            'symbol' => $event->symbol,
+            'score' => $score,
+            'status' => 'new',
+            'message' => null,
+        ];
+        if ($hasAlertScanRunCol) {
+            $createAttributes['scan_run_id'] = $effectiveRunId;
+        }
+
         // Idempotent on (event_id, alert_type, direction) unique index.
         $alert = $event->alerts()->firstOrCreate(
             ['alert_type' => 'eps_surprise', 'direction' => $direction],
-            [
-                'scan_run_id' => $this->scanRunId ?? $event->scan_run_id,
-                'symbol' => $event->symbol,
-                'score' => $score,
-                'status' => 'new',
-                'message' => null,
-            ],
+            $createAttributes,
         );
 
-        $effectiveRunId = $this->scanRunId ?? $event->scan_run_id;
         $needsSave = false;
 
         if ($alert->score !== $score) {
@@ -191,7 +198,7 @@ class EnrichEarningsEvent implements ShouldQueue
             $needsSave = true;
         }
 
-        if ($effectiveRunId !== null && ($alert->wasRecentlyCreated || $this->forceRescan || $alert->scan_run_id === null)) {
+        if ($hasAlertScanRunCol && $effectiveRunId !== null && ($alert->wasRecentlyCreated || $this->forceRescan || $alert->scan_run_id === null)) {
             $alert->scan_run_id = $effectiveRunId;
             $needsSave = true;
         }

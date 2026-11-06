@@ -198,7 +198,12 @@ class StockBuySetupRun extends Model
             }
 
             $screenerRejected = (int) (($run->summary_data ?? [])['screener_rejected_count'] ?? 0);
-            if ($run->status !== 'completed' && $run->symbols_considered > 0 && ($run->scored_count + $screenerRejected) >= $run->symbols_considered) {
+            if (
+                $run->trigger !== 'cli-sync'
+                && $run->status !== 'completed'
+                && $run->symbols_considered > 0
+                && ($run->scored_count + $screenerRejected) >= $run->symbols_considered
+            ) {
                 $run->status = 'completed';
                 $run->completed_at = now();
                 $justCompleted = true;

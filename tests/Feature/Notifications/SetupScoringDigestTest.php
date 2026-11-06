@@ -2,7 +2,6 @@
 
 use App\Jobs\PrepareScannerRunDigests;
 use App\Models\NotificationDigestDelivery;
-use App\Models\Stock;
 use App\Models\StockBuySetupAlert;
 use App\Models\StockBuySetupRun;
 use App\Models\User;
@@ -359,4 +358,175 @@ it('tracks previous_setup_score and score_delta across consecutive EvaluateStock
         ->and($alertAfterRun2->first_scan_run_id)->toBe($run1->id);
 
     Notification::assertSentToTimes($user, SetupScoringDigestNotification::class, 2);
+});
+
+it('gracefully evaluates symbols like ZOMD.V and ZAU.V and builds run digests when scan_run_id column is missing on stock_buy_setup_alerts', function () {
+    Notification::fake();
+
+    $migration = require database_path('migrations/2026_11_04_150001_add_run_tracking_and_score_history_to_stock_buy_setup_alerts_table.php');
+    $migration->down();
+
+    try {
+        expect(\Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'scan_run_id'))->toBeFalse();
+
+        $user = User::factory()->create(['email_setup_scoring_digest' => true]);
+        attachSymbolsToUserWatchlist($user, ['ZOMD.V']);
+
+        $bars = [];
+        $date = \Carbon\CarbonImmutable::today()->subDays(400);
+        for ($i = 0; $i < 400; $i++) {
+            $d = $date->addDays($i);
+            if ($d->isWeekend()) {
+                continue;
+            }
+            $bars[] = [
+                'date' => $d->toDateString(),
+                'open' => 1.20,
+                'high' => 1.25,
+                'low' => 1.15,
+                'close' => 1.22,
+                'adj_close' => 1.22,
+                'volume' => 250000,
+            ];
+        }
+
+        $mockProvider = Mockery::mock(\App\Services\MarketData\MarketDataProvider::class);
+        $mockProvider->shouldReceive('profile')->andReturn([
+            'name' => 'Zoomd Technologies Ltd.',
+            'exchange' => 'TSXV',
+            'market_cap' => 120_000_000,
+            'price' => 1.22,
+            'shares_outstanding' => 98_000_000,
+            'is_actively_trading' => true,
+            'is_etf' => false,
+            'is_fund' => false,
+            'type' => 'stock',
+        ]);
+        $mockProvider->shouldReceive('historicalDailyBars')->andReturn($bars);
+        $mockProvider->shouldReceive('quarterlyIncomeStatements')->andReturn([]);
+        $mockProvider->shouldReceive('quarterlyBalanceSheets')->andReturn([]);
+        $mockProvider->shouldReceive('quarterlyCashFlowStatements')->andReturn([]);
+
+        $spikeDate = \Carbon\CarbonImmutable::today()->subDays(3);
+        $baseStart = \Carbon\CarbonImmutable::today()->subDays(60);
+        $baseEnd = \Carbon\CarbonImmutable::today()->subDays(4);
+
+        $makeResult = function (string $symbol, string $name) use ($spikeDate, $baseStart, $baseEnd) {
+            $res = new \App\Services\Stocks\StockBuySetupResult(
+                symbol: $symbol,
+                setupType: 'heartbeat_consolidation_spike',
+                companyName: $name,
+                exchange: 'TSXV',
+                marketCap: 120_000_000,
+                marketCapCategory: 'micro',
+                spikeDate: $spikeDate,
+                spikeVolume: 900_000,
+                prior52wMaxVolume: 400_000,
+                max104wVolume: 500_000,
+                is52wHighVolume: true,
+                is104wHighVolume: true,
+                daysSincePreviousComparableSpike: null,
+                spikeAgeBars: 3,
+                spikeRarityPoints: 20,
+                spikeRarityDescription: '104-week high volume',
+                baseStart: $baseStart,
+                baseEnd: $baseEnd,
+                baseDurationDays: 56,
+                baseHigh: 1.18,
+                baseLow: 1.05,
+                rangeCompressionPct: 11.0,
+                atrContractionRatio: 0.55,
+                volumeDryUpScore: 78.0,
+                slope: 0.001,
+                distanceToBreakoutPct: 3.0,
+                maAlignment: 'bullish',
+                relativeStrengthScore: 82.0,
+                price: 1.22,
+                sharesOutstanding: 98_000_000,
+                floatShares: 70_000_000,
+                freeFloat: 0.71,
+            );
+            $res->reasonSummary = 'TSXV consolidation breakout';
+
+            return $res;
+        };
+
+        $mockScanner = Mockery::mock(\App\Services\Stocks\StockBuySetupScanner::class);
+        $mockScanner->shouldReceive('evaluateAll')->twice()->andReturn(
+            [$makeResult('ZOMD.V', 'Zoomd Technologies Ltd.')],
+            [$makeResult('ZAU.V', 'Zodiac Gold Inc.')],
+        );
+
+        $mockScorer = Mockery::mock(\App\Services\Stocks\StockBuySetupScorer::class);
+        $mockScorer->shouldReceive('breakdown')->andReturn([]);
+        $mockScorer->shouldReceive('scoreMetaFromBreakdown')->twice()->andReturn(
+            ['raw' => 76, 'max' => 100, 'normalized' => 76],
+            ['raw' => 72, 'max' => 100, 'normalized' => 72],
+        );
+        $mockScorer->shouldReceive('growthSynergyBonus')->andReturn(['points' => 0]);
+        $mockScorer->shouldReceive('ignitionBonus')->andReturn(['points' => 0]);
+
+        $mockLiquidity = Mockery::mock(\App\Services\Stocks\StockBuySetupLiquidityPenalty::class);
+        $mockLiquidity->shouldReceive('apply')->twice()->andReturn(
+            ['adjusted_score' => 76, 'average_volume' => 250000, 'turnover_pct' => 0.5, 'penalty_pct' => 0.0, 'penalty_points' => 0],
+            ['adjusted_score' => 72, 'average_volume' => 250000, 'turnover_pct' => 0.5, 'penalty_pct' => 0.0, 'penalty_points' => 0],
+        );
+
+        $run = StockBuySetupRun::create([
+            'id' => 1059,
+            'started_at' => now()->subMinute(),
+            'status' => 'running',
+            'trigger' => 'cli',
+            'symbols_considered' => 2,
+        ]);
+
+        $resZomd = (new \App\Jobs\EvaluateStockBuySetup(symbol: 'ZOMD.V', scanRunId: $run->id))->handle(
+            $mockProvider,
+            $mockScanner,
+            $mockScorer,
+            $mockLiquidity,
+            app(\App\Services\Stocks\StockFundamentalsAnalyzer::class),
+            app(\App\Services\Stocks\StockProvisioner::class),
+        );
+
+        $resZau = (new \App\Jobs\EvaluateStockBuySetup(symbol: 'ZAU.V', scanRunId: $run->id))->handle(
+            $mockProvider,
+            $mockScanner,
+            $mockScorer,
+            $mockLiquidity,
+            app(\App\Services\Stocks\StockFundamentalsAnalyzer::class),
+            app(\App\Services\Stocks\StockProvisioner::class),
+        );
+
+        expect($resZomd['status'])->toBe('matched')
+            ->and($resZau['status'])->toBe('matched')
+            ->and(StockBuySetupAlert::where('symbol', 'ZOMD.V')->exists())->toBeTrue()
+            ->and(StockBuySetupAlert::where('symbol', 'ZAU.V')->exists())->toBeTrue();
+
+        $run->refresh();
+        expect($run->status)->toBe('completed')
+            ->and($run->error_count)->toBe(0)
+            ->and($run->matched_count)->toBe(2);
+
+        Notification::assertSentToTimes($user, SetupScoringDigestNotification::class, 1);
+    } finally {
+        $migration->up();
+    }
+});
+
+it('self-heals missing run tracking columns on stock_buy_setup_alerts when ensureRunTrackingSchema is invoked', function () {
+    $migration = require database_path('migrations/2026_11_04_150001_add_run_tracking_and_score_history_to_stock_buy_setup_alerts_table.php');
+    $migration->down();
+
+    expect(StockBuySetupAlert::hasRunTrackingColumn('scan_run_id'))->toBeFalse();
+
+    expect(StockBuySetupAlert::ensureRunTrackingSchema())->toBeTrue()
+        ->and(StockBuySetupAlert::hasRunTrackingColumn('scan_run_id'))->toBeTrue()
+        ->and(StockBuySetupAlert::hasRunTrackingColumn('first_scan_run_id'))->toBeTrue()
+        ->and(StockBuySetupAlert::hasRunTrackingColumn('previous_setup_score'))->toBeTrue()
+        ->and(StockBuySetupAlert::hasRunTrackingColumn('score_delta'))->toBeTrue();
+
+    // Subsequent migration up() is idempotent even after self-healing
+    $migration->up();
+    expect(StockBuySetupAlert::hasRunTrackingColumn('scan_run_id'))->toBeTrue();
 });

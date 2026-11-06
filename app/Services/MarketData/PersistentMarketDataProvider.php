@@ -788,7 +788,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $fresh['is_adr'] = $this->toBool($fresh['is_adr'] ?? $fresh['isAdr'] ?? null);
             $fresh['type'] = $fresh['type'] ?? $fresh['security_type'] ?? null;
 
-            $nonNullFields = array_filter([
+            $nonNullFields = CompanyProfile::filterPersistedAttributes(array_filter([
                 'company_name' => $fresh['name'] ?? $fresh['company_name'] ?? null,
                 'exchange' => $fresh['exchange'] ?? null,
                 'currency' => $fresh['currency'] ?? null,
@@ -806,7 +806,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 'is_fund' => $fresh['is_fund'],
                 'is_adr' => $fresh['is_adr'],
                 'type' => $fresh['type'],
-            ], fn ($val) => $val !== null && $val !== '');
+            ], fn ($val) => $val !== null && $val !== ''));
 
             if ($stored) {
                 $stored->update(array_merge($nonNullFields, ['retrieved_at' => $now]));
@@ -1669,7 +1669,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 if (! empty($item['symbol'])) {
                     $sym = strtoupper(trim($item['symbol']));
                     $existing = CompanyProfile::where('symbol', $sym)->first();
-                    $nonNullFields = array_filter([
+                    $nonNullFields = CompanyProfile::filterPersistedAttributes(array_filter([
                         'company_name' => $item['company_name'] ?? null,
                         'exchange' => $item['exchange'] ?? null,
                         'market_cap' => $item['market_cap'] ?? null,
@@ -1682,7 +1682,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                         'is_fund' => $this->toBool($item['is_fund'] ?? $item['isFund'] ?? null),
                         'is_adr' => $this->toBool($item['is_adr'] ?? $item['isAdr'] ?? null),
                         'type' => $item['type'] ?? $item['security_type'] ?? null,
-                    ], fn ($v) => $v !== null && $v !== '');
+                    ], fn ($v) => $v !== null && $v !== ''));
 
                     if ($existing) {
                         // Do NOT overwrite retrieved_at on existing profile from partial screener results

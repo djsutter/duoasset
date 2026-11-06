@@ -14,6 +14,7 @@ use App\Services\MarketData\MarketDataProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class ScanEarningsSurprises extends Command
@@ -33,6 +34,8 @@ class ScanEarningsSurprises extends Command
 
             return self::SUCCESS;
         }
+
+        EarningsScanRun::ensureRunTrackingSchema();
 
         $from = CarbonImmutable::parse($this->option('from') ?: CarbonImmutable::today()->subDay())->startOfDay();
         $to = CarbonImmutable::parse($this->option('to') ?: CarbonImmutable::today()->addDay())->endOfDay();
@@ -84,13 +87,19 @@ class ScanEarningsSurprises extends Command
 
         $merged = $this->mergeRows($surprises, $calendar);
 
-        $scanRun = EarningsScanRun::create([
-            'started_at' => now(),
-            'status' => EarningsScanRun::STATUS_RUNNING,
-            'trigger' => 'cli',
-            'from_date' => $from->toDateString(),
-            'to_date' => $to->toDateString(),
-        ]);
+        $hasScanRunsTable = Schema::hasTable('earnings_scan_runs');
+        $hasEventScanRunCol = Schema::hasTable('earnings_events') && Schema::hasColumn('earnings_events', 'scan_run_id');
+        $hasAlertScanRunCol = Schema::hasTable('earnings_alerts') && Schema::hasColumn('earnings_alerts', 'scan_run_id');
+
+        $scanRun = $hasScanRunsTable
+            ? EarningsScanRun::create([
+                'started_at' => now(),
+                'status' => EarningsScanRun::STATUS_RUNNING,
+                'trigger' => 'cli',
+                'from_date' => $from->toDateString(),
+                'to_date' => $to->toDateString(),
+            ])
+            : null;
 
         $processed = 0;
         $dispatched = 0;
@@ -138,27 +147,32 @@ class ScanEarningsSurprises extends Command
 
                 $surpriseAbs = (float) $epsActual - (float) $epsEstimated;
 
+                $eventAttributes = array_filter([
+                    'company_name' => $row['company_name'] ?? null,
+                    'exchange' => $row['exchange'] ?? null,
+                    'report_time' => $row['report_time'] ?? null,
+                    'fiscal_period' => $row['fiscal_period'] ?? null,
+                    'eps_estimated' => $epsEstimated,
+                    'eps_actual' => $epsActual,
+                    'eps_surprise' => $surpriseAbs,
+                    'eps_surprise_percent' => round((float) $surprisePct, 4),
+                    'revenue_estimated' => $row['revenue_estimated'] ?? null,
+                    'revenue_actual' => $row['revenue_actual'] ?? null,
+                    'raw' => $row['raw'] ?? null,
+                    'detected_at' => now(),
+                ], fn ($v) => $v !== null);
+
+                if ($hasEventScanRunCol && $scanRun !== null) {
+                    $eventAttributes['scan_run_id'] = $scanRun->id;
+                }
+
                 $event = EarningsEvent::updateOrCreate(
                     [
                         'source' => 'fmp',
                         'symbol' => $row['symbol'],
                         'report_date' => $row['report_date'],
                     ],
-                    array_filter([
-                        'scan_run_id' => $scanRun->id,
-                        'company_name' => $row['company_name'] ?? null,
-                        'exchange' => $row['exchange'] ?? null,
-                        'report_time' => $row['report_time'] ?? null,
-                        'fiscal_period' => $row['fiscal_period'] ?? null,
-                        'eps_estimated' => $epsEstimated,
-                        'eps_actual' => $epsActual,
-                        'eps_surprise' => $surpriseAbs,
-                        'eps_surprise_percent' => round((float) $surprisePct, 4),
-                        'revenue_estimated' => $row['revenue_estimated'] ?? null,
-                        'revenue_actual' => $row['revenue_actual'] ?? null,
-                        'raw' => $row['raw'] ?? null,
-                        'detected_at' => now(),
-                    ], fn ($v) => $v !== null),
+                    $eventAttributes,
                 );
 
                 $revEst = $row['revenue_estimated'] ?? null;
@@ -185,7 +199,7 @@ class ScanEarningsSurprises extends Command
                 // are populated immediately — otherwise on a default install
                 // (QUEUE_CONNECTION=database) the jobs pile up until a worker
                 // is started, leaving those columns empty on the watchlist.
-                EnrichEarningsEvent::dispatchSync($event->id, $scanRun->id, $force);
+                EnrichEarningsEvent::dispatchSync($event->id, $scanRun?->id, $force);
                 $dispatched++;
             } catch (Throwable $e) {
                 $errors++;
@@ -197,19 +211,24 @@ class ScanEarningsSurprises extends Command
             }
         }
 
-        $alertsInRun = EarningsAlert::where('scan_run_id', $scanRun->id)->count();
-        $scanRun->update([
-            'status' => EarningsScanRun::STATUS_COMPLETED,
-            'completed_at' => now(),
-            'events_processed' => $processed,
-            'alerts_created' => $alertsInRun,
-            'error_count' => $errors,
-        ]);
+        if ($scanRun !== null) {
+            $alertsInRun = $hasAlertScanRunCol
+                ? EarningsAlert::where('scan_run_id', $scanRun->id)->count()
+                : $dispatched;
 
-        PrepareScannerRunDigests::dispatch(
-            NotificationDigestDelivery::CATEGORY_EPS_SURPRISE,
-            $scanRun->id,
-        );
+            $scanRun->update([
+                'status' => EarningsScanRun::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'events_processed' => $processed,
+                'alerts_created' => $alertsInRun,
+                'error_count' => $errors,
+            ]);
+
+            PrepareScannerRunDigests::dispatch(
+                NotificationDigestDelivery::CATEGORY_EPS_SURPRISE,
+                $scanRun->id,
+            );
+        }
 
         $this->info("Processed: $processed, enrichment jobs dispatched: $dispatched");
 

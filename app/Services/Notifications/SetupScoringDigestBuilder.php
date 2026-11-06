@@ -5,8 +5,10 @@ namespace App\Services\Notifications;
 use App\Models\StockBuySetupAlert;
 use App\Models\StockBuySetupRun;
 use App\Services\Stocks\BuySetupConfigService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class SetupScoringDigestBuilder
 {
@@ -35,9 +37,7 @@ class SetupScoringDigestBuilder
             self::DEFAULT_OTHER_NOTICES_LIMIT,
         );
 
-        $alerts = StockBuySetupAlert::query()
-            ->where('scan_run_id', $scanRunId)
-            ->get();
+        $alerts = $this->queryAlertsForRun($scanRunId, $run);
 
         $consolidated = $this->consolidateBySymbol($alerts);
 
@@ -140,10 +140,7 @@ class SetupScoringDigestBuilder
 
         if ($hasWatchlist) {
             // Query ONLY the user's watched symbols for this scanner run.
-            $watchedAlerts = StockBuySetupAlert::query()
-                ->where('scan_run_id', $scanRunId)
-                ->whereIn('symbol', $normalizedWatchlist)
-                ->get();
+            $watchedAlerts = $this->queryAlertsForRun($scanRunId, null, $normalizedWatchlist);
 
             $consolidatedWatched = $this->consolidateBySymbol($watchedAlerts);
 
@@ -362,5 +359,78 @@ class SetupScoringDigestBuilder
             'early_breakout_followthrough' => 'Early breakout follow-through',
             default => ucwords(str_replace('_', ' ', $setupType)),
         };
+    }
+
+    /**
+     * Query setup alerts associated with a scanner run, falling back gracefully
+     * to the run's execution window and recorded top matches if the scan_run_id
+     * column has not yet been migrated on stock_buy_setup_alerts.
+     *
+     * @param  list<string>|null  $symbols
+     * @return Collection<int, StockBuySetupAlert>
+     */
+    private function queryAlertsForRun(int $scanRunId, ?StockBuySetupRun $run = null, ?array $symbols = null): Collection
+    {
+        if (StockBuySetupAlert::hasRunTrackingColumn('scan_run_id')) {
+            try {
+                $query = StockBuySetupAlert::query()->where('scan_run_id', $scanRunId);
+                if ($symbols !== null) {
+                    $query->whereIn('symbol', $symbols);
+                }
+
+                return $query->get();
+            } catch (QueryException $e) {
+                StockBuySetupAlert::clearSchemaCache();
+                if (! str_contains($e->getMessage(), 'scan_run_id')) {
+                    if (! Schema::hasTable('stock_buy_setup_alerts')) {
+                        return collect();
+                    }
+
+                    throw $e;
+                }
+            }
+        } elseif (! Schema::hasTable('stock_buy_setup_alerts')) {
+            return collect();
+        }
+
+        $run ??= Schema::hasTable('stock_buy_setup_runs')
+            ? StockBuySetupRun::find($scanRunId)
+            : null;
+
+        if (! $run) {
+            return collect();
+        }
+
+        $runMatchedSymbols = array_values(array_unique(array_filter(array_map(
+            fn ($m) => is_array($m) ? strtoupper(trim((string) ($m['symbol'] ?? ''))) : '',
+            (array) ($run->top_matches ?? []),
+        ))));
+
+        if (! $run->started_at && empty($runMatchedSymbols)) {
+            return collect();
+        }
+
+        $query = StockBuySetupAlert::query();
+        if ($symbols !== null) {
+            $query->whereIn('symbol', $symbols);
+        }
+
+        if ($run->started_at) {
+            $windowStart = $run->started_at->copy()->subSeconds(5);
+            $windowEnd = ($run->completed_at ?? now())->copy()->addSeconds(5);
+
+            if (! empty($runMatchedSymbols)) {
+                $query->where(function ($q) use ($windowStart, $windowEnd, $runMatchedSymbols) {
+                    $q->whereBetween('updated_at', [$windowStart, $windowEnd])
+                        ->orWhereIn('symbol', $runMatchedSymbols);
+                });
+            } else {
+                $query->whereBetween('updated_at', [$windowStart, $windowEnd]);
+            }
+        } else {
+            $query->whereIn('symbol', $runMatchedSymbols);
+        }
+
+        return $query->get();
     }
 }

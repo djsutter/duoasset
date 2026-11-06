@@ -15,6 +15,8 @@ echo "=================================================================="
 echo "Buy setup scan started: $(date)"
 echo "=================================================================="
 
+"$PHP" artisan migrate --force
+
 total=$(( ${#EXCHANGES[@]} * ${#LETTERS[@]} ))
 count=0
 

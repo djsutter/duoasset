@@ -17,6 +17,8 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class PrepareScannerRunDigests implements ShouldQueue
 {
@@ -45,6 +47,20 @@ class PrepareScannerRunDigests implements ShouldQueue
             return;
         }
 
+        $runTable = $this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE
+            ? 'earnings_scan_runs'
+            : 'stock_buy_setup_runs';
+
+        if (! Schema::hasTable($runTable)) {
+            Log::warning('digest.coordinator_missing_run_table', [
+                'category' => $this->category,
+                'scan_run_id' => $this->scanRunId,
+                'table' => $runTable,
+            ]);
+
+            return;
+        }
+
         $run = $this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE
             ? EarningsScanRun::find($this->scanRunId)
             : StockBuySetupRun::find($this->scanRunId);
@@ -60,9 +76,19 @@ class PrepareScannerRunDigests implements ShouldQueue
         }
 
         // 1. Compute global market-wide rankings ONCE per scanner run and persist snapshot.
-        $snapshot = $this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE
-            ? $epsBuilder->buildAndStoreRunSnapshot($this->scanRunId)
-            : $setupBuilder->buildAndStoreRunSnapshot($this->scanRunId);
+        try {
+            $snapshot = $this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE
+                ? $epsBuilder->buildAndStoreRunSnapshot($this->scanRunId)
+                : $setupBuilder->buildAndStoreRunSnapshot($this->scanRunId);
+        } catch (Throwable $e) {
+            Log::error('digest.coordinator_failed', [
+                'category' => $this->category,
+                'scan_run_id' => $this->scanRunId,
+                'msg' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
 
         if (! empty($snapshot['is_run_empty'])) {
             Log::info('digest.coordinator_skipped_empty_run', [
@@ -73,15 +99,30 @@ class PrepareScannerRunDigests implements ShouldQueue
             return;
         }
 
+        if (! Schema::hasTable('notification_digest_deliveries')) {
+            Log::warning('digest.coordinator_missing_deliveries_table', [
+                'category' => $this->category,
+                'scan_run_id' => $this->scanRunId,
+            ]);
+
+            return;
+        }
+
         $optOutType = NotificationDigestDelivery::optOutTypeForCategory($this->category);
+        $hasEpsDigestCol = Schema::hasColumn('users', 'email_eps_surprise_digest');
+        $hasSetupDigestCol = Schema::hasColumn('users', 'email_setup_scoring_digest');
 
         $userQuery = User::query();
         if ($this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE) {
-            $userQuery->where('email_eps_surprise_digest', true)
-                ->where('notify_eps_earnings', true);
+            if ($hasEpsDigestCol) {
+                $userQuery->where('email_eps_surprise_digest', true);
+            }
+            $userQuery->where('notify_eps_earnings', true);
         } else {
-            $userQuery->where('email_setup_scoring_digest', true)
-                ->where('notify_stock_buy_setup', true);
+            if ($hasSetupDigestCol) {
+                $userQuery->where('email_setup_scoring_digest', true);
+            }
+            $userQuery->where('notify_stock_buy_setup', true);
         }
 
         $eligibleCount = 0;
@@ -89,7 +130,15 @@ class PrepareScannerRunDigests implements ShouldQueue
         $skippedOptOutCount = 0;
         $alreadyScheduledCount = 0;
 
-        $userQuery->select(['id', 'email', 'email_eps_surprise_digest', 'notify_eps_earnings', 'email_setup_scoring_digest', 'notify_stock_buy_setup'])
+        $selectColumns = ['id', 'email', 'notify_eps_earnings', 'notify_stock_buy_setup'];
+        if ($hasEpsDigestCol) {
+            $selectColumns[] = 'email_eps_surprise_digest';
+        }
+        if ($hasSetupDigestCol) {
+            $selectColumns[] = 'email_setup_scoring_digest';
+        }
+
+        $userQuery->select($selectColumns)
             ->chunkById(200, function ($users) use (
                 $optOutType,
                 $watchlistResolver,

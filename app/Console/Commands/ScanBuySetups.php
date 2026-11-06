@@ -40,6 +40,8 @@ class ScanBuySetups extends Command
             return self::SUCCESS;
         }
 
+        StockBuySetupAlert::ensureRunTrackingSchema();
+
         // Per-setup min/max market-cap eligibility is evaluated later, per
         // setup type, inside StockBuySetupScanner::evaluate(). The
         // screener query below only needs a widened range spanning every

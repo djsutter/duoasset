@@ -2,13 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Enums\MoatLevel;
 use App\Models\StockBuySetupAlert;
 use App\Models\StockBuySetupRun;
 use App\Models\StockDailyBar;
-use App\Models\User;
 use App\Models\Watchlist;
-use App\Models\WatchlistItem;
 use App\Services\Dashboard\DashboardCacheService;
 use App\Services\MarketData\MarketDataProvider;
 use App\Services\Stocks\BuySetupConfigService;
@@ -212,8 +209,13 @@ class EvaluateStockBuySetup implements ShouldQueue
             // Capture the symbol's persisted setup score prior to this scan run so we can
             // accurately track improvements, drops, and newly scored symbols across runs
             // without misclassifying multiple setup matches within the same run.
+            $hasScanRunColumn = StockBuySetupAlert::hasRunTrackingColumn('scan_run_id');
+            $hasFirstScanRunColumn = StockBuySetupAlert::hasRunTrackingColumn('first_scan_run_id');
+            $hasPreviousScoreColumn = StockBuySetupAlert::hasRunTrackingColumn('previous_setup_score');
+            $hasScoreDeltaColumn = StockBuySetupAlert::hasRunTrackingColumn('score_delta');
+
             $priorAlertsQuery = StockBuySetupAlert::query()->where('symbol', $symbol);
-            if ($this->scanRunId !== null) {
+            if ($this->scanRunId !== null && $hasScanRunColumn) {
                 $priorAlertsQuery->where(function ($q) {
                     $q->whereNull('scan_run_id')
                         ->orWhere('scan_run_id', '!=', $this->scanRunId);
@@ -299,19 +301,15 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $result->liquidityPenaltyPoints = (int) $liquidity['penalty_points'];
 
                 $previousSetupScore = $priorSymbolScore;
-                if ($previousSetupScore === null && $alert->exists && ($this->scanRunId === null || $alert->scan_run_id !== $this->scanRunId)) {
+                if ($previousSetupScore === null && $alert->exists && ($this->scanRunId === null || ! $hasScanRunColumn || $alert->scan_run_id !== $this->scanRunId)) {
                     $previousSetupScore = $alert->setup_score !== null ? (int) $alert->setup_score : null;
                 }
                 $scoreDelta = $previousSetupScore !== null
                     ? ($result->setupScore - $previousSetupScore)
                     : null;
 
-                $alert->fill([
-                    'scan_run_id' => $this->scanRunId,
-                    'first_scan_run_id' => $alert->first_scan_run_id ?? ($previousSetupScore === null ? $this->scanRunId : null),
+                $attributes = [
                     'setup_score' => $result->setupScore,
-                    'previous_setup_score' => $previousSetupScore,
-                    'score_delta' => $scoreDelta,
                     'raw_setup_score' => $result->rawSetupScore,
                     'company_name' => $result->companyName,
                     'exchange' => $result->exchange,
@@ -368,7 +366,22 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'prior_ttm_fcf_margin' => $result->priorTtmFcfMargin,
                     'heartbeat_score' => $result->heartbeatScore,
                     'reason_summary' => $result->reasonSummary,
-                ]);
+                ];
+
+                if ($hasScanRunColumn) {
+                    $attributes['scan_run_id'] = $this->scanRunId;
+                }
+                if ($hasFirstScanRunColumn) {
+                    $attributes['first_scan_run_id'] = $alert->first_scan_run_id ?? ($previousSetupScore === null ? $this->scanRunId : null);
+                }
+                if ($hasPreviousScoreColumn) {
+                    $attributes['previous_setup_score'] = $previousSetupScore;
+                }
+                if ($hasScoreDeltaColumn) {
+                    $attributes['score_delta'] = $scoreDelta;
+                }
+
+                $alert->fill($attributes);
                 if ($wasRecentlyCreated) {
                     $alert->status = 'new';
                     $alert->detected_at = now();
