@@ -91,27 +91,38 @@
                     </div>
                 </div>
 
-                {{-- Market Cap --}}
-                <div class="space-y-1">
-                    <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        {{ __('Market Cap') }}
+                {{-- Market Cap (Stocks) / Contract Size (Futures) --}}
+                @if ($assetType === 'futures')
+                    <div class="space-y-1">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                            {{ __('Contract Size') }}
+                        </div>
+                        <div class="text-base font-bold font-mono text-zinc-900 dark:text-zinc-100" data-testid="futures-header-contract-size">
+                            {{ $instrumentMeta['contract_size'] ?? '—' }}
+                        </div>
                     </div>
-                    <div class="text-base font-bold font-mono text-zinc-900 dark:text-zinc-100" data-testid="stock-market-cap">
-                        @if ($this->marketCap !== null)
-                            @if ($this->marketCap >= 1e12)
-                                ${{ number_format($this->marketCap / 1e12, 2) }}T
-                            @elseif ($this->marketCap >= 1e9)
-                                ${{ number_format($this->marketCap / 1e9, 2) }}B
-                            @elseif ($this->marketCap >= 1e6)
-                                ${{ number_format($this->marketCap / 1e6, 2) }}M
+                @else
+                    <div class="space-y-1">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                            {{ __('Market Cap') }}
+                        </div>
+                        <div class="text-base font-bold font-mono text-zinc-900 dark:text-zinc-100" data-testid="stock-market-cap">
+                            @if ($this->marketCap !== null)
+                                @if ($this->marketCap >= 1e12)
+                                    ${{ number_format($this->marketCap / 1e12, 2) }}T
+                                @elseif ($this->marketCap >= 1e9)
+                                    ${{ number_format($this->marketCap / 1e9, 2) }}B
+                                @elseif ($this->marketCap >= 1e6)
+                                    ${{ number_format($this->marketCap / 1e6, 2) }}M
+                                @else
+                                    ${{ number_format($this->marketCap) }}
+                                @endif
                             @else
-                                ${{ number_format($this->marketCap) }}
+                                <span class="text-zinc-400 dark:text-zinc-600 font-normal">—</span>
                             @endif
-                        @else
-                            <span class="text-zinc-400 dark:text-zinc-600 font-normal">—</span>
-                        @endif
+                        </div>
                     </div>
-                </div>
+                @endif
 
                 {{-- Timestamp --}}
                 <div class="space-y-1">
@@ -801,7 +812,7 @@
                  const toStr = options.customTo || toDate.toISOString().slice(0, 10);
                  const activeItem = this.intervals.find(i => i.id === this.selectedInterval) || { api: '1day' };
 
-                 let url = `/stocks/${encodeURIComponent(this.symbol)}/candles?interval=${activeItem.api}&from=${fromStr}&to=${toStr}&range=${this.selectedRange}`;
+                 let url = `${this.apiBasePath}/candles?interval=${activeItem.api}&from=${fromStr}&to=${toStr}&range=${this.selectedRange}`;
                  if (options && options.refresh) {
                      url += '&refresh=1';
                  }

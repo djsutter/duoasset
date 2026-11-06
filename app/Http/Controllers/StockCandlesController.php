@@ -32,6 +32,25 @@ class StockCandlesController extends Controller
         protected StockChartService $chartService
     ) {}
 
+    protected function authorizeSymbolAccess(Request $request, string $symbol): void
+    {
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        $authResolver = app(\App\Services\Auth\AuthorizationResolver::class);
+        $user = $request->user();
+
+        if ($classifier->isFutures($symbol)) {
+            if (! $authResolver->canAccessFutures($user)) {
+                abort(403, 'Access denied: Futures Subscriber role required.');
+            }
+
+            return;
+        }
+
+        if (! $authResolver->canAccessStocks($user)) {
+            abort(403, 'Access denied: Equities access required.');
+        }
+    }
+
     /**
      * Return normalized OHLCV candles for charting.
      */
@@ -42,6 +61,12 @@ class StockCandlesController extends Controller
         // Validate symbol pattern allowing alphanumeric, periods, underscores, and dashes
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             abort(404, 'Invalid stock symbol.');
+        }
+
+        $this->authorizeSymbolAccess($request, $symbol);
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        if ($classifier->isFutures($symbol)) {
+            $symbol = $classifier->normalizeFuturesSymbol($symbol);
         }
 
         // Validate interval if supplied
@@ -149,6 +174,12 @@ class StockCandlesController extends Controller
             abort(404, 'Invalid instrument symbol.');
         }
 
+        $this->authorizeSymbolAccess($request, $symbol);
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        if ($classifier->isFutures($symbol)) {
+            $symbol = $classifier->normalizeFuturesSymbol($symbol);
+        }
+
         $options = [
             'from' => $request->query('from'),
             'to' => $request->query('to'),
@@ -174,6 +205,12 @@ class StockCandlesController extends Controller
         $symbol = strtoupper(trim($symbol));
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             abort(404, 'Invalid instrument symbol.');
+        }
+
+        $this->authorizeSymbolAccess($request, $symbol);
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        if ($classifier->isFutures($symbol)) {
+            $symbol = $classifier->normalizeFuturesSymbol($symbol);
         }
 
         $rawTs = $request->query('timestamp');

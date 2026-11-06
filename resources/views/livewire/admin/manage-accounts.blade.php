@@ -98,23 +98,45 @@
                     <tr wire:key="user-row-{{ $user->id }}" data-testid="user-row-{{ $user->id }}">
                         <td class="font-mono text-xs text-zinc-500">#{{ $user->id }}</td>
                         <td>
-                            <div class="font-medium text-zinc-900 dark:text-white">{{ $user->name }}</div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-medium text-zinc-900 dark:text-white">{{ $user->name }}</span>
+                                @if ($user->isAnonymousUser())
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                          data-testid="system-anonymous-badge">
+                                        {{ __('System Visitor Identity') }}
+                                    </span>
+                                @endif
+                            </div>
                             <div class="text-xs text-zinc-500">{{ $user->email }}</div>
                         </td>
                         <td>
                             @php
-                                $roleBadge = match ($user->role) {
-                                    \App\Enums\UserRole::ADMINISTRATOR => 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 dark:border-purple-700',
-                                    \App\Enums\UserRole::FULL_SUBSCRIPTION => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700',
-                                    \App\Enums\UserRole::EQUITIES => 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border-sky-300 dark:border-sky-700',
-                                    \App\Enums\UserRole::CRYPTO => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
-                                    default => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
-                                };
+                                $assignedList = $user->assignedRoles();
                             @endphp
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border {{ $roleBadge }}"
-                                  data-testid="user-role-badge-{{ $user->id }}">
-                                {{ $user->role->label() }}
-                            </span>
+                            @if ($user->isAnonymousUser() && empty($assignedList))
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
+                                      data-testid="user-role-badge-{{ $user->id }}">
+                                    {{ __('Guest (No Anonymous Roles)') }}
+                                </span>
+                            @else
+                                <div class="flex flex-wrap items-center gap-1" data-testid="user-role-badge-{{ $user->id }}">
+                                    @foreach ($assignedList as $assignedRole)
+                                        @php
+                                            $roleBadge = match ($assignedRole) {
+                                                \App\Enums\UserRole::ADMINISTRATOR => 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 dark:border-purple-700',
+                                                \App\Enums\UserRole::FULL_SUBSCRIPTION => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700',
+                                                \App\Enums\UserRole::EQUITIES => 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border-sky-300 dark:border-sky-700',
+                                                \App\Enums\UserRole::CRYPTO => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
+                                                \App\Enums\UserRole::FUTURES => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-700',
+                                                default => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700',
+                                            };
+                                        @endphp
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border {{ $roleBadge }}">
+                                            {{ $assignedRole->label() }}
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
                         </td>
                         <td>
                             <span class="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400 capitalize font-mono">

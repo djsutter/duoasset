@@ -13,6 +13,10 @@ cd "$APP_DIR"
 
 "$PHP" artisan migrate --force
 
-exec "$PHP" artisan earnings:scan-surprises -vvv \
+"$PHP" artisan digest:start-collection eps_surprise --from="$FROM_DATE" --to="$TO_DATE"
+
+"$PHP" artisan earnings:scan-surprises -vvv \
   --from="$FROM_DATE" \
   --to="$TO_DATE"
+
+exec "$PHP" artisan digest:prepare eps_surprise

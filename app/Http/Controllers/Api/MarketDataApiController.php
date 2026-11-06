@@ -23,14 +23,54 @@ class MarketDataApiController extends Controller
         protected MarketDataProvider $provider
     ) {}
 
+    protected function authorizeApiSymbol(Request $request, string $symbol): ?JsonResponse
+    {
+        if ($request->attributes->get('authenticated_via_api_key') === true) {
+            return null;
+        }
+
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        $authResolver = app(\App\Services\Auth\AuthorizationResolver::class);
+        $user = $request->user();
+
+        if ($classifier->isFutures($symbol)) {
+            if (! $authResolver->canAccessFutures($user)) {
+                return response()->json([
+                    'provider' => 'duoasset',
+                    'error' => 'Forbidden: Futures Subscriber role required to access futures market data.',
+                ], 403);
+            }
+
+            return null;
+        }
+
+        if (! $authResolver->canAccessStocks($user)) {
+            return response()->json([
+                'provider' => 'duoasset',
+                'error' => 'Forbidden: user account lacks permission to access market data.',
+            ], 403);
+        }
+
+        return null;
+    }
+
     public function candles(Request $request, string $symbol): JsonResponse
     {
+        if ($denied = $this->authorizeApiSymbol($request, $symbol)) {
+            return $denied;
+        }
+
         $symbol = strtoupper(trim($symbol));
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             return response()->json([
                 'provider' => 'duoasset',
                 'error' => 'Invalid stock symbol format.',
             ], 404);
+        }
+
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        if ($classifier->isFutures($symbol)) {
+            $symbol = $classifier->normalizeFuturesSymbol($symbol);
         }
 
         $interval = strtolower(trim((string) $request->query('interval', '1day')));
@@ -181,6 +221,10 @@ class MarketDataApiController extends Controller
 
     public function profile(Request $request, string $symbol): JsonResponse
     {
+        if ($denied = $this->authorizeApiSymbol($request, $symbol)) {
+            return $denied;
+        }
+
         $symbol = strtoupper(trim($symbol));
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             return response()->json([
@@ -206,12 +250,21 @@ class MarketDataApiController extends Controller
 
     public function quote(Request $request, string $symbol): JsonResponse
     {
+        if ($denied = $this->authorizeApiSymbol($request, $symbol)) {
+            return $denied;
+        }
+
         $symbol = strtoupper(trim($symbol));
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             return response()->json([
                 'provider' => 'duoasset',
                 'error' => 'Invalid stock symbol format.',
             ], 404);
+        }
+
+        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
+        if ($classifier->isFutures($symbol)) {
+            $symbol = $classifier->normalizeFuturesSymbol($symbol);
         }
 
         $quote = $this->provider->quote($symbol);
@@ -229,8 +282,35 @@ class MarketDataApiController extends Controller
         ]);
     }
 
+    public function commodities(Request $request): JsonResponse
+    {
+        if ($request->attributes->get('authenticated_via_api_key') !== true) {
+            $authResolver = app(\App\Services\Auth\AuthorizationResolver::class);
+            if (! $authResolver->canAccessFutures($request->user())) {
+                return response()->json([
+                    'provider' => 'duoasset',
+                    'error' => 'Forbidden: Futures Subscriber role required to access futures market data.',
+                ], 403);
+            }
+        }
+
+        $commodities = method_exists($this->provider, 'commoditiesList')
+            ? $this->provider->commoditiesList()
+            : [];
+
+        return response()->json([
+            'provider' => 'duoasset',
+            'count' => count($commodities),
+            'commodities' => $commodities,
+        ]);
+    }
+
     public function financials(Request $request, string $symbol): JsonResponse
     {
+        if ($denied = $this->authorizeApiSymbol($request, $symbol)) {
+            return $denied;
+        }
+
         $symbol = strtoupper(trim($symbol));
         if (! preg_match('/^[A-Za-z0-9_.\-]{1,20}$/', $symbol)) {
             return response()->json([

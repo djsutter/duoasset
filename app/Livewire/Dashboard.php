@@ -7,7 +7,9 @@ use App\Models\SectorFlowSnapshot;
 use App\Models\StockBuySetupAlert;
 use App\Models\User;
 use App\Models\Watchlist;
+use App\Services\Auth\AuthorizationResolver;
 use App\Services\Dashboard\DashboardCacheService;
+use App\Services\Dashboard\RecentFuturesService;
 use App\Services\MarketData\MarketDataProvider;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -26,9 +28,31 @@ class Dashboard extends Component
     #[On('view-mode-updated')]
     public function syncViewMode(?string $mode = null): void
     {
+        $resolver = app(AuthorizationResolver::class);
         /** @var User|null $user */
         $user = Auth::user();
-        $this->viewMode = $mode ?: ($user?->activeViewMode() ?? 'stocks');
+        $permitted = $resolver->permittedContexts($user);
+
+        if ($mode !== null && in_array(strtolower($mode), $permitted, true)) {
+            $this->viewMode = strtolower($mode);
+
+            return;
+        }
+
+        $this->viewMode = $resolver->resolveActiveContext($user) ?? 'stocks';
+    }
+
+    public function refreshFuturesQuotes(): void
+    {
+        $resolver = app(AuthorizationResolver::class);
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (! $resolver->canAccessFutures($user)) {
+            abort(403, 'Access denied: Futures Subscriber role required.');
+        }
+
+        $this->viewMode = 'futures';
     }
 
     /**
@@ -38,7 +62,7 @@ class Dashboard extends Component
     {
         /** @var User|null $user */
         $user = Auth::user();
-        if (! $user) {
+        if (! $user || $user->isAnonymousUser()) {
             return null;
         }
 
@@ -67,8 +91,11 @@ class Dashboard extends Component
      */
     public function getHighestGainingStocks(Watchlist $watchlist, MarketDataProvider $provider): Collection
     {
-        /** @var User $user */
+        /** @var User|null $user */
         $user = Auth::user();
+        if (! $user || $user->isAnonymousUser()) {
+            return collect();
+        }
 
         return app(DashboardCacheService::class)->userGainers($user, $watchlist, $provider);
     }
@@ -105,6 +132,15 @@ class Dashboard extends Component
 
     public function render(MarketDataProvider $marketDataProvider)
     {
+        $resolver = app(AuthorizationResolver::class);
+        /** @var User|null $user */
+        $user = Auth::user();
+        $permitted = $resolver->permittedContexts($user);
+
+        if (! in_array($this->viewMode, $permitted, true)) {
+            $this->viewMode = $resolver->resolveActiveContext($user) ?? 'stocks';
+        }
+
         $watchlist = null;
         $hasWatchlistItems = false;
         $highestScoringStocks = collect();
@@ -112,8 +148,21 @@ class Dashboard extends Component
         $moneyFlowGainers = collect();
         $moneyFlowLosers = collect();
         $highestEpsSurprises = collect();
+        $recentFutures = collect();
+        $supportedFutures = [];
+        $snapshotMeta = [];
 
-        if ($this->viewMode === 'stocks') {
+        $cacheService = app(DashboardCacheService::class);
+
+        if ($this->viewMode === 'futures') {
+            if (! $resolver->canAccessFutures($user)) {
+                abort(403, 'Access denied: Futures Subscriber role required.');
+            }
+
+            $recentFuturesService = app(RecentFuturesService::class);
+            $recentFutures = $recentFuturesService->getRecentFuturesWithQuotes($user);
+            $supportedFutures = $recentFuturesService->getSupportedInstrumentsCatalog();
+        } elseif ($this->viewMode === 'stocks') {
             $watchlist = $this->resolveWatchlist();
             $hasWatchlistItems = $watchlist !== null && $watchlist->items->isNotEmpty();
 
@@ -126,11 +175,11 @@ class Dashboard extends Component
             $moneyFlowLosers = $this->getMoneyFlowLosers();
             $highestEpsSurprises = $this->getHighestEpsSurpriseStocks();
 
-            /** @var User|null $user */
-            $user = Auth::user();
-            if ($user) {
-                app(DashboardCacheService::class)->triggerPrefetchIfStale($user);
+            if ($user && ! $user->isAnonymousUser()) {
+                $cacheService->triggerPrefetchIfStale($user);
             }
+
+            $snapshotMeta = $cacheService->getSnapshotMetadata('stocks');
         }
 
         return view('livewire.dashboard', [
@@ -142,6 +191,9 @@ class Dashboard extends Component
             'moneyFlowGainers' => $moneyFlowGainers,
             'moneyFlowLosers' => $moneyFlowLosers,
             'highestEpsSurprises' => $highestEpsSurprises,
+            'recentFutures' => $recentFutures,
+            'supportedFutures' => $supportedFutures,
+            'snapshotMeta' => $snapshotMeta,
         ]);
     }
 }

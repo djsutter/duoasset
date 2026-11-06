@@ -23,7 +23,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(\App\Services\Auth\AuthorizationResolver::class, function () {
+            return new \App\Services\Auth\AuthorizationResolver;
+        });
     }
 
     /**
@@ -144,20 +146,24 @@ PHP;
             return \Illuminate\Cache\RateLimiting\Limit::perMinute($limit)->by($key);
         });
 
-        Gate::define('access-stocks', function (User $user) {
-            return $user->hasStockAccess();
+        Gate::define('access-stocks', function (?User $user = null) {
+            return app(\App\Services\Auth\AuthorizationResolver::class)->canAccessStocks($user);
         });
 
-        Gate::define('access-crypto', function (User $user) {
-            return $user->hasCryptoAccess();
+        Gate::define('access-crypto', function (?User $user = null) {
+            return app(\App\Services\Auth\AuthorizationResolver::class)->canAccessCrypto($user);
         });
 
-        Gate::define('toggle-view-mode', function (User $user) {
-            return $user->canToggleViewMode();
+        Gate::define('access-futures', function (?User $user = null) {
+            return app(\App\Services\Auth\AuthorizationResolver::class)->canAccessFutures($user);
         });
 
-        Gate::define('admin', function (User $user) {
-            return $user->isAdmin();
+        Gate::define('toggle-view-mode', function (?User $user = null) {
+            return app(\App\Services\Auth\AuthorizationResolver::class)->canToggleViewMode($user);
+        });
+
+        Gate::define('admin', function (?User $user = null) {
+            return app(\App\Services\Auth\AuthorizationResolver::class)->canAccessAdmin($user);
         });
     }
 }

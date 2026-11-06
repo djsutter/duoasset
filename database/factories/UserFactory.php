@@ -80,6 +80,17 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user has futures subscription role.
+     */
+    public function futures(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::FUTURES,
+            'view_mode' => 'futures',
+        ]);
+    }
+
+    /**
      * Indicate that the user has full subscription role.
      */
     public function fullSubscription(): static

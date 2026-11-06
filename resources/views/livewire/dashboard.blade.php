@@ -11,6 +11,160 @@
                 <livewire:valuation-progress />
             </div>
         </div>
+    @elseif ($viewMode === 'futures')
+        {{-- Futures Mode Dashboard --}}
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-1 border-b border-zinc-200/70 dark:border-zinc-800/80" data-testid="futures-dashboard">
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    {{ __('Futures Overview') }}
+                </h1>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    {{ __('Your three most recently visited commodity futures contracts with live market data observations.') }}
+                </p>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+                <button type="button"
+                        wire:click="refreshFuturesQuotes"
+                        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium transition-colors"
+                        data-testid="refresh-futures-quotes-btn">
+                    <flux:icon icon="arrow-path" variant="mini" class="size-3.5" />
+                    <span>{{ __('Refresh Quotes') }}</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="p-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" data-testid="recent-futures-card">
+            <div class="flex items-center justify-between gap-2 pb-3 mb-4 border-b border-zinc-100 dark:border-zinc-800">
+                <div class="flex items-center gap-2">
+                    <div class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400">
+                        <flux:icon icon="presentation-chart-line" variant="mini" class="size-4" />
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                            {{ __('Recently Visited Futures') }}
+                        </h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {{ __('Last 3 unique futures contracts visited in your session') }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            @if (($recentFutures ?? collect())->isNotEmpty())
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse" data-testid="recent-futures-table">
+                        <thead>
+                            <tr class="border-b border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                <th class="py-2.5 px-3">{{ __('Instrument') }}</th>
+                                <th class="py-2.5 px-3 text-right">{{ __('Latest price') }}</th>
+                                <th class="py-2.5 px-3">{{ __('Currency') }}</th>
+                                <th class="py-2.5 px-3">{{ __('Quote time') }}</th>
+                                <th class="py-2.5 px-3 text-right">{{ __('Status') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800/80 text-sm">
+                            @foreach ($recentFutures as $item)
+                                @php
+                                    $freshness = $item['freshness'] ?? ['status' => 'unavailable', 'label' => 'Unavailable', 'badge_color' => 'red'];
+                                    $badgeClasses = match ($freshness['status'] ?? 'unavailable') {
+                                        'live' => 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 ring-emerald-300 dark:ring-emerald-800',
+                                        'delayed' => 'bg-amber-50 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 ring-amber-300 dark:ring-amber-800',
+                                        'stale' => 'bg-orange-50 text-orange-800 dark:bg-orange-950/70 dark:text-orange-300 ring-orange-300 dark:ring-orange-800',
+                                        'market_closed' => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 ring-zinc-300 dark:ring-zinc-700',
+                                        default => 'bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 ring-rose-300 dark:ring-rose-800',
+                                    };
+                                @endphp
+                                <tr class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors" data-testid="recent-futures-row-{{ strtolower($item['symbol']) }}">
+                                    <td class="py-3 px-3">
+                                        <a href="{{ $item['url'] }}" class="group inline-flex flex-col" data-testid="recent-futures-link-{{ strtolower($item['symbol']) }}">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono font-bold text-zinc-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                                                    {{ $item['symbol'] }}
+                                                </span>
+                                                <span class="text-zinc-400 dark:text-zinc-500">—</span>
+                                                <span class="font-medium text-zinc-700 dark:text-zinc-200 group-hover:underline">
+                                                    {{ $item['name'] }}
+                                                </span>
+                                            </div>
+                                            <div class="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                                <span>{{ $item['exchange'] }}</span>
+                                                @if (! empty($item['price_unit']))
+                                                    <span>•</span>
+                                                    <span>{{ $item['price_unit'] }}</span>
+                                                @endif
+                                                @if (! empty($item['front_contract']))
+                                                    <span>•</span>
+                                                    <span>{{ __('Front:') }} {{ $item['front_contract'] }}</span>
+                                                @endif
+                                            </div>
+                                        </a>
+                                    </td>
+                                    <td class="py-3 px-3 text-right font-mono" data-testid="recent-futures-price-{{ strtolower($item['symbol']) }}">
+                                        @if ($item['formatted_price'] !== null)
+                                            <div class="font-bold text-zinc-900 dark:text-white">
+                                                {{ $item['formatted_price'] }}
+                                            </div>
+                                            @if ($item['daily_change_percent'] !== null)
+                                                @php
+                                                    $chg = (float) $item['daily_change_percent'];
+                                                    $pos = $chg >= 0;
+                                                @endphp
+                                                <div class="text-[11px] {{ $pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400' }}">
+                                                    {{ $pos ? '+' : '' }}{{ number_format($chg, 2) }}%
+                                                </div>
+                                            @endif
+                                        @else
+                                            <span class="text-xs text-zinc-400 dark:text-zinc-500 italic">{{ __('Unavailable') }}</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-3 px-3 font-mono text-xs text-zinc-700 dark:text-zinc-300" data-testid="recent-futures-currency-{{ strtolower($item['symbol']) }}">
+                                        {{ $item['currency'] }}
+                                    </td>
+                                    <td class="py-3 px-3 font-mono text-xs text-zinc-600 dark:text-zinc-400" data-testid="recent-futures-time-{{ strtolower($item['symbol']) }}">
+                                        @if (! empty($item['quote_time_formatted']))
+                                            <span title="{{ $item['quote_datetime_formatted'] }}">{{ $item['quote_time_formatted'] }}</span>
+                                        @else
+                                            <span class="text-zinc-400 dark:text-zinc-500">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-3 px-3 text-right">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset {{ $badgeClasses }}"
+                                              data-testid="recent-futures-freshness-{{ strtolower($item['symbol']) }}">
+                                            {{ $freshness['label'] }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @else
+                <div class="py-8 px-4 text-center rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40" data-testid="futures-empty-history">
+                    <p class="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        {{ __('No recently visited futures instruments yet.') }}
+                    </p>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-md mx-auto">
+                        {{ __('Open any supported commodity futures instrument below to view its interactive Vela chart and news timeline. Your last three visited contracts will appear here automatically.') }}
+                    </p>
+                </div>
+            @endif
+
+            @if (! empty($supportedFutures))
+                <div class="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap items-center gap-2" data-testid="supported-futures-links">
+                    <span class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mr-1">
+                        {{ __('Supported Futures:') }}
+                    </span>
+                    @foreach ($supportedFutures as $inst)
+                        <a href="{{ $inst['url'] }}"
+                           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-amber-50 hover:border-amber-300 dark:hover:bg-amber-950/40 dark:hover:border-amber-800 text-zinc-700 dark:text-zinc-300 transition-colors"
+                           data-testid="supported-futures-link-{{ $inst['route_symbol'] }}">
+                            <span class="font-mono font-bold text-zinc-900 dark:text-white">{{ $inst['symbol'] }}</span>
+                            <span class="text-zinc-500 dark:text-zinc-400">{{ $inst['name'] }}</span>
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+        </div>
     @else
         {{-- Stock Mode Dashboard --}}
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-1 border-b border-zinc-200/70 dark:border-zinc-800/80">

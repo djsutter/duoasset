@@ -198,7 +198,7 @@ class EnrichEarningsEvent implements ShouldQueue
             $needsSave = true;
         }
 
-        if ($hasAlertScanRunCol && $effectiveRunId !== null && ($alert->wasRecentlyCreated || $this->forceRescan || $alert->scan_run_id === null)) {
+        if ($hasAlertScanRunCol && $effectiveRunId !== null && (int) $alert->scan_run_id !== (int) $effectiveRunId) {
             $alert->scan_run_id = $effectiveRunId;
             $needsSave = true;
         }

@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::job(new ValuationCatchUp)->everyFifteenMinutes();
 
 // Earnings surprise scanner — every 5 minutes during market/earnings hours.
-Schedule::command('earnings:scan-surprises')
+// Intraday sweeps refresh the watchlist without sending partial digest emails.
+Schedule::command('earnings:scan-surprises --no-digest')
     ->weekdays()
     ->timezone('America/Toronto')
     ->between('06:00', '18:00')
@@ -24,7 +25,7 @@ Schedule::command('earnings:scan-surprises')
     ->runInBackground();
 
 // Additional evening sweep for late-filed reports.
-Schedule::command('earnings:scan-surprises')
+Schedule::command('earnings:scan-surprises --no-digest')
     ->weekdays()
     ->timezone('America/Toronto')
     ->dailyAt('20:30')

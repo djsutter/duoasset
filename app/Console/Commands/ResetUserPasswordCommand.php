@@ -74,6 +74,12 @@ class ResetUserPasswordCommand extends Command
             return self::FAILURE;
         }
 
+        if ($user->isAnonymousUser() || ! $user->canResetPassword()) {
+            $this->error('Password reset is disabled for the system Anonymous User account.');
+
+            return self::FAILURE;
+        }
+
         $isGenerated = false;
         $password = null;
 

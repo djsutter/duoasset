@@ -23,7 +23,9 @@ class ScanEarningsSurprises extends Command
         {--from= : YYYY-MM-DD (default today - 1)}
         {--to= : YYYY-MM-DD (default today + 1)}
         {--fresh : bypass earnings cache and fetch fresh surprises and calendar}
-        {--force : reprocess existing records or force fresh fetch}';
+        {--force : reprocess existing records or force fresh fetch}
+        {--no-digest : do not dispatch digest emails on this run}
+        {--scan-run-id= : attach evaluated events and alerts to an existing coordinated EarningsScanRun ID}';
 
     protected $description = 'Scan FMP earnings calendar/surprises and upsert qualifying events.';
 
@@ -91,7 +93,16 @@ class ScanEarningsSurprises extends Command
         $hasEventScanRunCol = Schema::hasTable('earnings_events') && Schema::hasColumn('earnings_events', 'scan_run_id');
         $hasAlertScanRunCol = Schema::hasTable('earnings_alerts') && Schema::hasColumn('earnings_alerts', 'scan_run_id');
 
-        $scanRun = $hasScanRunsTable
+        $coordinator = app(\App\Services\Notifications\ScannerDigestCoordinator::class);
+        $explicitRunId = $this->option('scan-run-id');
+        $coordinatedRun = $hasScanRunsTable
+            ? (is_numeric($explicitRunId)
+                ? EarningsScanRun::find((int) $explicitRunId)
+                : $coordinator->activeCollectionRun(NotificationDigestDelivery::CATEGORY_EPS_SURPRISE))
+            : null;
+        $isCoordinatedSlice = $coordinatedRun !== null;
+
+        $scanRun = $coordinatedRun ?? ($hasScanRunsTable
             ? EarningsScanRun::create([
                 'started_at' => now(),
                 'status' => EarningsScanRun::STATUS_RUNNING,
@@ -99,7 +110,7 @@ class ScanEarningsSurprises extends Command
                 'from_date' => $from->toDateString(),
                 'to_date' => $to->toDateString(),
             ])
-            : null;
+            : null);
 
         $processed = 0;
         $dispatched = 0;
@@ -212,22 +223,34 @@ class ScanEarningsSurprises extends Command
         }
 
         if ($scanRun !== null) {
-            $alertsInRun = $hasAlertScanRunCol
-                ? EarningsAlert::where('scan_run_id', $scanRun->id)->count()
-                : $dispatched;
+            if ($isCoordinatedSlice) {
+                $coordinator->recordEarningsSliceSummary(
+                    $scanRun->id,
+                    $processed,
+                    $errors,
+                    $from->toDateString(),
+                    $to->toDateString(),
+                );
+            } else {
+                $alertsInRun = $hasAlertScanRunCol
+                    ? EarningsAlert::where('scan_run_id', $scanRun->id)->count()
+                    : $dispatched;
 
-            $scanRun->update([
-                'status' => EarningsScanRun::STATUS_COMPLETED,
-                'completed_at' => now(),
-                'events_processed' => $processed,
-                'alerts_created' => $alertsInRun,
-                'error_count' => $errors,
-            ]);
+                $scanRun->update([
+                    'status' => EarningsScanRun::STATUS_COMPLETED,
+                    'completed_at' => now(),
+                    'events_processed' => $processed,
+                    'alerts_created' => $alertsInRun,
+                    'error_count' => $errors,
+                ]);
 
-            PrepareScannerRunDigests::dispatch(
-                NotificationDigestDelivery::CATEGORY_EPS_SURPRISE,
-                $scanRun->id,
-            );
+                if (! $this->option('no-digest')) {
+                    PrepareScannerRunDigests::dispatch(
+                        NotificationDigestDelivery::CATEGORY_EPS_SURPRISE,
+                        $scanRun->id,
+                    );
+                }
+            }
         }
 
         $this->info("Processed: $processed, enrichment jobs dispatched: $dispatched");

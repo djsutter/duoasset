@@ -16,6 +16,13 @@ new #[Layout('components.layouts.auth')] class extends Component {
             'email' => ['required', 'string', 'email'],
         ]);
 
+        $targetUser = \App\Models\User::where('email', $this->email)->first();
+        if ($targetUser && ($targetUser->isAnonymousUser() || ! $targetUser->canResetPassword())) {
+            $this->addError('email', __('Password reset is disabled for the system Anonymous User account.'));
+
+            return;
+        }
+
         Password::sendResetLink($this->only('email'));
 
         session()->flash('status', __('A reset link will be sent if the account exists.'));

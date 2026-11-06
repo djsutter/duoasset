@@ -86,6 +86,22 @@ class Show extends Component
         $classifier ??= app(InstrumentClassifier::class);
         $newsService ??= app(InstrumentNewsService::class);
 
+        $authResolver = app(\App\Services\Auth\AuthorizationResolver::class);
+        if ($classifier->isFutures($this->symbol)) {
+            $this->symbol = $classifier->normalizeFuturesSymbol($this->symbol);
+            $this->canonicalSymbol = strtolower($this->symbol);
+
+            if (! $authResolver->canAccessFutures(\Illuminate\Support\Facades\Auth::user())) {
+                abort(403, 'Access denied: Futures Subscriber role required.');
+            }
+            app(\App\Services\Dashboard\RecentFuturesService::class)->recordVisit(
+                $this->symbol,
+                \Illuminate\Support\Facades\Auth::user()
+            );
+        } elseif (! $authResolver->canAccessStocks(\Illuminate\Support\Facades\Auth::user())) {
+            abort(403, 'Access denied: Equities access required.');
+        }
+
         // 1. Locate local stock record if present
         $this->stock = Stock::where('symbol', $this->symbol)->first();
 
@@ -332,6 +348,13 @@ class Show extends Component
 
     public function getMarketDataTimestampProperty(): ?string
     {
+        if (! empty($this->quote['timestamp']) && is_numeric($this->quote['timestamp'])) {
+            $ts = (int) $this->quote['timestamp'];
+            $ts = $ts > 100_000_000_000 ? (int) floor($ts / 1000) : $ts;
+
+            return Carbon::createFromTimestampUTC($ts)->setTimezone('America/New_York')->format('Y-m-d H:i:s T');
+        }
+
         // Try to derive timestamp from candle data if available
         if (! empty($this->candles)) {
             $lastCandle = end($this->candles);

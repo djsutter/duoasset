@@ -200,6 +200,8 @@ class StockBuySetupRun extends Model
             $screenerRejected = (int) (($run->summary_data ?? [])['screener_rejected_count'] ?? 0);
             if (
                 $run->trigger !== 'cli-sync'
+                && $run->trigger !== 'coordinated'
+                && $run->status !== 'collecting'
                 && $run->status !== 'completed'
                 && $run->symbols_considered > 0
                 && ($run->scored_count + $screenerRejected) >= $run->symbols_considered
@@ -225,7 +227,7 @@ class StockBuySetupRun extends Model
      *
      * @param  array<string, mixed>  $summary
      */
-    public function finishSync(array $summary, float $elapsedSeconds): void
+    public function finishSync(array $summary, float $elapsedSeconds, bool $suppressDigest = false): void
     {
         $categorized = $summary['categories'] ?? [];
         if (empty($categorized)) {
@@ -253,10 +255,12 @@ class StockBuySetupRun extends Model
             ]),
         ]);
 
-        PrepareScannerRunDigests::dispatch(
-            NotificationDigestDelivery::CATEGORY_SETUP_SCORING,
-            $this->id,
-        );
+        if (! $suppressDigest) {
+            PrepareScannerRunDigests::dispatch(
+                NotificationDigestDelivery::CATEGORY_SETUP_SCORING,
+                $this->id,
+            );
+        }
     }
 
     /**

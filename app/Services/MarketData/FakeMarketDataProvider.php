@@ -89,11 +89,57 @@ class FakeMarketDataProvider implements MarketDataProvider
         return $this->surpriseRows;
     }
 
+    protected function normalizeFuturesAlias(string $symbol): string
+    {
+        $sym = strtoupper(trim($symbol));
+        if ($sym === '') {
+            return '';
+        }
+
+        $aliases = (array) config('market_data.futures.aliases', []);
+        if (isset($aliases[$sym])) {
+            return strtoupper(trim((string) $aliases[$sym]));
+        }
+
+        if (str_ends_with($sym, 'USDT') && strlen($sym) > 4) {
+            $usdCandidate = substr($sym, 0, -1);
+            $configured = (array) config('market_data.futures.instruments', []);
+            if (isset($configured[$usdCandidate])) {
+                return $usdCandidate;
+            }
+            foreach ($this->commodities as $item) {
+                if (is_array($item) && strtoupper(trim((string) ($item['symbol'] ?? ''))) === $usdCandidate) {
+                    return $usdCandidate;
+                }
+            }
+        }
+
+        return $sym;
+    }
+
     public function quote(string $symbol): ?array
     {
-        $symbol = strtoupper(trim($symbol));
+        $raw = strtoupper(trim($symbol));
+        $normalized = $this->normalizeFuturesAlias($raw);
 
-        return $this->quotes[$symbol] ?? null;
+        return $this->quotes[$raw] ?? $this->quotes[$normalized] ?? null;
+    }
+
+    /**
+     * @param  list<string>  $symbols
+     * @return array<string, array<string, mixed>|null>
+     */
+    public function quotes(array $symbols): array
+    {
+        $out = [];
+        foreach ($symbols as $symbol) {
+            $sym = strtoupper(trim((string) $symbol));
+            if ($sym !== '') {
+                $out[$sym] = $this->quote($sym);
+            }
+        }
+
+        return $out;
     }
 
     public function profile(string $symbol): ?array
@@ -141,16 +187,22 @@ class FakeMarketDataProvider implements MarketDataProvider
 
     public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
     {
-        $symbol = strtoupper(trim($symbol));
+        $raw = strtoupper(trim($symbol));
+        $normalized = $this->normalizeFuturesAlias($raw);
 
-        return $this->dailyBars[$symbol] ?? [];
+        return $this->dailyBars[$raw] ?? $this->dailyBars[$normalized] ?? [];
     }
 
     public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array
     {
-        $symbol = strtoupper(trim($symbol));
+        $raw = strtoupper(trim($symbol));
+        $normalized = $this->normalizeFuturesAlias($raw);
 
-        return $this->intradayBars["{$symbol}:{$interval}"] ?? $this->intradayBars[$symbol] ?? [];
+        return $this->intradayBars["{$raw}:{$interval}"]
+            ?? $this->intradayBars[$raw]
+            ?? $this->intradayBars["{$normalized}:{$interval}"]
+            ?? $this->intradayBars[$normalized]
+            ?? [];
     }
 
     public function commoditiesList(): array

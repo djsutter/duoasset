@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\User;
+use App\Services\Auth\AuthorizationResolver;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -22,23 +23,32 @@ class MainNavigation extends Component
      */
     public function toggleViewMode(?string $mode = null): void
     {
+        $resolver = app(AuthorizationResolver::class);
         /** @var User|null $user */
         $user = Auth::user();
 
-        if (! $user || ! $user->canToggleViewMode()) {
+        if (! $resolver->canToggleViewMode($user)) {
             abort(403, 'Unauthorized to toggle view mode.');
         }
 
         $currentMode = $this->getViewMode();
         $targetMode = $mode ? strtolower(trim($mode)) : ($currentMode === 'stocks' ? 'crypto' : 'stocks');
 
-        if (! in_array($targetMode, ['stocks', 'crypto'], true)) {
-            abort(400, "Invalid view mode [{$mode}]. Must be 'stocks' or 'crypto'.");
+        if (! in_array($targetMode, User::VALID_VIEW_MODES, true)) {
+            abort(400, "Invalid view mode [{$mode}]. Must be 'stocks', 'crypto', or 'futures'.");
         }
 
-        $user->setViewMode($targetMode);
+        $resolver->selectContext($targetMode, $user);
 
         $this->dispatch('view-mode-updated', mode: $targetMode);
+
+        $referer = (string) request()->headers->get('referer', '');
+        if ($referer !== '') {
+            $path = '/' . ltrim((string) parse_url($referer, PHP_URL_PATH), '/');
+            if ($path !== '/' && $path !== '/dashboard' && ! str_starts_with($path, '/livewire')) {
+                $this->redirect(route('dashboard'), navigate: false);
+            }
+        }
     }
 
     /**
@@ -50,28 +60,15 @@ class MainNavigation extends Component
     }
 
     /**
-     * Resolve the active view mode based on the authenticated user.
+     * Resolve the active view mode based on the authenticated user or anonymous visitor.
      */
     public function getViewMode(): string
     {
+        $resolver = app(AuthorizationResolver::class);
         /** @var User|null $user */
         $user = Auth::user();
 
-        if (! $user) {
-            return 'stocks';
-        }
-
-        $activeMode = $user->fresh()?->activeViewMode() ?? $user->activeViewMode();
-
-        if ($activeMode === 'crypto' && ! $user->hasCryptoAccess()) {
-            return 'stocks';
-        }
-
-        if ($activeMode === 'stocks' && ! $user->hasStockAccess()) {
-            return 'crypto';
-        }
-
-        return $activeMode;
+        return $resolver->resolveActiveContext($user) ?? 'stocks';
     }
 
     /**
@@ -114,6 +111,39 @@ class MainNavigation extends Component
             ],
         ];
 
+        $futuresItems = [
+            [
+                'route' => 'futures.show',
+                'parameters' => ['symbol' => 'gcusd'],
+                'icon' => 'chart-bar',
+                'title' => 'Gold (GCUSD)',
+            ],
+            [
+                'route' => 'futures.show',
+                'parameters' => ['symbol' => 'siusd'],
+                'icon' => 'chart-bar',
+                'title' => 'Silver (SIUSD)',
+            ],
+            [
+                'route' => 'futures.show',
+                'parameters' => ['symbol' => 'clusd'],
+                'icon' => 'chart-bar',
+                'title' => 'Crude Oil (CLUSD)',
+            ],
+            [
+                'route' => 'futures.show',
+                'parameters' => ['symbol' => 'ngusd'],
+                'icon' => 'chart-bar',
+                'title' => 'Natural Gas (NGUSD)',
+            ],
+            [
+                'route' => 'futures.show',
+                'parameters' => ['symbol' => 'hgusd'],
+                'icon' => 'chart-bar',
+                'title' => 'Copper (HGUSD)',
+            ],
+        ];
+
         $stockItems = [
             [
                 'route' => 'stocks.index',
@@ -145,22 +175,27 @@ class MainNavigation extends Component
             ],
         ];
 
-        return array_merge(
-            [$dashboardItem],
-            $viewMode === 'crypto' ? $cryptoItems : $stockItems
-        );
+        $contextItems = match ($viewMode) {
+            'crypto' => $cryptoItems,
+            'futures' => $futuresItems,
+            default => $stockItems,
+        };
+
+        return array_merge([$dashboardItem], $contextItems);
     }
 
     public function render()
     {
+        $resolver = app(AuthorizationResolver::class);
         /** @var User|null $user */
         $user = Auth::user();
 
         return view('livewire.main-navigation', [
             'menuItems' => $this->getMenuItems(),
             'viewMode' => $this->getViewMode(),
-            'canToggleViewMode' => $user?->canToggleViewMode() ?? false,
-            'isGuest' => $user?->isGuest() ?? false,
+            'canToggleViewMode' => $resolver->canToggleViewMode($user),
+            'permittedModes' => $resolver->permittedContexts($user),
+            'isGuest' => $user ? $user->isGuest() : false,
         ]);
     }
 }

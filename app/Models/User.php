@@ -7,17 +7,32 @@ use App\Notifications\AccountActivationNotification;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use LogicException;
+use Throwable;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
+
+    public const ANONYMOUS_EMAIL = 'anonymous@duoasset.local';
+
+    public const ANONYMOUS_NAME = 'Anonymous User';
+
+    public const VALID_VIEW_MODES = ['stocks', 'crypto', 'futures'];
+
+    /**
+     * @var array<string, bool>
+     */
+    protected static array $schemaColumnCache = [];
 
     /**
      * The model's default values for attributes.
@@ -27,6 +42,7 @@ class User extends Authenticatable implements MustVerifyEmail
     protected $attributes = [
         'role' => 'guest',
         'view_mode' => 'stocks',
+        'is_anonymous' => false,
         'credit_balance' => 0.00,
         'timezone' => 'America/New_York',
         'notify_eps_earnings' => true,
@@ -51,7 +67,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'notify_stock_buy_setup',
         'email_setup_scoring_digest',
         'role',
+        'assigned_roles',
         'view_mode',
+        'is_anonymous',
+        'recent_futures',
         'credit_balance',
         'timezone',
     ];
@@ -98,24 +117,239 @@ class User extends Authenticatable implements MustVerifyEmail
             'notify_stock_buy_setup' => 'boolean',
             'email_setup_scoring_digest' => 'boolean',
             'role' => UserRole::class,
+            'assigned_roles' => 'array',
+            'is_anonymous' => 'boolean',
+            'recent_futures' => 'array',
             'credit_balance' => 'decimal:2',
             'two_factor_expires_at' => 'datetime',
         ];
     }
 
+    public static function clearSchemaColumnCache(): void
+    {
+        self::$schemaColumnCache = [];
+    }
+
+    public static function hasSchemaColumn(string $column): bool
+    {
+        $conn = static::query()->getConnection()->getName();
+        $key = $conn.':'.$column;
+
+        if (array_key_exists($key, self::$schemaColumnCache)) {
+            return self::$schemaColumnCache[$key];
+        }
+
+        try {
+            return self::$schemaColumnCache[$key] = Schema::hasTable('users') && Schema::hasColumn('users', $column);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public static function ensureAnonymousSchema(): bool
+    {
+        try {
+            if (! Schema::hasTable('users')) {
+                return false;
+            }
+
+            $missingAnon = ! static::hasSchemaColumn('is_anonymous');
+            $missingRoles = ! static::hasSchemaColumn('assigned_roles');
+            $missingFutures = ! static::hasSchemaColumn('recent_futures');
+
+            if (! $missingAnon && ! $missingRoles && ! $missingFutures) {
+                return true;
+            }
+
+            Schema::table('users', function (Blueprint $table) use ($missingAnon, $missingRoles, $missingFutures) {
+                if ($missingAnon && ! Schema::hasColumn('users', 'is_anonymous')) {
+                    $table->boolean('is_anonymous')->default(false)->index()->after('view_mode');
+                }
+                if ($missingRoles && ! Schema::hasColumn('users', 'assigned_roles')) {
+                    $table->json('assigned_roles')->nullable()->after('role');
+                }
+                if ($missingFutures && ! Schema::hasColumn('users', 'recent_futures')) {
+                    $table->json('recent_futures')->nullable()->after('view_mode');
+                }
+            });
+
+            static::clearSchemaColumnCache();
+
+            return static::hasSchemaColumn('is_anonymous');
+        } catch (Throwable) {
+            static::clearSchemaColumnCache();
+
+            return false;
+        }
+    }
+
+    /**
+     * Idempotently retrieve or create the system-managed Anonymous User account.
+     *
+     * Note: Does NOT grant Futures Subscriber by default. Role assignment is an
+     * explicit administrator-controlled decision.
+     */
+    public static function ensureAnonymousUser(): self
+    {
+        static::ensureAnonymousSchema();
+
+        $query = static::query();
+        if (static::hasSchemaColumn('is_anonymous')) {
+            $existing = (clone $query)->where('is_anonymous', true)->first();
+            if ($existing) {
+                return $existing;
+            }
+        }
+
+        $existing = (clone $query)
+            ->where('email', self::ANONYMOUS_EMAIL)
+            ->orWhere('name', self::ANONYMOUS_NAME)
+            ->first();
+
+        if ($existing) {
+            $needsSave = false;
+            if (static::hasSchemaColumn('is_anonymous') && ! $existing->is_anonymous) {
+                $existing->is_anonymous = true;
+                $needsSave = true;
+            }
+            if ($existing->name !== self::ANONYMOUS_NAME) {
+                $existing->name = self::ANONYMOUS_NAME;
+                $needsSave = true;
+            }
+            if ($existing->email !== self::ANONYMOUS_EMAIL) {
+                $existing->email = self::ANONYMOUS_EMAIL;
+                $needsSave = true;
+            }
+            if ($needsSave) {
+                $existing->save();
+            }
+
+            return $existing;
+        }
+
+        $user = new static;
+        $fill = [
+            'name' => self::ANONYMOUS_NAME,
+            'email' => self::ANONYMOUS_EMAIL,
+            'password' => Hash::make(Str::random(64)),
+            'role' => UserRole::GUEST,
+            'view_mode' => 'stocks',
+            'credit_balance' => 0.00,
+            'email_verified_at' => null,
+            'activation_token' => null,
+            'notify_eps_earnings' => false,
+            'email_eps_surprise_digest' => false,
+            'notify_eps_revisions' => false,
+            'notify_stock_buy_setup' => false,
+            'email_setup_scoring_digest' => false,
+        ];
+
+        if (static::hasSchemaColumn('is_anonymous')) {
+            $fill['is_anonymous'] = true;
+        }
+        if (static::hasSchemaColumn('assigned_roles')) {
+            $fill['assigned_roles'] = [];
+        }
+        if (static::hasSchemaColumn('recent_futures')) {
+            $fill['recent_futures'] = [];
+        }
+
+        $user->forceFill($fill)->save();
+
+        return $user;
+    }
+
+    public static function anonymousUser(): self
+    {
+        return static::ensureAnonymousUser();
+    }
+
+    public static function anonymous(): self
+    {
+        return static::ensureAnonymousUser();
+    }
+
+    public function isAnonymousUser(): bool
+    {
+        if (! empty($this->attributes['is_anonymous'])) {
+            return true;
+        }
+
+        $email = strtolower(trim((string) ($this->attributes['email'] ?? '')));
+        $name = trim((string) ($this->attributes['name'] ?? ''));
+
+        return $email === self::ANONYMOUS_EMAIL || $name === self::ANONYMOUS_NAME;
+    }
+
+    public function isAnonymous(): bool
+    {
+        return $this->isAnonymousUser();
+    }
+
+    public function canLogin(): bool
+    {
+        return ! $this->isAnonymousUser();
+    }
+
+    public function canResetPassword(): bool
+    {
+        return ! $this->isAnonymousUser();
+    }
+
+    public function canBeDeleted(): bool
+    {
+        return ! $this->isAnonymousUser();
+    }
+
+    public function canBeImpersonated(): bool
+    {
+        return ! $this->isAnonymousUser();
+    }
+
     protected static function booted(): void
     {
         static::saving(function (self $user) {
-            if ($user->isDirty('email_eps_surprise_digest') && ! $user->isDirty('notify_eps_earnings')) {
-                $user->notify_eps_earnings = (bool) $user->email_eps_surprise_digest;
-            } elseif ($user->isDirty('notify_eps_earnings') && ! $user->isDirty('email_eps_surprise_digest')) {
-                $user->email_eps_surprise_digest = (bool) $user->notify_eps_earnings;
+            if ($user->isAnonymousUser()) {
+                $user->name = self::ANONYMOUS_NAME;
+                $user->email = self::ANONYMOUS_EMAIL;
+                $user->email_verified_at = null;
+                $user->activation_token = null;
+                $user->notify_eps_earnings = false;
+                $user->email_eps_surprise_digest = false;
+                $user->notify_eps_revisions = false;
+                $user->notify_stock_buy_setup = false;
+                $user->email_setup_scoring_digest = false;
+                if (static::hasSchemaColumn('is_anonymous')) {
+                    $user->is_anonymous = true;
+                }
+                if (static::hasSchemaColumn('recent_futures')) {
+                    $user->recent_futures = [];
+                }
+            } else {
+                if ($user->isDirty('email_eps_surprise_digest') && ! $user->isDirty('notify_eps_earnings')) {
+                    $user->notify_eps_earnings = (bool) $user->email_eps_surprise_digest;
+                } elseif ($user->isDirty('notify_eps_earnings') && ! $user->isDirty('email_eps_surprise_digest')) {
+                    $user->email_eps_surprise_digest = (bool) $user->notify_eps_earnings;
+                }
+
+                if ($user->isDirty('email_setup_scoring_digest') && ! $user->isDirty('notify_stock_buy_setup')) {
+                    $user->notify_stock_buy_setup = (bool) $user->email_setup_scoring_digest;
+                } elseif ($user->isDirty('notify_stock_buy_setup') && ! $user->isDirty('email_setup_scoring_digest')) {
+                    $user->email_setup_scoring_digest = (bool) $user->notify_stock_buy_setup;
+                }
             }
 
-            if ($user->isDirty('email_setup_scoring_digest') && ! $user->isDirty('notify_stock_buy_setup')) {
-                $user->notify_stock_buy_setup = (bool) $user->email_setup_scoring_digest;
-            } elseif ($user->isDirty('notify_stock_buy_setup') && ! $user->isDirty('email_setup_scoring_digest')) {
-                $user->email_setup_scoring_digest = (bool) $user->notify_stock_buy_setup;
+            // Strip any schema columns that haven't been migrated yet to keep saves resilient
+            foreach (['is_anonymous', 'assigned_roles', 'recent_futures'] as $optionalCol) {
+                if (array_key_exists($optionalCol, $user->attributes) && ! static::hasSchemaColumn($optionalCol)) {
+                    unset($user->attributes[$optionalCol]);
+                }
+            }
+        });
+
+        static::deleting(function (self $user) {
+            if ($user->isAnonymousUser()) {
+                throw new LogicException('The system Anonymous User account cannot be deleted.');
             }
         });
     }
@@ -126,6 +360,10 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function isSubscribedToDigest(string $category): bool
     {
+        if ($this->isAnonymousUser()) {
+            return false;
+        }
+
         if ($category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE) {
             if (! $this->email_eps_surprise_digest || ! $this->notify_eps_earnings) {
                 return false;
@@ -215,30 +453,240 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
-     * Assign a new role to the user and align view_mode if single-domain.
+     * Return all roles assigned to this user as UserRole enum instances.
+     *
+     * For the Anonymous User, returns only explicitly assigned non-guest roles.
+     *
+     * @return list<UserRole>
+     */
+    public function assignedRoles(): array
+    {
+        $roles = [];
+
+        $rawAssigned = $this->attributes['assigned_roles'] ?? null;
+        if (is_string($rawAssigned) && $rawAssigned !== '') {
+            $decoded = json_decode($rawAssigned, true);
+            $rawAssigned = is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_array($rawAssigned)) {
+            foreach ($rawAssigned as $item) {
+                try {
+                    $resolved = UserRole::resolve($item);
+                    if ($this->isAnonymousUser() && $resolved === UserRole::GUEST) {
+                        continue;
+                    }
+                    $roles[$resolved->value] = $resolved;
+                } catch (Throwable) {
+                }
+            }
+        }
+
+        $primaryRole = $this->role;
+        if ($primaryRole instanceof UserRole) {
+            if (! $this->isAnonymousUser() || $primaryRole !== UserRole::GUEST) {
+                $roles[$primaryRole->value] = $primaryRole;
+            }
+        }
+
+        if (empty($roles) && ! $this->isAnonymousUser()) {
+            $roles[UserRole::GUEST->value] = UserRole::GUEST;
+        }
+
+        return array_values($roles);
+    }
+
+    /**
+     * Check whether the user has a specific role assigned.
+     */
+    public function hasRole(UserRole|string $role): bool
+    {
+        try {
+            $target = UserRole::resolve($role);
+        } catch (Throwable) {
+            return false;
+        }
+
+        if ($this->isAnonymousUser() && $target === UserRole::GUEST) {
+            return empty($this->assignedRoles());
+        }
+
+        return in_array($target, $this->assignedRoles(), true);
+    }
+
+    /**
+     * Assign a role to the user and align view_mode if single-domain.
+     * For the Anonymous User, assigning a non-guest role adds it to assigned_roles.
      */
     public function assignRole(UserRole|string $role): static
     {
-        $targetRole = is_string($role) ? UserRole::from($role) : $role;
+        static::ensureAnonymousSchema();
+
+        $targetRole = UserRole::resolve($role);
+
+        if ($this->isAnonymousUser()) {
+            if ($targetRole === UserRole::GUEST) {
+                $this->role = UserRole::GUEST;
+                if (static::hasSchemaColumn('assigned_roles')) {
+                    $this->assigned_roles = [];
+                }
+            } else {
+                $current = array_map(fn (UserRole $r) => $r->value, $this->assignedRoles());
+                if (! in_array($targetRole->value, $current, true)) {
+                    $current[] = $targetRole->value;
+                }
+                $this->role = $targetRole;
+                if (static::hasSchemaColumn('assigned_roles')) {
+                    $this->assigned_roles = array_values(array_unique($current));
+                }
+            }
+
+            if ($this->exists) {
+                $this->save();
+            }
+
+            return $this;
+        }
+
         $this->role = $targetRole;
+        if (static::hasSchemaColumn('assigned_roles')) {
+            $this->assigned_roles = $targetRole === UserRole::GUEST ? [] : [$targetRole->value];
+        }
 
         if ($targetRole === UserRole::CRYPTO) {
             $this->view_mode = 'crypto';
+        } elseif ($targetRole === UserRole::FUTURES) {
+            $this->view_mode = 'futures';
         } elseif ($targetRole === UserRole::EQUITIES || $targetRole === UserRole::GUEST) {
             $this->view_mode = 'stocks';
         }
 
-        $this->save();
+        if ($this->exists) {
+            $this->save();
+        }
 
         return $this;
     }
 
     /**
-     * Remove role from the user by resetting to guest.
+     * Add an additional role without removing existing assigned roles.
      */
-    public function removeRole(): static
+    public function addRole(UserRole|string $role): static
     {
-        return $this->assignRole(UserRole::GUEST);
+        static::ensureAnonymousSchema();
+
+        $targetRole = UserRole::resolve($role);
+        if ($targetRole === UserRole::GUEST) {
+            return $this;
+        }
+
+        $current = array_values(array_filter(
+            array_map(fn (UserRole $r) => $r->value, $this->assignedRoles()),
+            fn (string $v) => $v !== UserRole::GUEST->value
+        ));
+
+        if (! in_array($targetRole->value, $current, true)) {
+            $current[] = $targetRole->value;
+        }
+
+        $this->role = $targetRole;
+        if (static::hasSchemaColumn('assigned_roles')) {
+            $this->assigned_roles = array_values(array_unique($current));
+        }
+
+        if (! $this->isAnonymousUser()) {
+            $permitted = $this->permittedViewModes();
+            if (! in_array($this->view_mode, $permitted, true) && ! empty($permitted)) {
+                $this->view_mode = $permitted[0];
+            }
+        }
+
+        if ($this->exists) {
+            $this->save();
+        }
+
+        return $this;
+    }
+
+    /**
+     * Synchronize the user's roles to the exact provided list.
+     *
+     * @param  iterable<UserRole|string>  $roles
+     */
+    public function syncRoles(iterable $roles): static
+    {
+        static::ensureAnonymousSchema();
+
+        $normalized = [];
+        foreach ($roles as $r) {
+            try {
+                $resolved = UserRole::resolve($r);
+                if ($resolved !== UserRole::GUEST) {
+                    $normalized[$resolved->value] = $resolved;
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        if (empty($normalized)) {
+            $this->role = UserRole::GUEST;
+            if (static::hasSchemaColumn('assigned_roles')) {
+                $this->assigned_roles = [];
+            }
+            if (! $this->isAnonymousUser()) {
+                $this->view_mode = 'stocks';
+            }
+        } else {
+            $list = array_values($normalized);
+            $primary = end($list);
+            $this->role = $primary;
+            if (static::hasSchemaColumn('assigned_roles')) {
+                $this->assigned_roles = array_map(fn (UserRole $r) => $r->value, $list);
+            }
+            if (! $this->isAnonymousUser()) {
+                $permitted = $this->permittedViewModes();
+                if (! in_array($this->view_mode, $permitted, true) && ! empty($permitted)) {
+                    $this->view_mode = $permitted[0];
+                }
+            }
+        }
+
+        if ($this->exists) {
+            $this->save();
+        }
+
+        return $this;
+    }
+
+    /**
+     * Remove a specific role or all roles (resetting to guest when none remain).
+     */
+    public function removeRole(UserRole|string|null $role = null): static
+    {
+        static::ensureAnonymousSchema();
+
+        if ($role === null) {
+            $this->role = UserRole::GUEST;
+            if (static::hasSchemaColumn('assigned_roles')) {
+                $this->assigned_roles = [];
+            }
+            if (! $this->isAnonymousUser()) {
+                $this->view_mode = 'stocks';
+            }
+            if ($this->exists) {
+                $this->save();
+            }
+
+            return $this;
+        }
+
+        $targetRole = UserRole::resolve($role);
+        $remaining = array_values(array_filter(
+            $this->assignedRoles(),
+            fn (UserRole $r) => $r !== $targetRole && $r !== UserRole::GUEST
+        ));
+
+        return $this->syncRoles($remaining);
     }
 
     /**
@@ -257,7 +705,16 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function hasStockAccess(): bool
     {
-        return $this->role?->hasStockAccess() ?? false;
+        foreach ($this->assignedRoles() as $role) {
+            if ($this->isAnonymousUser() && $role === UserRole::GUEST) {
+                continue;
+            }
+            if ($role->hasStockAccess()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -265,15 +722,67 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function hasCryptoAccess(): bool
     {
-        return $this->role?->hasCryptoAccess() ?? false;
+        foreach ($this->assignedRoles() as $role) {
+            if ($role->hasCryptoAccess()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
-     * Check if the user can toggle between stocks and crypto view perspectives.
+     * Check if the user has access to futures market features.
+     */
+    public function hasFuturesAccess(): bool
+    {
+        foreach ($this->assignedRoles() as $role) {
+            if ($role->hasFuturesAccess()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Return the ordered list of dashboard view modes permitted for this user.
+     *
+     * @return list<string>
+     */
+    public function permittedViewModes(): array
+    {
+        $modes = [];
+        if ($this->hasStockAccess()) {
+            $modes[] = 'stocks';
+        }
+        if ($this->hasCryptoAccess()) {
+            $modes[] = 'crypto';
+        }
+        if ($this->hasFuturesAccess()) {
+            $modes[] = 'futures';
+        }
+
+        return $modes;
+    }
+
+    /**
+     * Check if the user can use the perspective/context switcher.
      */
     public function canToggleViewMode(): bool
     {
-        return $this->role?->canToggleViewMode() ?? false;
+        $permitted = $this->permittedViewModes();
+        if (count($permitted) > 1 || in_array('futures', $permitted, true)) {
+            return true;
+        }
+
+        foreach ($this->assignedRoles() as $role) {
+            if ($role->canToggleViewMode()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -281,7 +790,13 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function isHigherThanGuest(): bool
     {
-        return $this->role?->isHigherThanGuest() ?? false;
+        foreach ($this->assignedRoles() as $role) {
+            if ($role->isHigherThanGuest()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -289,15 +804,26 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function isGuest(): bool
     {
-        return $this->role === UserRole::GUEST;
+        return ! $this->isHigherThanGuest();
     }
 
     /**
      * Check if the user is an administrator.
+     * Note: The shared Anonymous User identity can never act as an interactive administrator.
      */
     public function isAdministrator(): bool
     {
-        return $this->role === UserRole::ADMINISTRATOR;
+        if ($this->isAnonymousUser()) {
+            return false;
+        }
+
+        foreach ($this->assignedRoles() as $role) {
+            if ($role === UserRole::ADMINISTRATOR) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -309,30 +835,44 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
-     * Get the effective/active view mode for the user.
+     * Get the effective/active view mode for the user, validated against current permissions.
      */
     public function activeViewMode(): string
     {
-        if ($this->role === UserRole::CRYPTO) {
-            return 'crypto';
+        $permitted = $this->permittedViewModes();
+
+        if ($this->isAnonymousUser()) {
+            $sessionMode = session('anonymous_view_mode');
+            if (is_string($sessionMode) && in_array($sessionMode, $permitted, true)) {
+                return $sessionMode;
+            }
+
+            return $permitted[0] ?? 'stocks';
         }
 
-        if ($this->role === UserRole::GUEST || $this->role === UserRole::EQUITIES) {
-            return 'stocks';
+        $saved = strtolower(trim((string) ($this->view_mode ?: 'stocks')));
+        if (in_array($saved, $permitted, true)) {
+            return $saved;
         }
 
-        return $this->view_mode ?: 'stocks';
+        return $permitted[0] ?? 'stocks';
     }
 
     /**
-     * Set and persist the view mode ('stocks' or 'crypto').
+     * Set and persist the view mode ('stocks', 'crypto', or 'futures').
      */
     public function setViewMode(string $mode): static
     {
         $normalized = strtolower(trim($mode));
 
-        if (! in_array($normalized, ['stocks', 'crypto'], true)) {
-            throw new InvalidArgumentException("Invalid view mode [{$mode}]. Must be 'stocks' or 'crypto'.");
+        if (! in_array($normalized, self::VALID_VIEW_MODES, true)) {
+            throw new InvalidArgumentException("Invalid view mode [{$mode}]. Must be 'stocks', 'crypto', or 'futures'.");
+        }
+
+        if ($this->isAnonymousUser()) {
+            session(['anonymous_view_mode' => $normalized]);
+
+            return $this;
         }
 
         $this->view_mode = $normalized;

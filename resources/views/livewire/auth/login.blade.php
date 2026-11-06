@@ -32,6 +32,16 @@ new #[Layout('components.layouts.auth')] class extends Component
 
         $this->ensureIsNotRateLimited();
 
+        /** @var User|null $candidate */
+        $candidate = User::where('email', $this->email)->first();
+        if ($candidate && ($candidate->isAnonymousUser() || ! $candidate->canLogin())) {
+            RateLimiter::hit($this->throttleKey());
+
+            throw ValidationException::withMessages([
+                'email' => __('Interactive login is disabled for the system Anonymous User account.'),
+            ]);
+        }
+
         if (! Auth::validate(['email' => $this->email, 'password' => $this->password])) {
             RateLimiter::hit($this->throttleKey());
 

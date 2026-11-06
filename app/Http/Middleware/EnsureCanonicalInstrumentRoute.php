@@ -27,7 +27,10 @@ class EnsureCanonicalInstrumentRoute
         }
 
         $actualType = $this->classifier->classify($symbol);
-        $canonicalSymbol = strtolower($symbol);
+        $resolvedSymbol = $actualType === InstrumentClassifier::TYPE_FUTURES
+            ? $this->classifier->normalizeFuturesSymbol($symbol)
+            : $symbol;
+        $canonicalSymbol = strtolower($resolvedSymbol);
 
         if ($expectedType === InstrumentClassifier::TYPE_STOCK && $actualType === InstrumentClassifier::TYPE_FUTURES) {
             $target = "/futures/{$canonicalSymbol}";
@@ -40,6 +43,21 @@ class EnsureCanonicalInstrumentRoute
 
         if ($expectedType === InstrumentClassifier::TYPE_FUTURES && $actualType === InstrumentClassifier::TYPE_STOCK) {
             $target = "/stock/{$canonicalSymbol}";
+            if ($request->getQueryString()) {
+                $target .= '?'.$request->getQueryString();
+            }
+
+            return redirect($target, 301);
+        }
+
+        // Redirect external futures symbol aliases (e.g. /futures/clusdt -> /futures/clusd)
+        // to the canonical FMP symbol URL.
+        if (
+            $expectedType === InstrumentClassifier::TYPE_FUTURES &&
+            $actualType === InstrumentClassifier::TYPE_FUTURES &&
+            strtolower($symbol) !== $canonicalSymbol
+        ) {
+            $target = "/futures/{$canonicalSymbol}";
             if ($request->getQueryString()) {
                 $target .= '?'.$request->getQueryString();
             }

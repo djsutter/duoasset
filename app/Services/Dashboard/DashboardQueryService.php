@@ -17,6 +17,16 @@ use Illuminate\Support\Facades\Cache;
 class DashboardQueryService
 {
     /**
+     * Request-scoped memoization for money flow snapshots to avoid duplicate queries
+     * when fetching both gainers and losers on a cold cache.
+     *
+     * @var Collection<int, SectorFlowSnapshot>|null
+     */
+    protected ?Collection $memoizedFlowSnapshots = null;
+
+    protected ?int $memoizedFlowCount = null;
+
+    /**
      * Top scoring setups market-wide.
      *
      * Only the latest alert per (symbol, setup_type) is considered (an older, higher score
@@ -27,6 +37,8 @@ class DashboardQueryService
      */
     public function topScoringSetups(int $limit = 2): Collection
     {
+        $candidateLimit = max(25, $limit * 10);
+
         $alerts = StockBuySetupAlert::query()
             ->from('stock_buy_setup_alerts as a')
             ->select('a.*')
@@ -44,6 +56,10 @@ class DashboardQueryService
                             });
                     });
             })
+            ->orderByDesc('a.setup_score')
+            ->orderByDesc('a.spike_date')
+            ->orderByDesc('a.id')
+            ->limit($candidateLimit)
             ->get();
 
         if ($alerts->isEmpty()) {
@@ -140,6 +156,17 @@ class DashboardQueryService
      */
     public function moneyFlowSnapshots(): Collection
     {
+        $totalCount = SectorFlowSnapshot::query()->count();
+        if ($this->memoizedFlowSnapshots !== null && $this->memoizedFlowCount === $totalCount) {
+            return $this->memoizedFlowSnapshots;
+        }
+
+        if ($totalCount === 0) {
+            $this->memoizedFlowCount = 0;
+
+            return $this->memoizedFlowSnapshots = collect();
+        }
+
         $hourly = SectorFlowSnapshot::query()
             ->latestForInterval(SectorFlowSnapshot::INTERVAL_HOURLY)
             ->get();
@@ -155,7 +182,9 @@ class DashboardQueryService
                 ->unique('sector');
         }
 
-        return $snapshots->filter(function (SectorFlowSnapshot $s) {
+        $this->memoizedFlowCount = $totalCount;
+
+        return $this->memoizedFlowSnapshots = $snapshots->filter(function (SectorFlowSnapshot $s) {
             return $s->daily_change_pct !== null || $s->hourly_change_pct !== null;
         })->values();
     }

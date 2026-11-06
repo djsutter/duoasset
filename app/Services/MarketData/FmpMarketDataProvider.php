@@ -70,98 +70,146 @@ class FmpMarketDataProvider implements MarketDataProvider
             return null;
         }
 
-        return Cache::remember("fmp.quote.$symbol", now()->addMinutes(2), function () use ($symbol) {
-            // Compose the StockQuote-compatible array from three FMP endpoints:
-            //   /quote                — price, volume, avg volume, $ change
-            //   /stock-price-change   — daily change percent (1D)
-            //   /profile              — market cap, exchange, company name
-            // Any endpoint that fails returns null and is simply skipped; we
-            // still try to build a usable response from whatever did come back.
-            $quote = $this->quoteRow($symbol) ?? [];
-            $isCommodityQuote = strtoupper((string) ($quote['exchange'] ?? '')) === 'COMMODITY';
-            $change = $isCommodityQuote ? [] : ($this->priceChange($symbol) ?? []);
-            $profile = $isCommodityQuote ? [] : ($this->profileRaw($symbol) ?? []);
+        $isConfiguredFutures = $this->isConfiguredFuturesSymbol($symbol);
+        if ($isConfiguredFutures) {
+            $symbol = $this->resolveFmpFuturesSymbol($symbol);
+        }
 
-            if (! $quote && ! $change && ! $profile) {
-                return null;
+        $cached = Cache::get("fmp.quote.$symbol");
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        // Compose the StockQuote-compatible array from three FMP endpoints:
+        //   /quote                — price, volume, avg volume, $ change
+        //   /stock-price-change   — daily change percent (1D)
+        //   /profile              — market cap, exchange, company name
+        // Any endpoint that fails returns null and is simply skipped; we
+        // still try to build a usable response from whatever did come back.
+        $fmpSymbol = $isConfiguredFutures ? $this->resolveFmpFuturesSymbol($symbol) : $symbol;
+
+        $quote = $this->quoteRow($fmpSymbol) ?? [];
+        $isCommodityQuote = $isConfiguredFutures || strtoupper((string) ($quote['exchange'] ?? '')) === 'COMMODITY';
+        $change = $isCommodityQuote ? [] : ($this->priceChange($symbol) ?? []);
+        $profile = $isCommodityQuote ? [] : ($this->profileRaw($symbol) ?? []);
+
+        if (! $quote && ! $change && ! $profile) {
+            if ($isConfiguredFutures) {
+                $fallbackQuote = $this->fetchYahooFuturesQuote($symbol);
+                if (is_array($fallbackQuote)) {
+                    Cache::put("fmp.quote.$symbol", $fallbackQuote, now()->addMinutes(2));
+
+                    return $fallbackQuote;
+                }
             }
 
-            return [
-                'symbol' => $symbol,
-                // On plans where /quote and /stock-price-change are 402-gated,
-                // /profile still returns price, volume, averageVolume, change
-                // and changePercentage — use them as a transparent fallback so
-                // AV throttle → FMP fallback in MarketWatchUpdateQuotes works.
-                'price' => $this->toFloat($quote['price'] ?? $profile['price'] ?? null),
-                'volume' => $this->toInt($quote['volume'] ?? $profile['volume'] ?? null),
-                'avg_volume' => $this->toInt(
-                    $quote['avgVolume']
-                        ?? $quote['averageVolume']
-                        ?? $profile['averageVolume']
-                        ?? $profile['avgVolume']
-                        ?? null,
-                ),
+            return null;
+        }
 
-                'daily_change' => $this->toFloat($quote['change'] ?? $profile['change'] ?? null),
-
-                'daily_change_percent' => $this->toFloat(
-                    $quote['changesPercentage']
-                        ?? $quote['changePercentage']
-                        ?? $profile['changePercentage']
-                        ?? $profile['changesPercentage']
-                        ?? $change['1D']
-                        ?? $change['1d']
-                        ?? null,
-                ),
-
-                // Shares-outstanding / float info from /profile (raw FMP field
-                // names: sharesOutstanding, floatShares, freeFloat).
-                'shares_outstanding' => $this->toInt(
-                    $profile['sharesOutstanding']
-                        ?? $profile['outstandingShares']
-                        ?? $quote['sharesOutstanding']
-                        ?? null,
-                ),
-                'float_shares' => $this->toInt(
-                    $profile['floatShares']
-                        ?? $quote['floatShares']
-                        ?? null,
-                ),
-                'free_float' => $this->toFloat(
-                    $profile['freeFloat']
-                        ?? $quote['freeFloat']
-                        ?? null,
-                ),
-
-                // market_cap is provided here as a fallback only — the
-                // canonical value is computed from price × shares_outstanding
-                // by the caller (see MarketDataProvider::computeMarketCap()).
-                'market_cap' => $this->toInt(
-                    $quote['marketCap']
-                        ?? $profile['marketCap']
-                        ?? $profile['mktCap']
-                        ?? null,
-                ),
-
-                'exchange' => $quote['exchange']
-                    ?? $profile['exchangeShortName']
-                    ?? $profile['exchange']
+        $result = [
+            'symbol' => $symbol,
+            // On plans where /quote and /stock-price-change are 402-gated,
+            // /profile still returns price, volume, averageVolume, change
+            // and changePercentage — use them as a transparent fallback so
+            // AV throttle → FMP fallback in MarketWatchUpdateQuotes works.
+            'price' => $this->toFloat($quote['price'] ?? $profile['price'] ?? null),
+            'volume' => $this->toInt($quote['volume'] ?? $profile['volume'] ?? null),
+            'avg_volume' => $this->toInt(
+                $quote['avgVolume']
+                    ?? $quote['averageVolume']
+                    ?? $profile['averageVolume']
+                    ?? $profile['avgVolume']
                     ?? null,
+            ),
 
-                'company_name' => $quote['name']
-                    ?? $profile['companyName']
-                    ?? $profile['name']
+            'daily_change' => $this->toFloat($quote['change'] ?? $profile['change'] ?? null),
+
+            'daily_change_percent' => $this->toFloat(
+                $quote['changesPercentage']
+                    ?? $quote['changePercentage']
+                    ?? $profile['changePercentage']
+                    ?? $profile['changesPercentage']
+                    ?? $change['1D']
+                    ?? $change['1d']
                     ?? null,
+            ),
 
-                'open' => $this->toFloat($quote['open'] ?? null),
-                'previous_close' => $this->toFloat($quote['previousClose'] ?? null),
-                'day_low' => $this->toFloat($quote['dayLow'] ?? null),
-                'day_high' => $this->toFloat($quote['dayHigh'] ?? null),
-                'year_low' => $this->toFloat($quote['yearLow'] ?? null),
-                'year_high' => $this->toFloat($quote['yearHigh'] ?? null),
-                'timestamp' => $this->toInt($quote['timestamp'] ?? null),
-            ];
-        });
+            // Shares-outstanding / float info from /profile (raw FMP field
+            // names: sharesOutstanding, floatShares, freeFloat).
+            'shares_outstanding' => $this->toInt(
+                $profile['sharesOutstanding']
+                    ?? $profile['outstandingShares']
+                    ?? $quote['sharesOutstanding']
+                    ?? null,
+            ),
+            'float_shares' => $this->toInt(
+                $profile['floatShares']
+                    ?? $quote['floatShares']
+                    ?? null,
+            ),
+            'free_float' => $this->toFloat(
+                $profile['freeFloat']
+                    ?? $quote['freeFloat']
+                    ?? null,
+            ),
+
+            // market_cap is provided here as a fallback only — the
+            // canonical value is computed from price × shares_outstanding
+            // by the caller (see MarketDataProvider::computeMarketCap()).
+            'market_cap' => $this->toInt(
+                $quote['marketCap']
+                    ?? $profile['marketCap']
+                    ?? $profile['mktCap']
+                    ?? null,
+            ),
+
+            'exchange' => $quote['exchange']
+                ?? $profile['exchangeShortName']
+                ?? $profile['exchange']
+                ?? ($isConfiguredFutures ? 'COMMODITY' : null),
+
+            'company_name' => $quote['name']
+                ?? $profile['companyName']
+                ?? $profile['name']
+                ?? ($isConfiguredFutures ? (config("market_data.futures.instruments.{$symbol}.name") ?? "{$symbol} Futures") : null),
+
+            'open' => $this->toFloat($quote['open'] ?? null),
+            'previous_close' => $this->toFloat($quote['previousClose'] ?? null),
+            'day_low' => $this->toFloat($quote['dayLow'] ?? null),
+            'day_high' => $this->toFloat($quote['dayHigh'] ?? null),
+            'year_low' => $this->toFloat($quote['yearLow'] ?? null),
+            'year_high' => $this->toFloat($quote['yearHigh'] ?? null),
+            'timestamp' => $this->toInt($quote['timestamp'] ?? null),
+            'provider' => 'fmp',
+            'provider_symbol' => $fmpSymbol,
+        ];
+
+        Cache::put("fmp.quote.$symbol", $result, now()->addMinutes(2));
+
+        return $result;
+    }
+
+    /**
+     * Retrieve multiple quotes keyed by uppercase symbol, isolating per-symbol failures.
+     *
+     * @param  list<string>  $symbols
+     * @return array<string, array<string, mixed>|null>
+     */
+    public function quotes(array $symbols): array
+    {
+        $out = [];
+        foreach (array_values(array_unique(array_map(fn ($s) => $this->normalizeSymbol((string) $s), $symbols))) as $sym) {
+            if ($sym === '') {
+                continue;
+            }
+            try {
+                $out[$sym] = $this->quote($sym);
+            } catch (Throwable) {
+                $out[$sym] = null;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -388,18 +436,29 @@ class FmpMarketDataProvider implements MarketDataProvider
             'fmp.search.'.strtolower($query),
             now()->addHours(6),
             function () use ($query) {
+                $out = [];
+                $seen = [];
+
+                // Match against FMP's /commodities-list API first for futures/commodity queries
+                // (including external aliases like CLUSDT -> CLUSD) since /search-symbol only covers equities.
+                foreach ($this->searchCommoditiesList($query) as $commodityMatch) {
+                    $sym = $commodityMatch['symbol'];
+                    $seen[$sym] = true;
+                    $out[] = $commodityMatch;
+                }
+
                 // FMP stable: /search-symbol?query=AAPL  (limited to public equities)
                 $rows = $this->get('search-symbol', ['query' => $query, 'limit' => 10]) ?? [];
 
-                $out = [];
                 foreach ($rows as $row) {
                     if (! is_array($row)) {
                         continue;
                     }
                     $symbol = $this->normalizeSymbol($row['symbol'] ?? '');
-                    if ($symbol === '') {
+                    if ($symbol === '' || isset($seen[$symbol])) {
                         continue;
                     }
+                    $seen[$symbol] = true;
                     $exchange = $this->mapExchange(
                         $row['exchangeShortName'] ?? $row['exchange'] ?? $row['exchangeFullName'] ?? null,
                     );
@@ -451,6 +510,11 @@ class FmpMarketDataProvider implements MarketDataProvider
             return [];
         }
 
+        $isConfiguredFutures = $this->isConfiguredFuturesSymbol($symbol);
+        if ($isConfiguredFutures) {
+            $symbol = $this->resolveFmpFuturesSymbol($symbol);
+        }
+
         $fromStr = $from->toDateString();
         $toStr = $to->toDateString();
         $cacheKey = "fmp.bars.$symbol.$fromStr.$toStr";
@@ -460,15 +524,27 @@ class FmpMarketDataProvider implements MarketDataProvider
             return $cached;
         }
 
+        $fmpSymbol = $isConfiguredFutures ? $this->resolveFmpFuturesSymbol($symbol) : $symbol;
+        $startedAt = microtime(true);
+
         // FMP stable endpoint: /historical-price-eod/full?symbol=AAPL&from=...&to=...
         // Response shape varies: either {symbol, historical: [...]} or [...].
         $payload = $this->get('historical-price-eod/full', [
-            'symbol' => $symbol,
+            'symbol' => $fmpSymbol,
             'from' => $fromStr,
             'to' => $toStr,
         ]);
 
         if (! is_array($payload)) {
+            if ($isConfiguredFutures) {
+                $fallbackBars = $this->fetchYahooFuturesDailyBars($symbol, $from, $to);
+                if (! empty($fallbackBars)) {
+                    Cache::put($cacheKey, $fallbackBars, now()->addHours(12));
+
+                    return $fallbackBars;
+                }
+            }
+
             // Do not cache provider errors as empty bars.
             return [];
         }
@@ -486,8 +562,32 @@ class FmpMarketDataProvider implements MarketDataProvider
             }
         }
 
+        if (empty($out) && $isConfiguredFutures) {
+            $fallbackBars = $this->fetchYahooFuturesDailyBars($symbol, $from, $to);
+            if (! empty($fallbackBars)) {
+                Cache::put($cacheKey, $fallbackBars, now()->addHours(12));
+
+                return $fallbackBars;
+            }
+        }
+
         // FMP returns most-recent first; the scanner expects ascending order.
         usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+        if ($isConfiguredFutures) {
+            $this->logFuturesDiagnostics(
+                symbol: $symbol,
+                provider: 'fmp',
+                providerSymbol: $fmpSymbol,
+                interval: '1day',
+                range: "{$fromStr}..{$toStr}",
+                status: 200,
+                candleCount: count($out),
+                durationMs: round((microtime(true) - $startedAt) * 1000, 2),
+                cacheStatus: 'miss',
+                errorCategory: null,
+            );
+        }
 
         Cache::put($cacheKey, $out, now()->addHours(12));
 
@@ -501,6 +601,11 @@ class FmpMarketDataProvider implements MarketDataProvider
             return [];
         }
 
+        $isConfiguredFutures = $this->isConfiguredFuturesSymbol($symbol);
+        if ($isConfiguredFutures) {
+            $symbol = $this->resolveFmpFuturesSymbol($symbol);
+        }
+
         $interval = trim($interval) !== '' ? trim($interval) : '1hour';
         $fromStr = $from->toDateString();
         $toStr = $to->toDateString();
@@ -511,15 +616,27 @@ class FmpMarketDataProvider implements MarketDataProvider
             return $cached;
         }
 
+        $fmpSymbol = $isConfiguredFutures ? $this->resolveFmpFuturesSymbol($symbol) : $symbol;
+        $startedAt = microtime(true);
+
         // Intraday bars move during the session; keep the cache short so
         // hourly captures see fresh data but repeated symbols in one run hit.
         $payload = $this->get("historical-chart/$interval", [
-            'symbol' => $symbol,
+            'symbol' => $fmpSymbol,
             'from' => $fromStr,
             'to' => $toStr,
         ]);
 
         if (! is_array($payload)) {
+            if ($isConfiguredFutures) {
+                $fallbackBars = $this->fetchYahooFuturesIntradayBars($symbol, $interval, $from, $to);
+                if (! empty($fallbackBars)) {
+                    Cache::put($cacheKey, $fallbackBars, now()->addMinutes(15));
+
+                    return $fallbackBars;
+                }
+            }
+
             // Do not cache provider errors as empty bars.
             return [];
         }
@@ -537,8 +654,32 @@ class FmpMarketDataProvider implements MarketDataProvider
             }
         }
 
+        if (empty($out) && $isConfiguredFutures) {
+            $fallbackBars = $this->fetchYahooFuturesIntradayBars($symbol, $interval, $from, $to);
+            if (! empty($fallbackBars)) {
+                Cache::put($cacheKey, $fallbackBars, now()->addMinutes(15));
+
+                return $fallbackBars;
+            }
+        }
+
         // FMP returns most-recent first; callers expect ascending order.
         usort($out, fn ($a, $b) => strcmp($a['date'], $b['date']));
+
+        if ($isConfiguredFutures) {
+            $this->logFuturesDiagnostics(
+                symbol: $symbol,
+                provider: 'fmp',
+                providerSymbol: $fmpSymbol,
+                interval: $interval,
+                range: "{$fromStr}..{$toStr}",
+                status: 200,
+                candleCount: count($out),
+                durationMs: round((microtime(true) - $startedAt) * 1000, 2),
+                cacheStatus: 'miss',
+                errorCategory: null,
+            );
+        }
 
         Cache::put($cacheKey, $out, now()->addMinutes(15));
 
@@ -639,32 +780,40 @@ class FmpMarketDataProvider implements MarketDataProvider
      */
     public function commoditiesList(): array
     {
-        return Cache::remember('fmp.commodities_list', now()->addHours(24), function () {
-            $rows = $this->get('commodities-list') ?? [];
-            if (! is_array($rows)) {
-                return [];
-            }
+        $cached = Cache::get('fmp.commodities_list');
+        if (is_array($cached) && ! empty($cached)) {
+            return $cached;
+        }
 
-            $out = [];
-            foreach ($rows as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-                $sym = $this->normalizeSymbol($row['symbol'] ?? '');
-                if ($sym === '') {
-                    continue;
-                }
-                $out[] = [
-                    'symbol' => $sym,
-                    'name' => (string) ($row['name'] ?? $sym),
-                    'exchange' => isset($row['exchange']) && $row['exchange'] !== '' ? (string) $row['exchange'] : 'COMMODITY',
-                    'trade_month' => isset($row['tradeMonth']) && $row['tradeMonth'] !== '' ? (string) $row['tradeMonth'] : null,
-                    'currency' => strtoupper((string) ($row['currency'] ?? 'USD')),
-                ];
-            }
+        $endpoint = (string) config('market_data.futures.commodities_list_endpoint', 'commodities-list');
+        $rows = $this->get($endpoint) ?? [];
+        if (! is_array($rows)) {
+            return [];
+        }
 
-            return $out;
-        });
+        $out = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $sym = $this->normalizeSymbol($row['symbol'] ?? '');
+            if ($sym === '') {
+                continue;
+            }
+            $out[] = [
+                'symbol' => $sym,
+                'name' => (string) ($row['name'] ?? $sym),
+                'exchange' => isset($row['exchange']) && $row['exchange'] !== '' ? (string) $row['exchange'] : 'COMMODITY',
+                'trade_month' => isset($row['tradeMonth']) && $row['tradeMonth'] !== '' ? (string) $row['tradeMonth'] : null,
+                'currency' => strtoupper((string) ($row['currency'] ?? 'USD')),
+            ];
+        }
+
+        if (! empty($out)) {
+            Cache::put('fmp.commodities_list', $out, now()->addHours(24));
+        }
+
+        return $out;
     }
 
     /**
@@ -859,6 +1008,12 @@ class FmpMarketDataProvider implements MarketDataProvider
             return null;
         }
 
+        // In unit/feature tests, skip real outbound internet requests when Http::fake() is not active
+        // unless live smoke testing is explicitly enabled.
+        if (app()->runningUnitTests() && ! $this->isHttpFaked() && ! env('RUN_LIVE_NEWS_SMOKE_TEST') && ! env('RUN_LIVE_FMP_TESTS')) {
+            return null;
+        }
+
         $rateLimit = (int) config('market_data.fmp.rate_limit_per_minute', 300);
         if ($rateLimit > 0) {
             $executed = \Illuminate\Support\Facades\RateLimiter::attempt(
@@ -887,7 +1042,15 @@ class FmpMarketDataProvider implements MarketDataProvider
         try {
             /** @var Response $response */
             $response = $this->client()
-                ->retry(3, 500, throw: false)
+                ->retry(3, 500, function (\Throwable $exception) {
+                    if ($exception instanceof \Illuminate\Http\Client\RequestException && $exception->response !== null) {
+                        $status = $exception->response->status();
+
+                        return $status === 429 || $status >= 500;
+                    }
+
+                    return true;
+                }, throw: false)
                 ->get($url, $query);
 
             if (! $response->successful()) {
@@ -1247,5 +1410,668 @@ class FmpMarketDataProvider implements MarketDataProvider
         }
 
         return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    protected function isHttpFaked(): bool
+    {
+        try {
+            $root = Http::getFacadeRoot();
+            if (! is_object($root)) {
+                return false;
+            }
+
+            return (bool) (function () {
+                if (! empty($this->recording)) {
+                    return true;
+                }
+                if ($this->stubCallbacks instanceof \Illuminate\Support\Collection) {
+                    return $this->stubCallbacks->isNotEmpty();
+                }
+
+                return ! empty($this->stubCallbacks);
+            })->call($root);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Normalize an external commodity/futures alias (e.g. CLUSDT -> CLUSD)
+     * and resolve it against configured instruments and FMP's /commodities-list API.
+     */
+    public function normalizeFuturesAlias(string $symbol): string
+    {
+        $sym = $this->normalizeSymbol($symbol);
+        if ($sym === '') {
+            return '';
+        }
+
+        $aliases = (array) config('market_data.futures.aliases', []);
+        if (isset($aliases[$sym])) {
+            return $this->normalizeSymbol((string) $aliases[$sym]);
+        }
+
+        $configured = (array) config('market_data.futures.instruments', []);
+        if (isset($configured[$sym])) {
+            return $sym;
+        }
+
+        if (str_ends_with($sym, 'USDT') && strlen($sym) > 4) {
+            $usdCandidate = substr($sym, 0, -1);
+            if (isset($configured[$usdCandidate]) || $this->findCommodityInList($usdCandidate) !== null) {
+                return $usdCandidate;
+            }
+        }
+
+        return $sym;
+    }
+
+    /**
+     * Look up a commodity symbol in FMP's /commodities-list API response.
+     *
+     * @return array{symbol:string,name:string,exchange:?string,trade_month:?string,currency:string}|null
+     */
+    public function findCommodityInList(string $symbol, bool $allowNetworkFetch = true): ?array
+    {
+        $sym = $this->normalizeSymbol($symbol);
+        if ($sym === '') {
+            return null;
+        }
+
+        $aliases = (array) config('market_data.futures.aliases', []);
+        if (isset($aliases[$sym])) {
+            $sym = $this->normalizeSymbol((string) $aliases[$sym]);
+        } elseif (str_ends_with($sym, 'USDT') && strlen($sym) > 4) {
+            $sym = substr($sym, 0, -1);
+        }
+
+        $list = $allowNetworkFetch
+            ? $this->commoditiesList()
+            : (is_array(Cache::get('fmp.commodities_list')) ? Cache::get('fmp.commodities_list') : []);
+
+        foreach ($list as $item) {
+            if (is_array($item) && strtoupper(trim((string) ($item['symbol'] ?? ''))) === $sym) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Search FMP's /commodities-list API for matching commodity/futures symbols or names,
+     * including external *USDT aliases (e.g. CLUSDT -> CLUSD).
+     *
+     * @return array<int, array{symbol:string,name:string,type:string,region:string,currency:string,match_score:float,exchange:?string}>
+     */
+    protected function searchCommoditiesList(string $query): array
+    {
+        $q = strtoupper(trim($query));
+        if ($q === '') {
+            return [];
+        }
+
+        $normalizedAlias = $this->normalizeFuturesAlias($q);
+        $list = $this->commoditiesList();
+        $matches = [];
+
+        foreach ($list as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $sym = strtoupper(trim((string) ($item['symbol'] ?? '')));
+            $name = (string) ($item['name'] ?? $sym);
+            if ($sym === '') {
+                continue;
+            }
+
+            $exactSymbol = ($sym === $q || $sym === $normalizedAlias);
+            $prefixSymbol = str_starts_with($sym, $q) || str_starts_with($sym, $normalizedAlias);
+            $nameMatch = str_contains(strtoupper($name), $q);
+
+            if (! $exactSymbol && ! $prefixSymbol && ! $nameMatch) {
+                continue;
+            }
+
+            $score = $exactSymbol ? 1.0 : ($prefixSymbol ? 0.95 : 0.85);
+            $matches[] = [
+                'symbol' => $sym,
+                'name' => $name,
+                'type' => 'Futures',
+                'region' => 'US',
+                'currency' => strtoupper((string) ($item['currency'] ?? 'USD')),
+                'match_score' => $score,
+                'exchange' => (string) ($item['exchange'] ?? 'COMMODITY'),
+            ];
+        }
+
+        usort($matches, fn (array $a, array $b) => $b['match_score'] <=> $a['match_score']);
+
+        return array_slice($matches, 0, 10);
+    }
+
+    public function isConfiguredFuturesSymbol(string $symbol): bool
+    {
+        $sym = $this->normalizeFuturesAlias($symbol);
+        $configured = (array) config('market_data.futures.instruments', []);
+
+        if (isset($configured[$sym])) {
+            return true;
+        }
+
+        $looksLikeCommodity = strlen($sym) > 4 && (str_ends_with($sym, 'USD') || str_ends_with($sym, 'USX') || str_ends_with($sym, 'USDT'));
+
+        return $this->findCommodityInList($sym, allowNetworkFetch: $looksLikeCommodity) !== null;
+    }
+
+    public function resolveFmpFuturesSymbol(string $symbol): string
+    {
+        $sym = $this->normalizeFuturesAlias($symbol);
+
+        $fromCachedList = $this->findCommodityInList($sym, allowNetworkFetch: false);
+        if ($fromCachedList !== null && ! empty($fromCachedList['symbol'])) {
+            return (string) $fromCachedList['symbol'];
+        }
+
+        $configured = (array) config("market_data.futures.instruments.{$sym}", []);
+        if (! empty($configured)) {
+            return (string) ($configured['fmp_symbol'] ?? $sym);
+        }
+
+        $looksLikeCommodity = strlen($sym) > 4 && (str_ends_with($sym, 'USD') || str_ends_with($sym, 'USX') || str_ends_with($sym, 'USDT'));
+        $fromList = $this->findCommodityInList($sym, allowNetworkFetch: $looksLikeCommodity);
+        if ($fromList !== null && ! empty($fromList['symbol'])) {
+            return (string) $fromList['symbol'];
+        }
+
+        return $sym;
+    }
+
+    public function resolveYahooFuturesSymbol(string $symbol): ?string
+    {
+        $sym = $this->normalizeFuturesAlias($symbol);
+        $configured = (array) config("market_data.futures.instruments.{$sym}", []);
+        $yahoo = $configured['yahoo_symbol'] ?? null;
+
+        return is_string($yahoo) && trim($yahoo) !== '' ? trim($yahoo) : null;
+    }
+
+    protected function popLastErrorForPathPrefix(string $pathPrefix): void
+    {
+        for ($i = count($this->errors) - 1; $i >= 0; $i--) {
+            $errPath = (string) ($this->errors[$i]['path'] ?? '');
+            if ($errPath === $pathPrefix || str_starts_with($errPath, $pathPrefix)) {
+                array_splice($this->errors, $i, 1);
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * Fetch a live/delayed quote for a futures contract via Yahoo Finance continuous front-month symbol
+     * when FMP's subscription plan restricts that commodity symbol (e.g. CLUSD -> CL=F, NGUSD -> NG=F, HGUSD -> HG=F).
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function fetchYahooFuturesQuote(string $symbol): ?array
+    {
+        if (! config('market_data.futures.yahoo_fallback_enabled', true)) {
+            return null;
+        }
+
+        $yahooSymbol = $this->resolveYahooFuturesSymbol($symbol);
+        if ($yahooSymbol === null) {
+            return null;
+        }
+
+        $chart = $this->requestYahooChart($symbol, $yahooSymbol, [
+            'interval' => '1d',
+            'range' => '5d',
+        ], 'quote', '5d');
+
+        if ($chart === null) {
+            return null;
+        }
+
+        $meta = is_array($chart['meta'] ?? null) ? $chart['meta'] : [];
+        $quoteInd = is_array($chart['indicators']['quote'][0] ?? null) ? $chart['indicators']['quote'][0] : [];
+        $timestamps = is_array($chart['timestamp'] ?? null) ? $chart['timestamp'] : [];
+
+        $price = $this->toFloat($meta['regularMarketPrice'] ?? null);
+        $prevClose = $this->toFloat($meta['chartPreviousClose'] ?? $meta['previousClose'] ?? null);
+
+        $lastIdx = ! empty($timestamps) ? count($timestamps) - 1 : -1;
+        if ($price === null && $lastIdx >= 0) {
+            for ($i = $lastIdx; $i >= 0; $i--) {
+                $c = $this->toFloat($quoteInd['close'][$i] ?? null);
+                if ($c !== null && $c > 0) {
+                    $price = $c;
+                    break;
+                }
+            }
+        }
+
+        if ($price === null || $price <= 0) {
+            return null;
+        }
+
+        if ($prevClose === null && $lastIdx >= 1) {
+            for ($i = $lastIdx - 1; $i >= 0; $i--) {
+                $c = $this->toFloat($quoteInd['close'][$i] ?? null);
+                if ($c !== null && $c > 0) {
+                    $prevClose = $c;
+                    break;
+                }
+            }
+        }
+
+        $change = ($prevClose !== null && $prevClose > 0) ? round($price - $prevClose, 4) : null;
+        $changePct = ($prevClose !== null && $prevClose > 0) ? round((($price - $prevClose) / $prevClose) * 100, 4) : null;
+
+        $volume = $this->toInt($meta['regularMarketVolume'] ?? null);
+        if ($volume === null && $lastIdx >= 0) {
+            $volume = $this->toInt($quoteInd['volume'][$lastIdx] ?? null);
+        }
+
+        $open = $lastIdx >= 0 ? $this->toFloat($quoteInd['open'][$lastIdx] ?? null) : null;
+        $dayHigh = $this->toFloat($meta['regularMarketDayHigh'] ?? ($lastIdx >= 0 ? ($quoteInd['high'][$lastIdx] ?? null) : null));
+        $dayLow = $this->toFloat($meta['regularMarketDayLow'] ?? ($lastIdx >= 0 ? ($quoteInd['low'][$lastIdx] ?? null) : null));
+        $yearHigh = $this->toFloat($meta['fiftyTwoWeekHigh'] ?? null);
+        $yearLow = $this->toFloat($meta['fiftyTwoWeekLow'] ?? null);
+        $obsTimestamp = $this->toInt($meta['regularMarketTime'] ?? ($lastIdx >= 0 ? ($timestamps[$lastIdx] ?? null) : null));
+
+        $this->popLastErrorForPathPrefix('quote');
+
+        $cfgName = config("market_data.futures.instruments.{$symbol}.name");
+
+        return [
+            'symbol' => $symbol,
+            'price' => $price,
+            'volume' => $volume,
+            'avg_volume' => null,
+            'daily_change' => $change,
+            'daily_change_percent' => $changePct,
+            'shares_outstanding' => null,
+            'float_shares' => null,
+            'free_float' => null,
+            'market_cap' => null,
+            'exchange' => 'COMMODITY',
+            'company_name' => (string) ($cfgName ?: ($meta['shortName'] ?? $meta['longName'] ?? "{$symbol} Futures")),
+            'open' => $open,
+            'previous_close' => $prevClose,
+            'day_low' => $dayLow,
+            'day_high' => $dayHigh,
+            'year_low' => $yearLow,
+            'year_high' => $yearHigh,
+            'timestamp' => $obsTimestamp,
+            'provider' => 'yahoo_finance',
+            'provider_symbol' => $yahooSymbol,
+        ];
+    }
+
+    /**
+     * Fetch historical daily OHLCV candles for a futures contract via Yahoo Finance continuous front-month symbol.
+     *
+     * @return array<int, array{date:string,open:?float,high:?float,low:?float,close:?float,adj_close:?float,volume:?int}>
+     */
+    protected function fetchYahooFuturesDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
+    {
+        if (! config('market_data.futures.yahoo_fallback_enabled', true)) {
+            return [];
+        }
+
+        $yahooSymbol = $this->resolveYahooFuturesSymbol($symbol);
+        if ($yahooSymbol === null) {
+            return [];
+        }
+
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+        $period1 = \Carbon\CarbonImmutable::parse($fromStr, 'America/New_York')->startOfDay()->utc()->timestamp;
+        $period2 = \Carbon\CarbonImmutable::parse($toStr, 'America/New_York')->endOfDay()->utc()->timestamp;
+
+        $chart = $this->requestYahooChart($symbol, $yahooSymbol, [
+            'interval' => '1d',
+            'period1' => $period1,
+            'period2' => $period2,
+            'includePrePost' => 'false',
+        ], '1day', "{$fromStr}..{$toStr}");
+
+        if ($chart === null) {
+            return [];
+        }
+
+        $timestamps = is_array($chart['timestamp'] ?? null) ? $chart['timestamp'] : [];
+        $quoteInd = is_array($chart['indicators']['quote'][0] ?? null) ? $chart['indicators']['quote'][0] : [];
+        $adjInd = is_array($chart['indicators']['adjclose'][0] ?? null) ? $chart['indicators']['adjclose'][0] : [];
+
+        $byDate = [];
+        $count = count($timestamps);
+        for ($i = 0; $i < $count; $i++) {
+            $ts = $this->toInt($timestamps[$i] ?? null);
+            if ($ts === null || $ts <= 0) {
+                continue;
+            }
+
+            $open = $this->toFloat($quoteInd['open'][$i] ?? null);
+            $high = $this->toFloat($quoteInd['high'][$i] ?? null);
+            $low = $this->toFloat($quoteInd['low'][$i] ?? null);
+            $close = $this->toFloat($quoteInd['close'][$i] ?? null);
+            $adjClose = $this->toFloat($adjInd['adjclose'][$i] ?? $close);
+            $volume = $this->toInt($quoteInd['volume'][$i] ?? 0) ?? 0;
+
+            if ($open === null || $high === null || $low === null || $close === null) {
+                continue;
+            }
+            if ($open <= 0 || $high <= 0 || $low <= 0 || $close <= 0) {
+                continue;
+            }
+
+            $dateStr = \Carbon\CarbonImmutable::createFromTimestampUTC($ts)
+                ->setTimezone('America/New_York')
+                ->toDateString();
+
+            if ($dateStr < $fromStr || $dateStr > $toStr) {
+                continue;
+            }
+
+            $byDate[$dateStr] = [
+                'date' => $dateStr,
+                'open' => round($open, 4),
+                'high' => round(max($high, $open, $close), 4),
+                'low' => round(min($low, $open, $close), 4),
+                'close' => round($close, 4),
+                'adj_close' => $adjClose !== null ? round($adjClose, 4) : round($close, 4),
+                'volume' => max(0, $volume),
+            ];
+        }
+
+        if (empty($byDate)) {
+            return [];
+        }
+
+        ksort($byDate);
+        $this->popLastErrorForPathPrefix('historical-price-eod');
+
+        return array_values($byDate);
+    }
+
+    /**
+     * Fetch historical intraday OHLCV candles for a futures contract via Yahoo Finance continuous front-month symbol.
+     *
+     * @return array<int, array{date:string,open:?float,high:?float,low:?float,close:?float,volume:?int}>
+     */
+    protected function fetchYahooFuturesIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array
+    {
+        if (! config('market_data.futures.yahoo_fallback_enabled', true)) {
+            return [];
+        }
+
+        $yahooSymbol = $this->resolveYahooFuturesSymbol($symbol);
+        if ($yahooSymbol === null) {
+            return [];
+        }
+
+        $normInterval = strtolower(trim($interval));
+        $yahooInterval = match ($normInterval) {
+            '1min', '1m' => '1m',
+            '5min', '5m' => '5m',
+            '15min', '15m' => '15m',
+            '30min', '30m' => '30m',
+            '1hour', '1h', '60m', '4hour', '4h' => '60m',
+            default => '60m',
+        };
+
+        // Respect Yahoo Finance per-interval lookback limits so requests never fail with HTTP 400/422
+        $maxDays = match ($yahooInterval) {
+            '1m' => 7,
+            '5m', '15m', '30m' => 58,
+            default => 720,
+        };
+
+        $toUtc = \Carbon\CarbonImmutable::parse($to->toDateString(), 'America/New_York')->endOfDay()->utc();
+        $nowUtc = \Carbon\CarbonImmutable::now('UTC');
+        if ($toUtc->greaterThan($nowUtc)) {
+            $toUtc = $nowUtc;
+        }
+
+        $fromUtc = \Carbon\CarbonImmutable::parse($from->toDateString(), 'America/New_York')->startOfDay()->utc();
+        $earliestAllowed = $toUtc->subDays($maxDays);
+        if ($fromUtc->lessThan($earliestAllowed)) {
+            $fromUtc = $earliestAllowed;
+        }
+
+        if ($fromUtc->greaterThanOrEqualTo($toUtc)) {
+            $fromUtc = $toUtc->subDays(min(5, $maxDays));
+        }
+
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+
+        $chart = $this->requestYahooChart($symbol, $yahooSymbol, [
+            'interval' => $yahooInterval,
+            'period1' => $fromUtc->timestamp,
+            'period2' => $toUtc->timestamp,
+            'includePrePost' => 'false',
+        ], $interval, "{$fromStr}..{$toStr}");
+
+        if ($chart === null) {
+            return [];
+        }
+
+        $timestamps = is_array($chart['timestamp'] ?? null) ? $chart['timestamp'] : [];
+        $quoteInd = is_array($chart['indicators']['quote'][0] ?? null) ? $chart['indicators']['quote'][0] : [];
+
+        $bars = [];
+        $count = count($timestamps);
+        for ($i = 0; $i < $count; $i++) {
+            $ts = $this->toInt($timestamps[$i] ?? null);
+            if ($ts === null || $ts <= 0) {
+                continue;
+            }
+
+            $open = $this->toFloat($quoteInd['open'][$i] ?? null);
+            $high = $this->toFloat($quoteInd['high'][$i] ?? null);
+            $low = $this->toFloat($quoteInd['low'][$i] ?? null);
+            $close = $this->toFloat($quoteInd['close'][$i] ?? null);
+            $volume = $this->toInt($quoteInd['volume'][$i] ?? 0) ?? 0;
+
+            if ($open === null || $high === null || $low === null || $close === null) {
+                continue;
+            }
+            if ($open <= 0 || $high <= 0 || $low <= 0 || $close <= 0) {
+                continue;
+            }
+
+            $dtStr = \Carbon\CarbonImmutable::createFromTimestampUTC($ts)
+                ->setTimezone('America/New_York')
+                ->format('Y-m-d H:i:s');
+
+            $bars[$dtStr] = [
+                'date' => $dtStr,
+                'open' => round($open, 4),
+                'high' => round(max($high, $open, $close), 4),
+                'low' => round(min($low, $open, $close), 4),
+                'close' => round($close, 4),
+                'volume' => max(0, $volume),
+            ];
+        }
+
+        if (empty($bars)) {
+            return [];
+        }
+
+        ksort($bars);
+        $sorted = array_values($bars);
+
+        if (in_array($normInterval, ['4hour', '4h'], true)) {
+            $sorted = $this->aggregateIntradayBarsTo4Hour($sorted);
+        }
+
+        $this->popLastErrorForPathPrefix('historical-chart/');
+
+        return $sorted;
+    }
+
+    /**
+     * Aggregate 1-hour intraday bars into 4-hour bars aligned to 4-hour Eastern blocks.
+     *
+     * @param  array<int, array{date:string,open:?float,high:?float,low:?float,close:?float,volume:?int}>  $hourlyBars
+     * @return array<int, array{date:string,open:?float,high:?float,low:?float,close:?float,volume:?int}>
+     */
+    protected function aggregateIntradayBarsTo4Hour(array $hourlyBars): array
+    {
+        $buckets = [];
+        foreach ($hourlyBars as $bar) {
+            try {
+                $dt = \Carbon\CarbonImmutable::parse($bar['date'], 'America/New_York');
+                $bucketHour = (int) (floor($dt->hour / 4) * 4);
+                $bucketKey = $dt->format('Y-m-d').sprintf(' %02d:00:00', $bucketHour);
+
+                if (! isset($buckets[$bucketKey])) {
+                    $buckets[$bucketKey] = [
+                        'date' => $bucketKey,
+                        'open' => $bar['open'],
+                        'high' => $bar['high'],
+                        'low' => $bar['low'],
+                        'close' => $bar['close'],
+                        'volume' => (int) ($bar['volume'] ?? 0),
+                    ];
+                } else {
+                    $buckets[$bucketKey]['high'] = max((float) $buckets[$bucketKey]['high'], (float) $bar['high']);
+                    $buckets[$bucketKey]['low'] = min((float) $buckets[$bucketKey]['low'], (float) $bar['low']);
+                    $buckets[$bucketKey]['close'] = $bar['close'];
+                    $buckets[$bucketKey]['volume'] += (int) ($bar['volume'] ?? 0);
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        ksort($buckets);
+
+        return array_values($buckets);
+    }
+
+    /**
+     * Execute a Yahoo Finance v8 chart request with structured observability logging.
+     *
+     * @param  array<string, mixed>  $params
+     * @return array<string, mixed>|null
+     */
+    protected function requestYahooChart(
+        string $symbol,
+        string $yahooSymbol,
+        array $params,
+        string $requestedInterval,
+        string $requestedRange,
+    ): ?array {
+        if (app()->runningUnitTests() && ! $this->isHttpFaked() && ! env('RUN_LIVE_NEWS_SMOKE_TEST') && ! env('RUN_LIVE_FMP_TESTS')) {
+            return null;
+        }
+
+        $baseUrl = rtrim((string) config('market_data.futures.yahoo_base_url', 'https://query1.finance.yahoo.com/v8/finance/chart'), '/');
+        $url = $baseUrl.'/'.rawurlencode($yahooSymbol);
+        $startedAt = microtime(true);
+
+        try {
+            /** @var Response $response */
+            $response = $this->client()
+                ->withHeaders([
+                    'User-Agent' => 'Mozilla/5.0 (compatible; DuoAsset/1.0)',
+                ])
+                ->retry(2, 300, throw: false)
+                ->get($url, $params);
+
+            $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
+
+            if (! $response->successful()) {
+                $this->logFuturesDiagnostics(
+                    symbol: $symbol,
+                    provider: 'yahoo_finance',
+                    providerSymbol: $yahooSymbol,
+                    interval: $requestedInterval,
+                    range: $requestedRange,
+                    status: $response->status(),
+                    candleCount: 0,
+                    durationMs: $durationMs,
+                    cacheStatus: 'miss',
+                    errorCategory: 'http_'.$response->status(),
+                );
+
+                return null;
+            }
+
+            $json = $response->json();
+            $result = is_array($json['chart']['result'][0] ?? null) ? $json['chart']['result'][0] : null;
+            if ($result === null) {
+                return null;
+            }
+
+            $tsCount = is_array($result['timestamp'] ?? null) ? count($result['timestamp']) : 0;
+
+            $this->logFuturesDiagnostics(
+                symbol: $symbol,
+                provider: 'yahoo_finance',
+                providerSymbol: $yahooSymbol,
+                interval: $requestedInterval,
+                range: $requestedRange,
+                status: $response->status(),
+                candleCount: $tsCount,
+                durationMs: $durationMs,
+                cacheStatus: 'miss',
+                errorCategory: null,
+            );
+
+            return $result;
+        } catch (Throwable $e) {
+            $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
+            $this->logFuturesDiagnostics(
+                symbol: $symbol,
+                provider: 'yahoo_finance',
+                providerSymbol: $yahooSymbol,
+                interval: $requestedInterval,
+                range: $requestedRange,
+                status: 0,
+                candleCount: 0,
+                durationMs: $durationMs,
+                cacheStatus: 'miss',
+                errorCategory: 'exception',
+            );
+
+            return null;
+        }
+    }
+
+    protected function logFuturesDiagnostics(
+        string $symbol,
+        string $provider,
+        string $providerSymbol,
+        string $interval,
+        string $range,
+        int $status,
+        int $candleCount,
+        float $durationMs,
+        string $cacheStatus,
+        ?string $errorCategory,
+    ): void {
+        $context = [
+            'symbol' => $symbol,
+            'provider' => $provider,
+            'provider_symbol' => $providerSymbol,
+            'requested_interval' => $interval,
+            'requested_range' => $range,
+            'response_status' => $status,
+            'candle_count' => $candleCount,
+            'request_duration' => $durationMs,
+            'cache_status' => $cacheStatus,
+            'error_category' => $errorCategory,
+        ];
+
+        if ($errorCategory !== null) {
+            Log::warning('futures.market_data', $context);
+        } else {
+            Log::info('futures.market_data', $context);
+        }
     }
 }

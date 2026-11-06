@@ -68,6 +68,12 @@ class ActivateUserAccountCommand extends Command
             return self::FAILURE;
         }
 
+        if ($user->isAnonymousUser()) {
+            $this->error('Interactive activation is disabled for the system Anonymous User account.');
+
+            return self::FAILURE;
+        }
+
         $wasVerified = $user->hasVerifiedEmail();
         $hadActivationToken = $user->activation_token !== null;
 

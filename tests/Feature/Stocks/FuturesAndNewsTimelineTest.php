@@ -129,7 +129,7 @@ test('accessing a stock under /futures/{symbol} permanently redirects (301) to /
 });
 
 test('instrument classification discovers futures dynamically from FMP commoditiesList without symbol guessing', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $fake->commodities = [
@@ -154,7 +154,7 @@ test('instrument classification discovers futures dynamically from FMP commoditi
 });
 
 test('/futures/gcusd displays gold futures dashboard with Vela chart, price units, and contract metadata', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $fake->quotes['GCUSD'] = [
@@ -201,7 +201,7 @@ test('/futures/gcusd displays gold futures dashboard with Vela chart, price unit
 });
 
 test('futures candles endpoint supports daily, 5min, 1hour, and 4hour intervals for GCUSD', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $fake->dailyBars['GCUSD'] = [
@@ -229,7 +229,7 @@ test('futures candles endpoint supports daily, 5min, 1hour, and 4hour intervals 
 });
 
 test('news endpoint filters by relevance, deduplicates syndicated articles, and separates event time from publication time', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $fake->forexNewsRows['XAUUSD'] = [
@@ -302,7 +302,7 @@ test('news endpoint filters by relevance, deduplicates syndicated articles, and 
 });
 
 test('news endpoint supports candle investigation with pre-movement and clearly labeled look-ahead window', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $candleTs = \Carbon\Carbon::parse('2026-10-30 14:00:00', 'America/New_York')->utc()->timestamp;
@@ -344,7 +344,7 @@ test('news endpoint supports candle investigation with pre-movement and clearly 
 });
 
 test('news impact endpoint computes observed 5m, 15m, 30m, 60m, and 4h price changes and compares against WTI crude oil and silver', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     // Event at 2026-10-30 10:00:00 America/New_York (14:00:00 UTC)
@@ -603,7 +603,7 @@ test('stock relevance filtering rejects cross-exchange ticker collisions (MASS),
 });
 
 test('futures relevance filtering rejects routine EUR/USD forecasts on GCUSD and uses commodity-specific profiles for CLUSD', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
     $fake = new FakeMarketDataProvider;
 
     $fake->forexNewsRows['XAUUSD'] = [
@@ -960,7 +960,7 @@ test('optional Ollama enrichment attaches cached rationale when available and ne
 });
 
 test('price-impact service does not report a 5-minute reaction when only 15-minute or 1-hour bars exist', function () {
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
     $fake = new FakeMarketDataProvider;
     $eventTs = \Carbon\Carbon::parse('2026-10-30 10:00:00', 'America/New_York')->utc()->timestamp;
 
@@ -984,7 +984,7 @@ test('price-impact service does not report a 5-minute reaction when only 15-minu
 
 test('feature-disable setting (market_data.news.enabled = false) disables news retrieval while keeping stock and futures dashboards operational', function () {
     config(['market_data.news.enabled' => false]);
-    $user = User::factory()->create(['email_verified_at' => now()]);
+    $user = User::factory()->fullSubscription()->create(['email_verified_at' => now()]);
 
     $fake = new FakeMarketDataProvider;
     $fake->quotes['GCUSD'] = ['symbol' => 'GCUSD', 'price' => 4068.40, 'exchange' => 'COMMODITY'];

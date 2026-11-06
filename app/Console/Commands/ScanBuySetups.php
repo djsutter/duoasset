@@ -26,7 +26,9 @@ class ScanBuySetups extends Command
         {--limit= : override max symbols per run}
         {--sync : process synchronously (debug)}
         {--fresh : bypass screener cache and fetch a fresh company list from upstream}
-        {--force : alias for --fresh}';
+        {--force : alias for --fresh}
+        {--no-digest : do not dispatch digest emails on this run}
+        {--scan-run-id= : attach evaluated symbols to an existing coordinated StockBuySetupRun ID}';
 
     protected $description = 'Scan FMP daily bars for high-volume spikes following tight consolidation bases.';
 
@@ -130,7 +132,14 @@ class ScanBuySetups extends Command
             'top' => [],
         ];
 
-        $scanRun = StockBuySetupRun::create([
+        $coordinator = app(\App\Services\Notifications\ScannerDigestCoordinator::class);
+        $explicitRunId = $this->option('scan-run-id');
+        $coordinatedRun = is_numeric($explicitRunId)
+            ? StockBuySetupRun::find((int) $explicitRunId)
+            : $coordinator->activeCollectionRun(\App\Models\NotificationDigestDelivery::CATEGORY_SETUP_SCORING);
+
+        $isCoordinatedSlice = $coordinatedRun !== null;
+        $scanRun = $coordinatedRun ?? StockBuySetupRun::create([
             'started_at' => now(),
             'status' => 'running',
             'trigger' => $sync ? 'cli-sync' : 'cli',
@@ -247,8 +256,12 @@ class ScanBuySetups extends Command
             $this->newLine(2);
         }
 
-        if ($sync) {
-            $scanRun->finishSync($summary, microtime(true) - $startedAt);
+        $suppressDigest = (bool) $this->option('no-digest');
+
+        if ($isCoordinatedSlice) {
+            $coordinator->recordSetupSliceSummary($scanRun->id, count($rows), $summary, microtime(true) - $startedAt);
+        } elseif ($sync) {
+            $scanRun->finishSync($summary, microtime(true) - $startedAt, $suppressDigest);
         } elseif ($dispatched === 0) {
             $scanRun->update([
                 'status' => 'completed',

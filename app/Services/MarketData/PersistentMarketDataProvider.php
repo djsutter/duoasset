@@ -54,6 +54,38 @@ class PersistentMarketDataProvider implements MarketDataProvider
         return $this->upstream;
     }
 
+    protected function normalizeFuturesAlias(string $symbol): string
+    {
+        $sym = strtoupper(trim($symbol));
+        if ($sym === '') {
+            return '';
+        }
+
+        if (method_exists($this->upstream, 'normalizeFuturesAlias')) {
+            return $this->upstream->normalizeFuturesAlias($sym);
+        }
+
+        $aliases = (array) config('market_data.futures.aliases', []);
+        if (isset($aliases[$sym])) {
+            return strtoupper(trim((string) $aliases[$sym]));
+        }
+
+        if (str_ends_with($sym, 'USDT') && strlen($sym) > 4) {
+            $usdCandidate = substr($sym, 0, -1);
+            $configured = (array) config('market_data.futures.instruments', []);
+            if (isset($configured[$usdCandidate])) {
+                return $usdCandidate;
+            }
+            foreach ($this->commoditiesList() as $item) {
+                if (is_array($item) && strtoupper(trim((string) ($item['symbol'] ?? ''))) === $usdCandidate) {
+                    return $usdCandidate;
+                }
+            }
+        }
+
+        return $sym;
+    }
+
     public function searchSymbols(string $query): array
     {
         if (method_exists($this->upstream, 'searchSymbols')) {
@@ -292,7 +324,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
     {
-        $symbol = strtoupper(trim($symbol));
+        $symbol = $this->normalizeFuturesAlias($symbol);
         if ($symbol === '') {
             return [];
         }
@@ -348,7 +380,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             // 1. Earlier gap (before first stored bar)
             if ($fromDate->lessThan($firstStored)) {
                 $gapEnd = $firstStored->subDay();
-                if (! $this->hasQueriedBarInterval($symbol, $fromDate, $gapEnd)) {
+                if ($this->hasTradingDays($fromDate, $gapEnd, $symbol) && ! $this->hasQueriedBarInterval($symbol, $fromDate, $gapEnd)) {
                     $this->fetchAndStoreBars($symbol, $fromDate, $gapEnd);
                 }
             }
@@ -371,7 +403,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $unfinishedLast = $existing->isNotEmpty() && $this->shouldRefreshUnfinishedDay($existing->last());
             if ($toDate->greaterThan($lastStored) || $unfinishedLast) {
                 $gapStart = $unfinishedLast ? $lastStored : $lastStored->addDay();
-                if ($gapStart->lessThanOrEqualTo($toDate)) {
+                if ($gapStart->lessThanOrEqualTo($toDate) && ($unfinishedLast || $this->hasTradingDays($gapStart, $toDate, $symbol))) {
                     if (! $this->hasQueriedBarInterval($symbol, $gapStart, $toDate)) {
                         $this->fetchAndStoreBars($symbol, $gapStart, $toDate);
                     }
@@ -729,18 +761,23 @@ class PersistentMarketDataProvider implements MarketDataProvider
             });
         }
 
-        // Archive raw payload for this queried interval, even if empty (e.g. holidays)
-        MarketDataPayload::updateOrCreate(
-            [
-                'symbol' => $symbol,
-                'data_type' => 'bars',
-                'period' => $from->toDateString().'_'.$to->toDateString(),
-            ],
-            [
-                'payload' => $fresh ?: [],
-                'retrieved_at' => $now,
-            ]
-        );
+        // Archive raw payload for this queried interval only when bars were returned
+        // or when the upstream request succeeded without provider errors (e.g. market holidays).
+        // Never persist an empty bars payload when upstream failed with HTTP 401/402/403/429/5xx,
+        // as doing so would suppress retries for 24 hours via hasQueriedBarInterval().
+        if (! empty($fresh) || empty($this->upstream->lastErrors())) {
+            MarketDataPayload::updateOrCreate(
+                [
+                    'symbol' => $symbol,
+                    'data_type' => 'bars',
+                    'period' => $from->toDateString().'_'.$to->toDateString(),
+                ],
+                [
+                    'payload' => $fresh ?: [],
+                    'retrieved_at' => $now,
+                ]
+            );
+        }
 
         return $fresh;
     }
@@ -913,7 +950,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     public function quote(string $symbol): ?array
     {
-        $symbol = strtoupper(trim($symbol));
+        $symbol = $this->normalizeFuturesAlias($symbol);
         if ($symbol === '') {
             return null;
         }
@@ -1001,6 +1038,28 @@ class PersistentMarketDataProvider implements MarketDataProvider
         }
 
         return null;
+    }
+
+    /**
+     * Retrieve multiple quotes keyed by uppercase symbol, using batch cache/DB lookup
+     * and isolating per-symbol errors.
+     *
+     * @param  list<string>  $symbols
+     * @return array<string, array<string, mixed>|null>
+     */
+    public function quotes(array $symbols): array
+    {
+        $unique = array_values(array_unique(array_filter(array_map(fn ($s) => strtoupper(trim((string) $s)), $symbols))));
+        $out = [];
+        foreach ($unique as $sym) {
+            try {
+                $out[$sym] = $this->quote($sym);
+            } catch (Throwable) {
+                $out[$sym] = null;
+            }
+        }
+
+        return $out;
     }
 
     protected function getFinancialRefreshAttempt(string $symbol, string $statementType): ?MarketDataPayload
@@ -1717,7 +1776,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array
     {
-        $symbol = strtoupper(trim($symbol));
+        $symbol = $this->normalizeFuturesAlias($symbol);
         if ($symbol === '') {
             return [];
         }

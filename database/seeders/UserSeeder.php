@@ -31,5 +31,7 @@ class UserSeeder extends Seeder
             'email_verified_at' => $user->email_verified_at ?? now(),
             'activation_token' => null,
         ])->save();
+
+        User::ensureAnonymousUser();
     }
 }

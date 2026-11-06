@@ -38,6 +38,9 @@ class ManageAccounts extends Component
 
     public string $selectedRole = 'guest';
 
+    /** @var list<string> */
+    public array $selectedRoles = [];
+
     // Credit Modal state
     public bool $showCreditModal = false;
 
@@ -134,6 +137,7 @@ class ManageAccounts extends Component
         $user = User::findOrFail($userId);
         $this->selectedUserId = $user->id;
         $this->selectedRole = $user->role->value;
+        $this->selectedRoles = array_map(fn (UserRole $r) => $r->value, $user->assignedRoles());
         $this->showRoleModal = true;
     }
 
@@ -141,6 +145,19 @@ class ManageAccounts extends Component
     {
         $this->showRoleModal = false;
         $this->selectedUserId = null;
+        $this->selectedRoles = [];
+    }
+
+    public function toggleAssignedRole(string $roleValue): void
+    {
+        if (in_array($roleValue, $this->selectedRoles, true)) {
+            $this->selectedRoles = array_values(array_filter(
+                $this->selectedRoles,
+                fn (string $v) => $v !== $roleValue
+            ));
+        } else {
+            $this->selectedRoles[] = $roleValue;
+        }
     }
 
     public function updateRole(): void
@@ -163,7 +180,16 @@ class ManageAccounts extends Component
         $this->closeRoleModal();
     }
 
-    public function removeRole(int $userId): void
+    public function assignAdditionalRole(int $userId, string $role): void
+    {
+        $user = User::findOrFail($userId);
+        $resolved = UserRole::resolve($role);
+        $user->addRole($resolved);
+
+        session()->flash('message', "Added role {$resolved->label()} to '{$user->name}'.");
+    }
+
+    public function removeRole(int $userId, ?string $role = null): void
     {
         $user = User::findOrFail($userId);
 
@@ -173,8 +199,50 @@ class ManageAccounts extends Component
             return;
         }
 
+        if ($role !== null && trim($role) !== '') {
+            $user->removeRole($role);
+            session()->flash('message', "Role removed for '{$user->name}'.");
+
+            return;
+        }
+
         $user->removeRole();
         session()->flash('message', "Role removed for '{$user->name}' (reset to Guest).");
+    }
+
+    public function deleteAccount(int $userId): void
+    {
+        $user = User::findOrFail($userId);
+
+        if ($user->isAnonymousUser() || ! $user->canBeDeleted()) {
+            $this->addError('account', 'The system Anonymous User account cannot be deleted.');
+            session()->flash('error', 'The system Anonymous User account cannot be deleted.');
+
+            return;
+        }
+
+        if ($user->id === Auth::id()) {
+            $this->addError('account', 'You cannot delete your own active administrator account.');
+            session()->flash('error', 'You cannot delete your own active administrator account.');
+
+            return;
+        }
+
+        $name = $user->name;
+        $user->delete();
+        session()->flash('message', "Account '{$name}' has been deleted.");
+    }
+
+    public function impersonate(int $userId): void
+    {
+        $user = User::findOrFail($userId);
+
+        if ($user->isAnonymousUser() || ! $user->canBeImpersonated()) {
+            $this->addError('account', 'The system Anonymous User account cannot be impersonated.');
+            session()->flash('error', 'The system Anonymous User account cannot be impersonated.');
+
+            return;
+        }
     }
 
     public function openCreditModal(int $userId): void
@@ -228,6 +296,8 @@ class ManageAccounts extends Component
 
     public function render()
     {
+        User::ensureAnonymousUser();
+
         $query = User::query();
 
         if (trim($this->search) !== '') {
@@ -239,7 +309,13 @@ class ManageAccounts extends Component
         }
 
         if ($this->filterRole !== '') {
-            $query->where('role', $this->filterRole);
+            $roleFilter = $this->filterRole;
+            $query->where(function ($q) use ($roleFilter) {
+                $q->where('role', $roleFilter);
+                if (User::hasSchemaColumn('assigned_roles')) {
+                    $q->orWhereJsonContains('assigned_roles', $roleFilter);
+                }
+            });
         }
 
         $users = $query->orderBy('id', 'asc')->paginate(15);

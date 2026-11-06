@@ -796,8 +796,8 @@ directly, so none of them depend on `php artisan schedule:run` being enabled.
 
 | Script | Command it runs | Purpose |
 | --- | --- | --- |
-| `duoasset-setup-scan.sh` | `stocks:scan-buy-setups --exchange=X --letter=Y --sync -vv` looped over NYSE/NASDAQ/TSX/TSXV × A–Z | Full Stock Buy Setup sweep, one exchange/letter slice at a time so each screener call stays small and fast. |
-| `duoasset-earnings-scan.sh` | `earnings:scan-surprises -vvv --from=<today-70d> --to=<today>` | EPS Earnings Surprise scan over a rolling 70-day window. |
+| `duoasset-setup-scan.sh` | `digest:start-collection setup_scoring` → `stocks:scan-buy-setups --exchange=X --letter=Y --sync -vv` (NYSE/NASDAQ/TSX/TSXV × A–Z) → `digest:prepare setup_scoring` | Full Stock Buy Setup sweep across all 104 exchange/letter slices, consolidating all matched setups into **one** nightly `SetupScoringDigestNotification` email per subscribed user. |
+| `duoasset-earnings-scan.sh` | `digest:start-collection eps_surprise` → `earnings:scan-surprises -vvv --from=<today-70d> --to=<today>` → `digest:prepare eps_surprise` | EPS Earnings Surprise scan over a rolling 70-day window, consolidating all qualifying alerts into **one** complete `EpsSurpriseDigestNotification` email per subscribed user. |
 | `duoasset-quote.sh` | `market-watch:update-quotes -vvv` | Refreshes Alpha Vantage quote data. |
 | `duoasset-moneyflow-hourly.sh` | `moneyflow:update --interval=hourly -vv` | Intraday Sector Money Flow capture. |
 | `duoasset-moneyflow.sh` | `moneyflow:update -vv` (defaults to `--interval=eod`) | End-of-day authoritative Sector Money Flow capture. |
@@ -815,7 +815,7 @@ UTC server clock — shift them if your server uses a different timezone):
 ```
 
 > **Don't enable both mechanisms for the same command.** `routes/console.php` also
-> registers `earnings:scan-surprises` and `moneyflow:update` on Laravel's own scheduler
+> registers `earnings:scan-surprises --no-digest` and `moneyflow:update` on Laravel's own scheduler
 > (see each feature's "Scheduler" section above), which only fires if
 > `php artisan schedule:run` is enabled in cron (commented out above). Since the
 > scripts in the table call the same artisan commands directly, pick **either** the
@@ -824,3 +824,116 @@ UTC server clock — shift them if your server uses a different timezone):
 > `market-watch:update-quotes` have **no** `Schedule::` entry at all — they only run via
 > their script line above. `earnings:scan-revisions` is the opposite: it has **no**
 > script — it only runs if `schedule:run` is enabled.
+
+---
+
+## Futures Context, Authorization, Anonymous Visitor Roles & Dashboard Cache Architecture
+
+### 1. Futures Context
+
+DuoAsset supports three dashboard contexts within the unified `/dashboard` route:
+
+```text
+Stocks | Crypto | Futures
+```
+
+- **Purpose:** Provides a lightweight, responsive commodity futures overview displaying the **three most recently visited futures instruments** (`GCUSD`, `SIUSD`, `CLUSD`, `NGUSD`, `HGUSD`, and other configured contracts in `config/market_data.php`), alongside quick navigation to each instrument's full LuxAlgo/Vela chart and Interactive News Timeline.
+- **Context Selection:** Managed via `App\Livewire\ViewModeToggle` and `App\Livewire\MainNavigation` (`Stocks | Crypto | Futures`) and validated server-side by `App\Services\Auth\AuthorizationResolver`.
+  - Authenticated users persist their active perspective in `users.view_mode`.
+  - Anonymous visitors (when permitted) persist their active perspective in their isolated HTTP session (`session('anonymous_view_mode')`).
+  - If a user loses access to `Futures` during an active session, the next request automatically falls back to an authorized context (`stocks` or `crypto`).
+- **Primary Supported Instruments:**
+  - `/futures/gcusd` — Gold Futures (`COMEX`, `USD / troy oz`, `100 troy oz`, provider symbol `GCUSD` / `GC=F`)
+  - `/futures/siusd` — Silver Futures (`COMEX`, `USD / troy oz`, `5,000 troy oz`, provider symbol `SIUSD` / `SI=F`)
+  - `/futures/clusd` — WTI Crude Oil Futures (`NYMEX`, `USD / bbl`, `1,000 bbl`, provider symbol `CLUSD` / `CL=F`; also resolves external alias `CLUSDT` → `CLUSD`)
+  - `/futures/ngusd` — Natural Gas Futures (`NYMEX`, `USD / MMBtu`, `10,000 MMBtu`, provider symbol `NGUSD` / `NG=F`)
+  - `/futures/hgusd` — Copper Futures (`COMEX`, `USD / lb`, `25,000 lbs`, provider symbol `HGUSD` / `HG=F`)
+- **FMP Commodities List API & Symbol Alias Resolution:**
+  - Commodity and futures symbols are discovered and validated via the **FMP Commodities List API** (`GET /stable/commodities-list`, exposed in `FmpMarketDataProvider::commoditiesList()`, `PersistentMarketDataProvider::commoditiesList()`, and `GET /api/v1/market-data/commodities-list`).
+  - External system symbol conventions such as `CLUSDT` (for `CLUSD`) and other `*USDT` commodity aliases (`GCUSDT`, `SIUSDT`, `NGUSDT`, `HGUSDT`, `BZUSDT`, etc.) are automatically normalized to their canonical FMP symbols (`CLUSD`, `GCUSD`, `SIUSD`, `NGUSD`, `HGUSD`, `BZUSD`) across `InstrumentClassifier`, `EnsureCanonicalInstrumentRoute` (`301` redirect from `/futures/clusdt` or `/stock/clusdt` to `/futures/clusd`), `FmpMarketDataProvider::searchSymbols()`, `RecentFuturesService`, and `MarketDataApiController`.
+- **Recent Futures Tracking (`App\Services\Dashboard\RecentFuturesService`):**
+  - Displays at most 3 unique supported futures contracts in most-recently-visited order; revisiting an instrument moves it to the top.
+  - Displays the actual market observation timestamp (`quote['timestamp']`) and CME Globex market-hours-aware freshness status (`Live`, `Delayed`, `Stale`, `Market Closed`, `Unavailable`).
+  - Authenticated history is stored in `users.recent_futures`; anonymous visitor history is stored strictly in `session('recent_futures_anonymous')` and never written to the shared `Anonymous User` database row.
+
+### 2. Futures Subscriber Role
+
+- **Internal Value & Label:** `App\Enums\UserRole::FUTURES` (`value: 'futures'`, `label: 'Futures Subscriber'`).
+- **Protected Resources:**
+  - Futures dashboard context (`/dashboard` when `view_mode = 'futures'`)
+  - Futures detail routes (`/futures/{symbol}`)
+  - Futures chart, news, and impact endpoints (`/futures/{symbol}/candles`, `/futures/{symbol}/news`, `/futures/{symbol}/news-impact`, and direct calls to `/stocks/{symbol}/candles` when `{symbol}` is a futures contract)
+  - Futures API routes (`/api/v1/market-data/{symbol}/quote`, `/candles`, `/profile`, `/financials`)
+- **Assigning the Role:**
+  - **Web UI:** Navigate to **Admin → Manage Accounts** (`/admin/accounts`), click **Role** on the target user, and select `Futures Subscriber` (or `Full Subscription` / `Administrator`).
+  - **CLI / Tinker:**
+    ```bash
+    php artisan tinker --execute="\App\Models\User::where('email', 'user@example.com')->firstOrFail()->assignRole('futures');"
+    ```
+
+### 3. Anonymous User & Configurable Anonymous Visitor Roles
+
+- **System Identity:** `User::ensureAnonymousUser()` idempotently creates and maintains the dedicated `Anonymous User` (`email: anonymous@duoasset.local`, `is_anonymous: true`).
+- **Default State:** Created with `Guest (No Anonymous Roles)` — `Futures Subscriber` is **not** granted automatically during installation.
+- **Granting or Revoking Anonymous Futures Access:**
+  - In **Admin → Manage Accounts** (`/admin/accounts`), search for `Anonymous User`, click **Role**, and assign `Futures Subscriber` to allow unauthenticated visitors to browse `/futures/*` and the Futures `/dashboard`. Click **Remove Role** (or set to `Guest`) to revoke access immediately.
+  - Via Tinker:
+    ```bash
+    # Grant Futures Subscriber to unauthenticated visitors
+    php artisan tinker --execute="\App\Models\User::ensureAnonymousUser()->assignRole('futures');"
+
+    # Revoke all anonymous roles
+    php artisan tinker --execute="\App\Models\User::ensureAnonymousUser()->removeRole();"
+    ```
+- **Authentication vs. Authorization Guarantees:**
+  - Resolving permissions from `Anonymous User` via `AuthorizationResolver` **never** logs in the visitor (`Auth::check() === false` remains true).
+  - Authenticated users always resolve permissions from their own assigned roles and never inherit `Anonymous User` roles.
+  - `Anonymous User` cannot log in interactively, cannot reset or activate its password via web or CLI (`user:reset-password` / `user:activate`), cannot be deleted or impersonated, never receives email digests, and can never grant interactive administrator access (`/admin/*`, `/settings/*`, `/watchlists` always require a real authenticated user).
+
+### 4. Dashboard Caching & Durable Last-Known-Good Recovery
+
+- **Versioned Snapshot Architecture (`App\Services\Dashboard\DashboardCacheService`):**
+  - Context-isolated keys:
+    - `dashboard:{context}:active` → active version number (e.g. `105`)
+    - `dashboard:{context}:previous` → previous version number (e.g. `104`)
+    - `dashboard:{context}:v{N}` → validated snapshot payload (`ACTIVE` or `PREVIOUS`)
+    - `dashboard:{context}:building:v{N}` → in-progress warmer candidate (`BUILDING`)
+    - `dashboard:{context}:meta` → observability metadata (`snapshot_version`, `generated_at`, `published_at`, `data_as_of`, `last_refresh_attempt_at`, `last_refresh_status`, `last_error`, `is_warming`, `used_durable_fallback`)
+- **Atomic Publication & Generation Fencing:**
+  - Background warmers build a new candidate version (`v{N+1}`) without invalidating `v{N}`.
+  - Before switching `dashboard:{context}:active`, `validateSnapshot()` verifies schema version compatibility (`SCHEMA_VERSION = 2`) and required datasets.
+  - If warming fails or returns incomplete data, `dashboard:{context}:active` remains unchanged and the error is logged (`dashboard.warmer_failed`).
+  - Monotonic generation numbers (`dashboard:{context}:generation` / `published_generation`) fence concurrent warmers so a slower older warmer can never overwrite a newer published snapshot.
+  - Obsolete versions older than `PREVIOUS` are automatically cleaned up on publication.
+- **Routine Cache Clear (`./clearcache`) vs. Intentional Hard Purge:**
+  - Every published snapshot is also persisted as a durable last-known-good snapshot in `market_data_payloads` (`symbol = 'DASHBOARD'`, `data_type = 'dashboard_snapshot_{context}'`).
+  - Running `./clearcache` (`php artisan cache:clear`) clears the in-memory/database `Cache` store, **not** the durable snapshot. On the next `/dashboard` request, `DashboardCacheService` immediately recovers the durable snapshot (if schema-compatible), serves the dashboard without blocking on synchronous rebuilds, and dispatches background warming (`PrefetchUserDashboardJob`).
+  - To intentionally purge **both** in-memory versioned snapshots and durable `MarketDataPayload` snapshots:
+    ```bash
+    # Purge all dashboard contexts (stocks, crypto, futures) and durable snapshots
+    php artisan dashboard:cache-purge --context=all
+
+    # Purge only the stocks dashboard context
+    php artisan dashboard:cache-purge --context=stocks
+    ```
+
+### 5. Coordinated Nightly Scanner Digests
+
+- `App\Services\Notifications\ScannerDigestCoordinator` prevents multi-slice cron scripts (such as `scripts/duoasset-setup-scan.sh` which runs 104 `exchange × letter` slices) from sending partial per-slice digest emails:
+  ```bash
+  # Start collecting setup_scoring or eps_surprise across multiple CLI invocations
+  php artisan digest:start-collection setup_scoring
+  # ... run slice commands ...
+  php artisan digest:prepare setup_scoring
+  ```
+- Frequent intraday `earnings:scan-surprises --no-digest` runs in `routes/console.php` update the watchlist tables without sending partial intraday emails, while the nightly `scripts/duoasset-earnings-scan.sh` consolidates the full 70-day window into a single complete digest email per subscribed user.
+
+### 6. Dashboard & Futures Troubleshooting
+
+| Symptom | Diagnosis & Resolution |
+| --- | --- |
+| **Missing dashboard data or failed warmer** | Inspect snapshot metadata via `php artisan tinker --execute="dump(app(\App\Services\Dashboard\DashboardCacheService::class)->getSnapshotMetadata('stocks'));"` and check `storage/logs/laravel.log` for `dashboard.warmer_failed`. |
+| **Stale dashboard data after schema change** | Run `php artisan dashboard:cache-purge --context=all` to remove both cached and durable snapshots, then warm a fresh snapshot via `php artisan tinker --execute="app(\App\Services\Dashboard\DashboardCacheService::class)->warmContextSnapshot('stocks');"`. |
+| **Empty futures chart or missing quote for `CLUSD`, `NGUSD`, `HGUSD`** | On FMP plans where `/stable/quote` and `/stable/historical-price-eod/full` return HTTP `402` for NYMEX/COMEX energy and base metal symbols, `FmpMarketDataProvider` automatically falls back to the continuous front-month Yahoo Finance futures feed (`CL=F`, `NG=F`, `HG=F`). Ensure `FUTURES_YAHOO_FALLBACK_ENABLED=true` (default) and check `storage/logs/laravel.log` for `futures.market_data` diagnostic entries (`symbol`, `provider`, `provider_symbol`, `requested_interval`, `response_status`, `candle_count`, `error_category`). |
+| **Previously failed futures symbol still shows empty chart** | Clear cached market data for that symbol: `php artisan market-data:clear CLUSD` (and if needed `php artisan market-data:purge-database --symbol=CLUSD --type=bars --force`). |
+| **Anonymous visitors receiving `403` on `/futures/*`** | Verify `Anonymous User` has been assigned `Futures Subscriber` in `/admin/accounts` or via `php artisan tinker --execute="dump(\App\Models\User::ensureAnonymousUser()->assignedRoles());"`. |

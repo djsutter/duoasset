@@ -17,12 +17,46 @@ class InstrumentClassifier
     ) {}
 
     /**
+     * Normalize external commodity/futures symbol aliases (such as CLUSDT -> CLUSD)
+     * against configured aliases and FMP's /commodities-list catalog.
+     */
+    public function normalizeFuturesSymbol(string $symbol): string
+    {
+        $sym = strtoupper(trim($symbol));
+        if ($sym === '') {
+            return '';
+        }
+
+        $aliases = (array) config('market_data.futures.aliases', []);
+        if (isset($aliases[$sym])) {
+            return strtoupper(trim((string) $aliases[$sym]));
+        }
+
+        $configuredFutures = (array) config('market_data.futures.instruments', []);
+        if (isset($configuredFutures[$sym])) {
+            return $sym;
+        }
+
+        // In other trading systems, USD-denominated futures such as CLUSD are known as CLUSDT.
+        // When a *USDT symbol corresponds to an FMP commodity symbol (*USD) in config or FMP's
+        // Commodities List API (/commodities-list), map it to the canonical FMP symbol.
+        if (str_ends_with($sym, 'USDT') && strlen($sym) > 4) {
+            $usdCandidate = substr($sym, 0, -1); // e.g. CLUSDT -> CLUSD
+            if (isset($configuredFutures[$usdCandidate]) || $this->findProviderCommodity($usdCandidate) !== null) {
+                return $usdCandidate;
+            }
+        }
+
+        return $sym;
+    }
+
+    /**
      * Determine whether a symbol represents a futures instrument or a stock,
      * using application metadata and FMP-supported instrument discovery.
      */
     public function classify(string $symbol, ?array $quote = null, ?array $profile = null): string
     {
-        $symbol = strtoupper(trim($symbol));
+        $symbol = $this->normalizeFuturesSymbol($symbol);
         if ($symbol === '') {
             return self::TYPE_STOCK;
         }
@@ -124,9 +158,11 @@ class InstrumentClassifier
      */
     public function resolve(string $symbol, ?array $quote = null, ?array $profile = null): array
     {
-        $upper = strtoupper(trim($symbol));
+        $rawUpper = strtoupper(trim($symbol));
+        $normalizedFutures = $this->normalizeFuturesSymbol($rawUpper);
+        $assetType = $this->classify($rawUpper, $quote, $profile);
+        $upper = $assetType === self::TYPE_FUTURES ? $normalizedFutures : $rawUpper;
         $lower = strtolower($upper);
-        $assetType = $this->classify($upper, $quote, $profile);
 
         if ($assetType === self::TYPE_FUTURES) {
             $configured = (array) config("market_data.futures.instruments.{$upper}", []);

@@ -20,6 +20,8 @@ echo "=================================================================="
 total=$(( ${#EXCHANGES[@]} * ${#LETTERS[@]} ))
 count=0
 
+"$PHP" artisan digest:start-collection setup_scoring
+
 for exchange in "${EXCHANGES[@]}"; do
     for letter in "${LETTERS[@]}"; do
         ((++count))
@@ -38,6 +40,8 @@ for exchange in "${EXCHANGES[@]}"; do
         echo "Completed $exchange $letter ($(date))"
     done
 done
+
+"$PHP" artisan digest:prepare setup_scoring
 
 echo
 echo "=================================================================="
