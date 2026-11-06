@@ -91,6 +91,7 @@ may therefore be longer than the chart-service TTL. Profiles are cached for 24 h
 ### Setup and verification
 
 ```bash
+composer install
 npm ci
 npm run build
 php artisan route:list --name=stocks
