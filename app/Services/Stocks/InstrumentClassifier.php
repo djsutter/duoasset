@@ -114,7 +114,7 @@ class InstrumentClassifier
         }
 
         // 5. Fallback to provider quote exchange classification if quote wasn't supplied
-        if ($quote === null) {
+        if ($quote === null && preg_match('/(USD|USX|USDT|=F)$/', $symbol) === 1) {
             try {
                 $fetchedQuote = $this->provider->quote($symbol);
                 if (is_array($fetchedQuote)) {

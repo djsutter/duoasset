@@ -64,10 +64,7 @@ class StockCandlesController extends Controller
         }
 
         $this->authorizeSymbolAccess($request, $symbol);
-        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
-        if ($classifier->isFutures($symbol)) {
-            $symbol = $classifier->normalizeFuturesSymbol($symbol);
-        }
+        $symbol = app(\App\Services\Stocks\InstrumentClassifier::class)->normalizeFuturesSymbol($symbol);
 
         // Validate interval if supplied
         $interval = '1day';
@@ -175,10 +172,7 @@ class StockCandlesController extends Controller
         }
 
         $this->authorizeSymbolAccess($request, $symbol);
-        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
-        if ($classifier->isFutures($symbol)) {
-            $symbol = $classifier->normalizeFuturesSymbol($symbol);
-        }
+        $symbol = app(\App\Services\Stocks\InstrumentClassifier::class)->normalizeFuturesSymbol($symbol);
 
         $options = [
             'from' => $request->query('from'),
@@ -208,10 +202,7 @@ class StockCandlesController extends Controller
         }
 
         $this->authorizeSymbolAccess($request, $symbol);
-        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
-        if ($classifier->isFutures($symbol)) {
-            $symbol = $classifier->normalizeFuturesSymbol($symbol);
-        }
+        $symbol = app(\App\Services\Stocks\InstrumentClassifier::class)->normalizeFuturesSymbol($symbol);
 
         $rawTs = $request->query('timestamp');
         if ($rawTs === null || $rawTs === '') {

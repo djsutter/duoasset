@@ -68,10 +68,7 @@ class MarketDataApiController extends Controller
             ], 404);
         }
 
-        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
-        if ($classifier->isFutures($symbol)) {
-            $symbol = $classifier->normalizeFuturesSymbol($symbol);
-        }
+        $symbol = app(\App\Services\Stocks\InstrumentClassifier::class)->normalizeFuturesSymbol($symbol);
 
         $interval = strtolower(trim((string) $request->query('interval', '1day')));
         if (! in_array($interval, self::ALLOWED_INTERVALS, true)) {
@@ -262,10 +259,7 @@ class MarketDataApiController extends Controller
             ], 404);
         }
 
-        $classifier = app(\App\Services\Stocks\InstrumentClassifier::class);
-        if ($classifier->isFutures($symbol)) {
-            $symbol = $classifier->normalizeFuturesSymbol($symbol);
-        }
+        $symbol = app(\App\Services\Stocks\InstrumentClassifier::class)->normalizeFuturesSymbol($symbol);
 
         $quote = $this->provider->quote($symbol);
         if (! $quote) {
