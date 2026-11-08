@@ -744,20 +744,34 @@ class FmpMarketDataProvider implements MarketDataProvider
                 return null;
             }
 
+            $exchange = $this->mapExchange($row['exchangeShortName'] ?? $row['exchange'] ?? null);
+            $marketCap = $this->toInt($row['mktCap'] ?? $row['marketCap'] ?? null);
+            $price = $this->toFloat($row['price'] ?? null);
+            $sharesOutstanding = $this->toInt(
+                $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null,
+            );
+            if (($sharesOutstanding === null || $sharesOutstanding <= 0) && $marketCap !== null && $marketCap > 0 && $price !== null && $price > 0.0) {
+                $derivedShares = (int) round($marketCap / $price);
+                $sharesOutstanding = $derivedShares > 0 ? $derivedShares : null;
+            } elseif ($sharesOutstanding !== null && $sharesOutstanding <= 0) {
+                $sharesOutstanding = null;
+            }
+
+            $rawCurrency = isset($row['currency']) && is_string($row['currency']) ? strtoupper(trim($row['currency'])) : '';
+            $currency = $rawCurrency !== '' ? $rawCurrency : $this->inferCurrencyFromExchangeAndSymbol($exchange, $symbol);
+
             return [
                 'symbol' => $symbol,
                 'company_name' => $row['companyName'] ?? $row['name'] ?? null,
-                'exchange' => $this->mapExchange($row['exchangeShortName'] ?? $row['exchange'] ?? null),
+                'exchange' => $exchange,
                 // Raw provider-reported market cap, kept as a fallback. The
                 // canonical value is computed: price × shares_outstanding.
-                'market_cap' => $this->toInt($row['mktCap'] ?? $row['marketCap'] ?? null),
-                'shares_outstanding' => $this->toInt(
-                    $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null,
-                ),
+                'market_cap' => $marketCap,
+                'shares_outstanding' => $sharesOutstanding,
                 'float_shares' => $this->toInt($row['floatShares'] ?? null),
                 'free_float' => $this->toFloat($row['freeFloat'] ?? null),
-                'currency' => $row['currency'] ?? null,
-                'price' => $this->toFloat($row['price'] ?? null),
+                'currency' => $currency,
+                'price' => $price,
                 'sector' => $row['sector'] ?? null,
                 'industry' => $row['industry'] ?? null,
                 'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
@@ -1330,28 +1344,34 @@ class FmpMarketDataProvider implements MarketDataProvider
         if ($symbol === '') {
             return null;
         }
-        $cap = $row['marketCap'] ?? $row['mktCap'] ?? 0;
-        $outstanding = 0;
-        $price = $row['price'] ?? 0;
-        if ($cap > 0 && $price > 0) {
-            $outstanding = (int) $cap / $price;
+        $cap = $this->toInt($row['marketCap'] ?? $row['mktCap'] ?? null);
+        $price = $this->toFloat($row['price'] ?? null);
+        $outstanding = $this->toInt($row['sharesOutstanding'] ?? $row['outstandingShares'] ?? null);
+        if (($outstanding === null || $outstanding <= 0) && $cap !== null && $cap > 0 && $price !== null && $price > 0.0) {
+            $derived = (int) round($cap / $price);
+            $outstanding = $derived > 0 ? $derived : null;
+        } elseif ($outstanding !== null && $outstanding <= 0) {
+            $outstanding = null;
         }
+
+        $exchange = $this->mapExchange(
+            $row['exchangeShortName'] ?? $row['exchange'] ?? null,
+        );
+        $rawCurrency = isset($row['currency']) && is_string($row['currency']) ? strtoupper(trim($row['currency'])) : '';
+        $currency = $rawCurrency !== '' ? $rawCurrency : $this->inferCurrencyFromExchangeAndSymbol($exchange, $symbol);
 
         return [
             'symbol' => $symbol,
             'company_name' => $row['companyName'] ?? $row['name'] ?? null,
-            'exchange' => $this->mapExchange(
-                $row['exchangeShortName'] ?? $row['exchange'] ?? null,
-            ),
+            'exchange' => $exchange,
+            'currency' => $currency,
             // Raw provider-reported market cap, kept as a fallback. Callers
             // should prefer the computed value (price × shares_outstanding).
-            'market_cap' => $this->toInt($row['marketCap'] ?? $row['mktCap'] ?? null),
-            'shares_outstanding' => $this->toInt(
-                $row['sharesOutstanding'] ?? $row['outstandingShares'] ?? $outstanding,
-            ),
+            'market_cap' => $cap,
+            'shares_outstanding' => $outstanding,
             'float_shares' => $this->toInt($row['floatShares'] ?? null),
             'free_float' => $this->toFloat($row['freeFloat'] ?? null),
-            'price' => $this->toFloat($row['price'] ?? null),
+            'price' => $price,
             'sector' => $row['sector'] ?? null,
             'industry' => $row['industry'] ?? null,
             'sub_industry' => $row['subIndustry'] ?? $row['sub_industry'] ?? null,
@@ -1363,6 +1383,28 @@ class FmpMarketDataProvider implements MarketDataProvider
             'type' => $row['type'] ?? $row['security_type'] ?? null,
             'raw' => $row,
         ];
+    }
+
+    protected function inferCurrencyFromExchangeAndSymbol(?string $exchange, string $symbol): ?string
+    {
+        $ex = strtoupper(trim((string) ($exchange ?? '')));
+        $sym = strtoupper(trim($symbol));
+
+        if (
+            in_array($ex, ['TSX', 'TSXV', 'TSE', 'CVE', 'NEO', 'CSE'], true)
+            || str_ends_with($sym, '.TO')
+            || str_ends_with($sym, '.V')
+            || str_ends_with($sym, '.CN')
+            || str_ends_with($sym, '.NE')
+        ) {
+            return 'CAD';
+        }
+
+        if (in_array($ex, ['NYSE', 'NASDAQ', 'AMEX', 'NMS', 'NYQ', 'NGM', 'NCM', 'BATS', 'ARCA'], true)) {
+            return 'USD';
+        }
+
+        return null;
     }
 
     /**

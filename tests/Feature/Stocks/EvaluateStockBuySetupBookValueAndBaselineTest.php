@@ -235,3 +235,188 @@ test('historical baseline recalculation is idempotent, suppresses artificial imp
     PrepareScannerRunDigests::dispatchSync(NotificationDigestDelivery::CATEGORY_SETUP_SCORING, $run2->id);
     Notification::assertSentToTimes($user, SetupScoringDigestNotification::class, 1);
 });
+
+test('EvaluateStockBuySetup derives shares from market_cap / price when FMP profile omits sharesOutstanding and rejects foreign currency balance sheets', function () {
+    $bars = buildBookValueTestBars();
+
+    // Case 1: FMP /stable/profile returns market_cap & price but shares_outstanding = null (real FMP /stable behavior)
+    $mockProvider = Mockery::mock(MarketDataProvider::class);
+    $mockProvider->shouldReceive('profile')->with('CITI')->andReturn([
+        'company_name' => 'Citigroup Inc.',
+        'exchange' => 'NYSE',
+        'price' => 11.00,
+        'shares_outstanding' => null, // Omitted by FMP /stable/profile
+        'float_shares' => null,
+        'free_float' => null,
+        'market_cap' => 110_000_000, // Implies 10,000,000 shares at $11.00
+        'currency' => null, // Omitted by screener; inferred as USD from NYSE
+    ]);
+    $mockProvider->shouldReceive('historicalDailyBars')->andReturn($bars);
+    $mockProvider->shouldReceive('quarterlyIncomeStatements')->with('CITI', 8)->andReturn([
+        [
+            'date' => '2026-06-30',
+            'revenue' => 25_000_000,
+            'net_income' => 3_000_000,
+            'eps' => 0.30,
+            'operating_income' => 4_000_000,
+            'fiscal_year' => 2026,
+            'period' => 'Q2',
+            'reported_currency' => 'USD',
+        ],
+    ]);
+    $mockProvider->shouldReceive('quarterlyBalanceSheets')->with('CITI', 8)->andReturn([
+        [
+            'date' => '2026-06-30',
+            'stockholders_equity' => 100_000_000, // BVPS = $10.00 -> P/B = 1.10
+            'fiscal_year' => 2026,
+            'period' => 'Q2',
+            'reported_currency' => 'USD',
+        ],
+    ]);
+    $mockProvider->shouldReceive('quarterlyCashFlowStatements')->andReturn([]);
+
+    $job = new EvaluateStockBuySetup('CITI', 'Citigroup Inc.', 'NYSE', 110_000_000, 11.00, null, null, null);
+    $result = $job->handle(
+        $mockProvider,
+        app(StockBuySetupScanner::class),
+        app(StockBuySetupScorer::class),
+        app(StockBuySetupLiquidityPenalty::class),
+        app(StockFundamentalsAnalyzer::class),
+        app(StockProvisioner::class),
+    );
+
+    expect($result['status'])->toBe('matched');
+    $citiAlert = StockBuySetupAlert::where('symbol', 'CITI')->first();
+    expect($citiAlert)->not->toBeNull()
+        ->and((int) $citiAlert->shares_outstanding)->toBe(10_000_000)
+        ->and((float) $citiAlert->book_value_per_share)->toEqualWithDelta(10.00, 0.001)
+        ->and((float) $citiAlert->price_to_book_ratio)->toEqualWithDelta(1.10, 0.001)
+        ->and($citiAlert->reason_summary)->toContain('Book value P/B 1.10 (8.47/10)');
+
+    // Case 2: Foreign ADR reporting in ARS / KRW where currency was missing from CompanyProfile
+    // Must be scored as N/A (null P/B), NEVER P/B 0.00 with 10/10 points
+    $mockProvider->shouldReceive('profile')->with('CEPU')->andReturn([
+        'company_name' => 'Central Puerto S.A.',
+        'exchange' => 'NYSE',
+        'price' => 11.00,
+        'shares_outstanding' => null,
+        'float_shares' => null,
+        'free_float' => null,
+        'market_cap' => 1_863_987_697,
+        'currency' => null,
+    ]);
+    $mockProvider->shouldReceive('quarterlyIncomeStatements')->with('CEPU', 8)->andReturn([
+        [
+            'date' => '2026-06-30',
+            'revenue' => 2_599_768_000_000,
+            'net_income' => 126_492_000_000,
+            'eps' => 746.50,
+            'operating_income' => 180_000_000_000,
+            'fiscal_year' => null,
+            'period' => 'quarter',
+            'reported_currency' => null,
+            'raw' => ['reportedCurrency' => 'ARS', 'fiscalYear' => 2026, 'period' => 'Q2'],
+        ],
+    ]);
+    $mockProvider->shouldReceive('quarterlyBalanceSheets')->with('CEPU', 8)->andReturn([
+        [
+            'date' => '2026-06-30',
+            'stockholders_equity' => 9_198_016_000_000, // 9.2T ARS
+            'fiscal_year' => null,
+            'period' => 'quarter',
+            'reported_currency' => null,
+            'raw' => ['reportedCurrency' => 'ARS', 'fiscalYear' => 2026, 'period' => 'Q2'],
+        ],
+    ]);
+
+    $cepuJob = new EvaluateStockBuySetup('CEPU', 'Central Puerto S.A.', 'NYSE', 1_863_987_697, 11.00, null, null, null);
+    $cepuJob->handle(
+        $mockProvider,
+        app(StockBuySetupScanner::class),
+        app(StockBuySetupScorer::class),
+        app(StockBuySetupLiquidityPenalty::class),
+        app(StockFundamentalsAnalyzer::class),
+        app(StockProvisioner::class),
+    );
+
+    $cepuAlert = StockBuySetupAlert::where('symbol', 'CEPU')->first();
+    expect($cepuAlert)->not->toBeNull()
+        ->and($cepuAlert->book_value_per_share)->toBeNull()
+        ->and($cepuAlert->price_to_book_ratio)->toBeNull()
+        ->and($cepuAlert->reason_summary)->not->toContain('Book value P/B');
+});
+
+test('recalculateHistoricalBaseline repairs corrupted historical P/B 0.00 records and cleans up reason_summary', function () {
+    // Seed a corrupted historical alert that previously received price_to_book_ratio = 0.0000 and 10/10 points
+    // due to an unflagged foreign-currency balance sheet in company_financials.
+    \App\Models\CompanyProfile::create([
+        'symbol' => 'CORRUPT',
+        'company_name' => 'Corrupt PB Corp',
+        'exchange' => 'NYSE',
+        'currency' => null, // Missing currency in company_profiles
+        'price' => 25.00,
+        'market_cap' => 2_500_000_000,
+        'shares_outstanding' => null, // Missing shares_outstanding in company_profiles
+    ]);
+
+    CompanyFinancial::create([
+        'symbol' => 'CORRUPT',
+        'statement_type' => CompanyFinancial::TYPE_BALANCE_SHEET,
+        'fiscal_date' => '2026-06-30',
+        'period' => 'quarter',
+        'fiscal_year' => null,
+        'stockholders_equity' => 8_500_000_000_000, // 8.5T KRW
+        'reported_currency' => null, // Missing top-level reported_currency
+        'raw_metrics' => [
+            'reportedCurrency' => 'KRW',
+            'fiscalYear' => 2026,
+            'period' => 'Q2',
+        ],
+        'retrieved_at' => now(),
+    ]);
+
+    $corruptAlert = StockBuySetupAlert::create([
+        'source' => 'fmp',
+        'symbol' => 'CORRUPT',
+        'company_name' => 'Corrupt PB Corp',
+        'exchange' => 'NYSE',
+        'setup_type' => 'heartbeat_consolidation_spike',
+        'setup_score' => 85,
+        'previous_setup_score' => 85,
+        'score_delta' => 0,
+        'raw_setup_score' => 85,
+        'heartbeat_score' => 85,
+        'price' => 25.00,
+        'market_cap' => 2_500_000_000,
+        'shares_outstanding' => 100_000_000,
+        'book_value_per_share' => 85000.0000,
+        'price_to_book_ratio' => 0.0000, // Truncated to 0.0000 in DECIMAL(16,4)
+        'stockholders_equity' => 8_500_000_000_000,
+        'spike_date' => '2026-10-15',
+        'spike_rarity_points' => 7,
+        'base_duration_days' => 90,
+        'range_compression_pct' => 8.0,
+        'atr_contraction_ratio' => 0.55,
+        'volume_dry_up_score' => 0.35,
+        'distance_to_breakout_pct' => 1.0,
+        'ma_alignment' => '50>150>200, price>50',
+        'relative_strength_score' => 15.0,
+        'reason_summary' => "Technical:\n52-wk high volume spike.\n\nFundamentals:\nBook value P/B 0.00 (10/10).",
+        'status' => 'new',
+        'detected_at' => now(),
+    ]);
+
+    $scorer = app(StockBuySetupScorer::class);
+    $scorer->recalculateHistoricalBaseline();
+
+    $corruptAlert->refresh();
+    $breakdown = $scorer->breakdown($corruptAlert);
+
+    expect($corruptAlert->book_value_per_share)->toBeNull()
+        ->and($corruptAlert->price_to_book_ratio)->toBeNull()
+        ->and($breakdown['book_value']['available'])->toBeFalse()
+        ->and($breakdown['book_value']['points'])->toBe(0)
+        ->and($breakdown['book_value']['max'])->toBe(0)
+        ->and($corruptAlert->reason_summary)->not->toContain('Book value P/B')
+        ->and($corruptAlert->score_delta)->toBe(0);
+});

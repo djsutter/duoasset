@@ -577,16 +577,17 @@ class StockBuySetupScanner
             return null;
         }
 
-        $bvps = $this->nullableFloat($context['book_value_per_share'] ?? null);
-        if ($bvps !== null) {
-            return (is_finite($bvps) && $bvps > 0.0) ? $bvps : null;
+        if (array_key_exists('book_value_per_share', $context)) {
+            $bvps = $this->nullableFloat($context['book_value_per_share']);
+
+            return ($bvps !== null && is_finite($bvps) && $bvps >= 0.0001) ? round($bvps, 4) : null;
         }
 
         $shares = $this->nullableInt($context['shares_outstanding'] ?? null);
         if ($equity !== null && $equity > 0.0 && $shares !== null && $shares > 0) {
             $computed = $equity / $shares;
 
-            return (is_finite($computed) && $computed > 0.0) ? round($computed, 6) : null;
+            return (is_finite($computed) && $computed >= 0.0001) ? round($computed, 4) : null;
         }
 
         return null;
@@ -597,23 +598,32 @@ class StockBuySetupScanner
      */
     private function resolvePriceToBookRatio(array $context, ?float $fallbackPrice = null): ?float
     {
-        if (array_key_exists('stockholders_equity', $context)) {
+        if (array_key_exists('stockholders_equity', $context) && $context['stockholders_equity'] !== null) {
             $equity = $this->nullableFloat($context['stockholders_equity']);
             if ($equity === null || ! is_finite($equity) || $equity <= 0.0) {
                 return null;
             }
         }
 
-        if (array_key_exists('book_value_per_share', $context)) {
+        if (array_key_exists('book_value_per_share', $context) && $context['book_value_per_share'] !== null) {
             $rawBvps = $this->nullableFloat($context['book_value_per_share']);
             if ($rawBvps === null || ! is_finite($rawBvps) || $rawBvps <= 0.0) {
                 return null;
             }
         }
 
-        $pb = $this->nullableFloat($context['price_to_book_ratio'] ?? $context['pb_ratio'] ?? null);
-        if ($pb !== null) {
-            return (is_finite($pb) && $pb > 0.0) ? $pb : null;
+        if (array_key_exists('price_to_book_ratio', $context) || array_key_exists('pb_ratio', $context)) {
+            $rawPbVal = $context['price_to_book_ratio'] ?? $context['pb_ratio'] ?? null;
+            if ($rawPbVal !== null) {
+                $pb = $this->nullableFloat($rawPbVal);
+
+                return ($pb !== null && is_finite($pb) && $pb >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO && round($pb, 2) > 0.0)
+                    ? round($pb, 4)
+                    : null;
+            }
+            if (array_key_exists('book_value_per_share', $context) && $context['book_value_per_share'] === null) {
+                return null;
+            }
         }
 
         $bvps = $this->resolveBookValuePerShare($context);
@@ -621,7 +631,9 @@ class StockBuySetupScanner
         if ($bvps !== null && $bvps > 0.0 && $price !== null && is_finite($price) && $price > 0.0) {
             $computed = $price / $bvps;
 
-            return (is_finite($computed) && $computed > 0.0) ? round($computed, 6) : null;
+            return (is_finite($computed) && $computed >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO && round($computed, 2) > 0.0)
+                ? round($computed, 4)
+                : null;
         }
 
         return null;

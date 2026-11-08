@@ -324,4 +324,51 @@ class StockBuySetupAlert extends Model
             return false;
         }
     }
+
+    /**
+     * Idempotently ensure that the Book Value scoring columns exist on
+     * stock_buy_setup_alerts (self-heals environments where migrations have not yet run).
+     */
+    public static function ensureBookValueSchema(): bool
+    {
+        try {
+            self::clearSchemaCache();
+
+            if (! Schema::hasTable('stock_buy_setup_alerts')) {
+                return false;
+            }
+
+            $missingBvps = ! Schema::hasColumn('stock_buy_setup_alerts', 'book_value_per_share');
+            $missingPb = ! Schema::hasColumn('stock_buy_setup_alerts', 'price_to_book_ratio');
+            $missingEquity = ! Schema::hasColumn('stock_buy_setup_alerts', 'stockholders_equity');
+
+            if (! $missingBvps && ! $missingPb && ! $missingEquity) {
+                return self::hasRunTrackingColumn('price_to_book_ratio');
+            }
+
+            Schema::table('stock_buy_setup_alerts', function (Blueprint $table) use (
+                $missingBvps,
+                $missingPb,
+                $missingEquity,
+            ) {
+                if ($missingBvps) {
+                    $table->decimal('book_value_per_share', 16, 4)->nullable();
+                }
+                if ($missingPb) {
+                    $table->decimal('price_to_book_ratio', 16, 4)->nullable();
+                }
+                if ($missingEquity) {
+                    $table->decimal('stockholders_equity', 20, 2)->nullable();
+                }
+            });
+
+            self::clearSchemaCache();
+
+            return self::hasRunTrackingColumn('price_to_book_ratio');
+        } catch (Throwable) {
+            self::clearSchemaCache();
+
+            return false;
+        }
+    }
 }

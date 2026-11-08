@@ -99,10 +99,17 @@ class EvaluateStockBuySetup implements ShouldQueue
             $companyName = $this->companyName ?: ($profile['company_name'] ?? null);
             $exchange = $this->exchange ?: ($profile['exchange'] ?? null);
             $price = $this->price ?? $this->nullableFloat($profile['price'] ?? null);
+            $rawMarketCap = $this->marketCap ?? $this->nullableInt($profile['market_cap'] ?? null);
             $sharesOutstanding = $this->sharesOutstanding ?? $this->nullableInt($profile['shares_outstanding'] ?? null);
             $floatShares = $this->floatShares ?? $this->nullableInt($profile['float_shares'] ?? null);
             $freeFloat = $this->freeFloat ?? $this->nullableFloat($profile['free_float'] ?? null);
-            $marketCap = \App\Services\MarketData\MarketCap::compute($price, $sharesOutstanding, $this->marketCap ?? ($profile['market_cap'] ?? null));
+            $marketCap = \App\Services\MarketData\MarketCap::compute($price, $this->sharesOutstanding ?? $this->nullableInt($profile['shares_outstanding'] ?? null), $rawMarketCap);
+            if (($sharesOutstanding === null || $sharesOutstanding <= 0) && $marketCap !== null && $marketCap > 0 && $price !== null && $price > 0.0) {
+                $derivedShares = (int) round($marketCap / $price);
+                $sharesOutstanding = $derivedShares > 0 ? $derivedShares : null;
+            } elseif ($sharesOutstanding !== null && $sharesOutstanding <= 0) {
+                $sharesOutstanding = null;
+            }
 
             // Equity validation gate: exclude redeemed bonds, other inactive securities,
             // preferred shares, warrants, and other non-equity instruments before
@@ -166,6 +173,17 @@ class EvaluateStockBuySetup implements ShouldQueue
                 return $debug;
             }
 
+            if ($price === null || $price <= 0.0) {
+                $lastBarClose = $this->nullableFloat($bars[count($bars) - 1]['close'] ?? null);
+                if ($lastBarClose !== null && $lastBarClose > 0.0) {
+                    $price = $lastBarClose;
+                    if (($sharesOutstanding === null || $sharesOutstanding <= 0) && $marketCap !== null && $marketCap > 0) {
+                        $derivedShares = (int) round($marketCap / $price);
+                        $sharesOutstanding = $derivedShares > 0 ? $derivedShares : null;
+                    }
+                }
+            }
+
             $benchmarks = $configService->getBenchmarkSymbols();
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
             $debug['benchmark_bars'] = count($benchmarkBars);
@@ -221,6 +239,12 @@ class EvaluateStockBuySetup implements ShouldQueue
             $hasFirstScanRunColumn = StockBuySetupAlert::hasRunTrackingColumn('first_scan_run_id');
             $hasPreviousScoreColumn = StockBuySetupAlert::hasRunTrackingColumn('previous_setup_score');
             $hasScoreDeltaColumn = StockBuySetupAlert::hasRunTrackingColumn('score_delta');
+            if (! StockBuySetupAlert::hasRunTrackingColumn('price_to_book_ratio')) {
+                StockBuySetupAlert::ensureBookValueSchema();
+            }
+            $hasBvpsColumn = StockBuySetupAlert::hasRunTrackingColumn('book_value_per_share');
+            $hasPbColumn = StockBuySetupAlert::hasRunTrackingColumn('price_to_book_ratio');
+            $hasEquityColumn = StockBuySetupAlert::hasRunTrackingColumn('stockholders_equity');
 
             $priorAlertsQuery = StockBuySetupAlert::query()->where('symbol', $symbol);
             if ($this->scanRunId !== null && $hasScanRunColumn) {
@@ -404,12 +428,19 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'fcf_margin_expansion_bps' => $result->fcfMarginExpansionBps,
                     'current_ttm_fcf_margin' => $result->currentTtmFcfMargin,
                     'prior_ttm_fcf_margin' => $result->priorTtmFcfMargin,
-                    'book_value_per_share' => $result->bookValuePerShare,
-                    'price_to_book_ratio' => $result->priceToBookRatio,
-                    'stockholders_equity' => $result->stockholdersEquity,
                     'heartbeat_score' => $result->heartbeatScore,
                     'reason_summary' => $result->reasonSummary,
                 ];
+
+                if ($hasBvpsColumn) {
+                    $attributes['book_value_per_share'] = $result->bookValuePerShare;
+                }
+                if ($hasPbColumn) {
+                    $attributes['price_to_book_ratio'] = $result->priceToBookRatio;
+                }
+                if ($hasEquityColumn) {
+                    $attributes['stockholders_equity'] = $result->stockholdersEquity;
+                }
 
                 if ($hasScanRunColumn) {
                     $attributes['scan_run_id'] = $this->scanRunId;
@@ -561,6 +592,28 @@ class EvaluateStockBuySetup implements ShouldQueue
         return $value === null || $value === '' || ! is_numeric($value) ? null : (float) $value;
     }
 
+    private function inferPriceCurrency(?string $exchange, string $symbol): ?string
+    {
+        $ex = strtoupper(trim((string) ($exchange ?? '')));
+        $sym = strtoupper(trim($symbol));
+
+        if (
+            in_array($ex, ['TSX', 'TSXV', 'TSE', 'CVE', 'NEO', 'CSE'], true)
+            || str_ends_with($sym, '.TO')
+            || str_ends_with($sym, '.V')
+            || str_ends_with($sym, '.CN')
+            || str_ends_with($sym, '.NE')
+        ) {
+            return 'CAD';
+        }
+
+        if (in_array($ex, ['NYSE', 'NASDAQ', 'AMEX', 'NMS', 'NYQ', 'NGM', 'NCM', 'BATS', 'ARCA'], true)) {
+            return 'USD';
+        }
+
+        return null;
+    }
+
     /**
      * @param  array<string, mixed>  $profile
      * @return array<string, mixed>
@@ -588,13 +641,17 @@ class EvaluateStockBuySetup implements ShouldQueue
             $cashFlow = (! empty($income) && $configService->isCashFlowDataNeeded())
                 ? $provider->quarterlyCashFlowStatements($symbol, 8)
                 : [];
+            $priceCurrency = isset($profile['currency']) && is_string($profile['currency']) && trim($profile['currency']) !== ''
+                ? strtoupper(trim($profile['currency']))
+                : $this->inferPriceCurrency($this->exchange ?: (isset($profile['exchange']) && is_string($profile['exchange']) ? $profile['exchange'] : null), $symbol);
+
             $metrics = $fundamentals->analyze(
                 $income,
                 $balance,
                 $cashFlow,
                 $price,
                 $sharesOutstanding,
-                isset($profile['currency']) && is_string($profile['currency']) ? $profile['currency'] : null,
+                $priceCurrency,
             );
 
             // Fallback to a valid provider-supplied P/B ratio only when balance
@@ -606,8 +663,13 @@ class EvaluateStockBuySetup implements ShouldQueue
                         ?? $profile['raw']['priceToBook']
                         ?? null
                 );
-                if ($providerPb !== null && is_finite($providerPb) && $providerPb > 0.0) {
-                    $metrics['price_to_book_ratio'] = round($providerPb, 6);
+                if (
+                    $providerPb !== null
+                    && is_finite($providerPb)
+                    && $providerPb >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO
+                    && round($providerPb, 2) > 0.0
+                ) {
+                    $metrics['price_to_book_ratio'] = round($providerPb, 4);
                 }
             }
 

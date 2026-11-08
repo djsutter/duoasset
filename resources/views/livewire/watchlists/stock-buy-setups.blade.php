@@ -269,8 +269,10 @@
                             'prior_ttm_fcf_margin' => $alert->prior_ttm_fcf_margin !== null ? number_format((float) $alert->prior_ttm_fcf_margin * 100, 1).'%' : '—',
                             'current_ttm_fcf_margin' => $alert->current_ttm_fcf_margin !== null ? number_format((float) $alert->current_ttm_fcf_margin * 100, 1).'%' : '—',
                             'fcf_margin_expansion_bps' => $alert->fcf_margin_expansion_bps !== null ? number_format((float) $alert->fcf_margin_expansion_bps, 0).' bps' : '—',
-                            'book_value_per_share' => $alert->book_value_per_share !== null ? '$'.number_format((float) $alert->book_value_per_share, 2) : '—',
-                            'price_to_book_ratio' => $alert->price_to_book_ratio !== null ? number_format((float) $alert->price_to_book_ratio, 2) : 'N/A',
+                            'book_value_per_share' => ($alert->book_value_per_share !== null && (float) $alert->book_value_per_share > 0 && round((float) $alert->book_value_per_share, 2) > 0) ? '$'.number_format((float) $alert->book_value_per_share, 2) : '—',
+                            'price_to_book_ratio' => (isset($breakdownWithPct['book_value']['pb_ratio']) && $breakdownWithPct['book_value']['pb_ratio'] !== null && (float) $breakdownWithPct['book_value']['pb_ratio'] >= 0.01)
+                                ? number_format((float) $breakdownWithPct['book_value']['pb_ratio'], 2)
+                                : (($alert->price_to_book_ratio !== null && (float) $alert->price_to_book_ratio >= 0.01 && round((float) $alert->price_to_book_ratio, 2) > 0) ? number_format((float) $alert->price_to_book_ratio, 2) : 'N/A'),
                             'reason_summary' => $alert->reason_summary ?? '—',
                             'status' => ucfirst((string) $alert->status),
                             'detected_at' => $alert->detected_at ? \Carbon\Carbon::parse($alert->detected_at)->toDateTimeString() : '—',

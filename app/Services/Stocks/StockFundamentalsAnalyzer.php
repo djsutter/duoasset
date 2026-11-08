@@ -44,6 +44,10 @@ class StockFundamentalsAnalyzer
 
     private const MAX_BOOK_VALUE_MAGNITUDE = 999999999999.9999;
 
+    public const MIN_VALID_PB_RATIO = 0.01;
+
+    private const MIN_VALID_BVPS = 0.0001;
+
     /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
@@ -156,12 +160,39 @@ class StockFundamentalsAnalyzer
         $reportingDate = isset($latestBalance['date']) && $latestBalance['date'] !== ''
             ? substr((string) $latestBalance['date'], 0, 10)
             : null;
-        $balanceCurrency = strtoupper(trim((string) ($latestBalance['reported_currency'] ?? $latestBalance['raw']['reportedCurrency'] ?? '')));
-        $balanceCurrency = $balanceCurrency !== '' ? $balanceCurrency : null;
+        $balanceCurrency = $this->extractStatementCurrency($latestBalance, $dedupedBalance);
+
+        $dedupedIncome = $this->dedupeQuartersDescending($incomeRows);
+        $incomeCurrency = ! empty($dedupedIncome)
+            ? $this->extractStatementCurrency($dedupedIncome[0], $dedupedIncome)
+            : null;
+
+        if ($balanceCurrency === null && $incomeCurrency !== null) {
+            $balanceCurrency = $incomeCurrency;
+        }
 
         // Currency compatibility check: never divide a price in one currency
         // by book value per share reported in a different currency.
         $normalizedPriceCurrency = strtoupper(trim((string) ($priceCurrency ?? '')));
+        if ($normalizedPriceCurrency === '') {
+            $symbolHint = strtoupper(trim((string) ($latestBalance['symbol'] ?? $latestBalance['raw']['symbol'] ?? ($dedupedIncome[0]['symbol'] ?? $dedupedIncome[0]['raw']['symbol'] ?? ''))));
+            $exchangeHint = strtoupper(trim((string) ($latestBalance['exchange'] ?? $latestBalance['raw']['exchange'] ?? '')));
+            if (
+                in_array($exchangeHint, ['TSX', 'TSXV', 'TSE', 'CVE', 'NEO', 'CSE'], true)
+                || str_ends_with($symbolHint, '.TO')
+                || str_ends_with($symbolHint, '.V')
+                || str_ends_with($symbolHint, '.CN')
+                || str_ends_with($symbolHint, '.NE')
+            ) {
+                $normalizedPriceCurrency = 'CAD';
+            } elseif ($balanceCurrency !== null) {
+                // Default to USD for US equities when caller omits priceCurrency so
+                // foreign-currency balance sheets (KRW, JPY, ARS, COP, CNY, TWD, EUR, etc.)
+                // are never divided directly into USD share prices.
+                $normalizedPriceCurrency = 'USD';
+            }
+        }
+
         if ($normalizedPriceCurrency !== '' && $balanceCurrency !== null && $normalizedPriceCurrency !== $balanceCurrency) {
             return array_merge($empty, [
                 'book_value_reporting_date' => $reportingDate,
@@ -169,15 +200,11 @@ class StockFundamentalsAnalyzer
             ]);
         }
 
-        $dedupedIncome = $this->dedupeQuartersDescending($incomeRows);
-        if ($normalizedPriceCurrency === '' && ! empty($dedupedIncome) && $balanceCurrency !== null) {
-            $incomeCurrency = strtoupper(trim((string) ($dedupedIncome[0]['reported_currency'] ?? $dedupedIncome[0]['raw']['reportedCurrency'] ?? '')));
-            if ($incomeCurrency !== '' && $incomeCurrency !== $balanceCurrency) {
-                return array_merge($empty, [
-                    'book_value_reporting_date' => $reportingDate,
-                    'book_value_currency' => $balanceCurrency,
-                ]);
-            }
+        if ($incomeCurrency !== null && $balanceCurrency !== null && $incomeCurrency !== $balanceCurrency) {
+            return array_merge($empty, [
+                'book_value_reporting_date' => $reportingDate,
+                'book_value_currency' => $balanceCurrency,
+            ]);
         }
 
         $equity = $this->toFloat(
@@ -205,9 +232,37 @@ class StockFundamentalsAnalyzer
             ];
         }
 
-        $shares = ($sharesOutstanding !== null && $sharesOutstanding > 0)
+        $profileShares = ($sharesOutstanding !== null && $sharesOutstanding > 0)
             ? (float) $sharesOutstanding
-            : $this->extractStatementShares($latestBalance, $dedupedIncome);
+            : null;
+        $statementShares = $this->extractStatementShares($latestBalance, $dedupedIncome);
+
+        // Guard against unit mismatches (e.g. shares in thousands vs actual shares)
+        // or unadjusted stock splits between profile shares and statement shares.
+        if ($profileShares !== null && $statementShares !== null && $statementShares > 0.0) {
+            $shareRatio = $profileShares / $statementShares;
+            if (! is_finite($shareRatio) || $shareRatio > 10.0 || $shareRatio < 0.1) {
+                return [
+                    'stockholders_equity' => $persistedEquity,
+                    'book_value_per_share' => null,
+                    'price_to_book_ratio' => null,
+                    'book_value_reporting_date' => $reportingDate,
+                    'book_value_currency' => $balanceCurrency,
+                ];
+            }
+        }
+
+        $shares = $profileShares ?? $statementShares;
+
+        if ($shares !== null && $shares > 0.0 && ! $this->sharesConsistentWithIncomeStatement($shares, $latestBalance, $dedupedIncome)) {
+            return [
+                'stockholders_equity' => $persistedEquity,
+                'book_value_per_share' => null,
+                'price_to_book_ratio' => null,
+                'book_value_reporting_date' => $reportingDate,
+                'book_value_currency' => $balanceCurrency,
+            ];
+        }
 
         $bvps = null;
         if ($equity !== null && $equity > 0.0 && $shares !== null && $shares > 0.0) {
@@ -223,7 +278,7 @@ class StockFundamentalsAnalyzer
             }
         }
 
-        if ($bvps === null || ! is_finite($bvps) || $bvps <= 0.0 || $bvps > self::MAX_BOOK_VALUE_MAGNITUDE) {
+        if ($bvps === null || ! is_finite($bvps) || $bvps < self::MIN_VALID_BVPS || $bvps > self::MAX_BOOK_VALUE_MAGNITUDE) {
             return [
                 'stockholders_equity' => $persistedEquity,
                 'book_value_per_share' => null,
@@ -234,20 +289,108 @@ class StockFundamentalsAnalyzer
         }
 
         $pbRatio = null;
-        if ($price !== null && is_finite($price) && $price > 0.0) {
+        if ($price !== null && is_finite($price)) {
+            if ($price <= 0.0) {
+                return [
+                    'stockholders_equity' => $persistedEquity,
+                    'book_value_per_share' => round($bvps, 4),
+                    'price_to_book_ratio' => null,
+                    'book_value_reporting_date' => $reportingDate,
+                    'book_value_currency' => $balanceCurrency,
+                ];
+            }
+
             $rawPb = $price / $bvps;
-            if (is_finite($rawPb) && $rawPb > 0.0 && $rawPb <= self::MAX_BOOK_VALUE_MAGNITUDE) {
-                $pbRatio = round($rawPb, 6);
+            if (
+                is_finite($rawPb)
+                && $rawPb >= self::MIN_VALID_PB_RATIO
+                && round($rawPb, 2) > 0.0
+                && $rawPb <= self::MAX_BOOK_VALUE_MAGNITUDE
+            ) {
+                $pbRatio = round($rawPb, 4);
+            } else {
+                // When price is positive and P/B is near-zero (< 0.01, rounding to 0.00)
+                // or out of bounds, the underlying BVPS is in incompatible units/currency.
+                return [
+                    'stockholders_equity' => $persistedEquity,
+                    'book_value_per_share' => null,
+                    'price_to_book_ratio' => null,
+                    'book_value_reporting_date' => $reportingDate,
+                    'book_value_currency' => $balanceCurrency,
+                ];
             }
         }
 
         return [
             'stockholders_equity' => $persistedEquity,
-            'book_value_per_share' => round($bvps, 6),
+            'book_value_per_share' => round($bvps, 4),
             'price_to_book_ratio' => $pbRatio,
             'book_value_reporting_date' => $reportingDate,
             'book_value_currency' => $balanceCurrency,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $primaryRow
+     * @param  array<int, array<string, mixed>>  $fallbackRows
+     */
+    private function extractStatementCurrency(array $primaryRow, array $fallbackRows = []): ?string
+    {
+        $curr = strtoupper(trim((string) ($primaryRow['reported_currency'] ?? $primaryRow['raw']['reportedCurrency'] ?? '')));
+        if ($curr !== '') {
+            return $curr;
+        }
+
+        foreach ($fallbackRows as $row) {
+            $candidate = strtoupper(trim((string) ($row['reported_currency'] ?? $row['raw']['reportedCurrency'] ?? '')));
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cross-check shares against implied shares from same-quarter net_income / eps
+     * when both are meaningful and share the same sign, catching 100x/1000x unit scale
+     * mismatches (e.g., shares in thousands vs whole-dollar financial statements).
+     *
+     * @param  array<string, mixed>  $balanceRow
+     * @param  array<int, array<string, mixed>>  $dedupedIncome
+     */
+    private function sharesConsistentWithIncomeStatement(float $shares, array $balanceRow, array $dedupedIncome): bool
+    {
+        foreach ($dedupedIncome as $incRow) {
+            if (! $this->sameQuarter($balanceRow, $incRow)) {
+                continue;
+            }
+
+            $netIncome = $this->toFloat($incRow['net_income'] ?? $incRow['raw']['netIncome'] ?? null);
+            $eps = $this->toFloat($incRow['eps'] ?? $incRow['raw']['epsDiluted'] ?? $incRow['raw']['eps'] ?? null);
+
+            if (
+                $netIncome !== null
+                && $eps !== null
+                && is_finite($netIncome)
+                && is_finite($eps)
+                && abs($eps) >= 0.05
+                && abs($netIncome) >= 1000.0
+                && (($netIncome > 0 && $eps > 0) || ($netIncome < 0 && $eps < 0))
+            ) {
+                $impliedShares = abs($netIncome / $eps);
+                if ($impliedShares > 0.0 && is_finite($impliedShares)) {
+                    $ratio = $shares / $impliedShares;
+                    if ($ratio > 25.0 || $ratio < 0.04) {
+                        return false;
+                    }
+                }
+            }
+
+            break;
+        }
+
+        return true;
     }
 
     /**
@@ -576,12 +719,20 @@ class StockFundamentalsAnalyzer
      */
     private function quarterIndex(array $row): ?int
     {
-        $year = $row['fiscal_year'] ?? null;
-        $period = strtoupper((string) ($row['period'] ?? ''));
+        $year = $row['fiscal_year'] ?? $row['raw']['fiscalYear'] ?? null;
+        $period = strtoupper((string) ($row['period'] ?? $row['raw']['period'] ?? ''));
+        if ($period === 'QUARTER' && isset($row['raw']['period'])) {
+            $period = strtoupper((string) $row['raw']['period']);
+        }
         if (is_numeric($year) && preg_match('/^Q([1-4])$/', $period, $match)) {
             return ((int) $year) * 4 + (int) $match[1] - 1;
         }
 
+        return $this->calendarQuarterIndex($row);
+    }
+
+    private function calendarQuarterIndex(array $row): ?int
+    {
         $date = (string) ($row['date'] ?? '');
         if (! preg_match('/^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/', $date, $match)) {
             return null;
@@ -590,12 +741,23 @@ class StockFundamentalsAnalyzer
         return ((int) $match[1]) * 4 + intdiv(((int) $match[2]) - 1, 3);
     }
 
+    private function hasExplicitFiscalQuarter(array $row): bool
+    {
+        $year = $row['fiscal_year'] ?? $row['raw']['fiscalYear'] ?? null;
+        $period = strtoupper((string) ($row['period'] ?? $row['raw']['period'] ?? ''));
+        if ($period === 'QUARTER' && isset($row['raw']['period'])) {
+            $period = strtoupper((string) $row['raw']['period']);
+        }
+
+        return is_numeric($year) && (bool) preg_match('/^Q([1-4])$/', $period);
+    }
+
     /** @param array<int, array<string, mixed>> $rows */
     private function consistentCurrency(array $rows): bool
     {
         $currencies = [];
         foreach ($rows as $row) {
-            $currency = strtoupper(trim((string) ($row['reported_currency'] ?? '')));
+            $currency = strtoupper(trim((string) ($row['reported_currency'] ?? $row['raw']['reportedCurrency'] ?? '')));
             if ($currency !== '') {
                 $currencies[$currency] = true;
             }
@@ -606,10 +768,23 @@ class StockFundamentalsAnalyzer
 
     private function sameQuarter(array $a, array $b): bool
     {
-        $aIndex = $this->quarterIndex($a);
-        $bIndex = $this->quarterIndex($b);
+        $dateA = isset($a['date']) ? substr((string) $a['date'], 0, 10) : '';
+        $dateB = isset($b['date']) ? substr((string) $b['date'], 0, 10) : '';
+        if ($dateA !== '' && $dateA === $dateB) {
+            return true;
+        }
 
-        return $aIndex !== null && $bIndex !== null && $aIndex === $bIndex;
+        if ($this->hasExplicitFiscalQuarter($a) && $this->hasExplicitFiscalQuarter($b)) {
+            $aIndex = $this->quarterIndex($a);
+            $bIndex = $this->quarterIndex($b);
+
+            return $aIndex !== null && $bIndex !== null && $aIndex === $bIndex;
+        }
+
+        $aCal = $this->calendarQuarterIndex($a);
+        $bCal = $this->calendarQuarterIndex($b);
+
+        return $aCal !== null && $bCal !== null && $aCal === $bCal;
     }
 
     /** @param array<int, array<string, mixed>> $newestFirst */

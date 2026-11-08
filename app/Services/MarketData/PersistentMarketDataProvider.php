@@ -825,6 +825,23 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $fresh['is_adr'] = $this->toBool($fresh['is_adr'] ?? $fresh['isAdr'] ?? null);
             $fresh['type'] = $fresh['type'] ?? $fresh['security_type'] ?? null;
 
+            $freshShares = isset($fresh['shares_outstanding']) && is_numeric($fresh['shares_outstanding']) && (int) $fresh['shares_outstanding'] > 0
+                ? (int) $fresh['shares_outstanding']
+                : null;
+            if ($freshShares === null) {
+                $freshCap = isset($fresh['market_cap']) && is_numeric($fresh['market_cap']) ? (float) $fresh['market_cap'] : null;
+                $freshPrice = isset($fresh['price']) && is_numeric($fresh['price']) ? (float) $fresh['price'] : null;
+                if ($freshCap !== null && $freshCap > 0 && $freshPrice !== null && $freshPrice > 0) {
+                    $derived = (int) round($freshCap / $freshPrice);
+                    $freshShares = $derived > 0 ? $derived : null;
+                } elseif ($stored && $stored->shares_outstanding !== null && (int) $stored->shares_outstanding > 0) {
+                    $freshShares = (int) $stored->shares_outstanding;
+                }
+                if ($freshShares !== null) {
+                    $fresh['shares_outstanding'] = $freshShares;
+                }
+            }
+
             $nonNullFields = CompanyProfile::filterPersistedAttributes(array_filter([
                 'company_name' => $fresh['name'] ?? $fresh['company_name'] ?? null,
                 'exchange' => $fresh['exchange'] ?? null,
@@ -901,6 +918,25 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     $data['mktCap'] = (int) $stored->market_cap;
                 }
             }
+            if (($data['shares_outstanding'] ?? null) === null || (int) $data['shares_outstanding'] <= 0) {
+                if ($stored->shares_outstanding !== null && (int) $stored->shares_outstanding > 0) {
+                    $data['shares_outstanding'] = (int) $stored->shares_outstanding;
+                } elseif (isset($data['market_cap'], $data['price']) && (float) $data['market_cap'] > 0 && (float) $data['price'] > 0) {
+                    $derived = (int) round((float) $data['market_cap'] / (float) $data['price']);
+                    if ($derived > 0) {
+                        $data['shares_outstanding'] = $derived;
+                    }
+                }
+            }
+            if (($data['float_shares'] ?? null) === null && $stored->float_shares !== null) {
+                $data['float_shares'] = (int) $stored->float_shares;
+            }
+            if (($data['free_float'] ?? null) === null && $stored->free_float !== null) {
+                $data['free_float'] = (float) $stored->free_float;
+            }
+            if (empty($data['currency']) && ! empty($stored->currency)) {
+                $data['currency'] = $stored->currency;
+            }
             if (! array_key_exists('is_actively_trading', $data)) {
                 $data['is_actively_trading'] = $stored->is_actively_trading !== null ? (bool) $stored->is_actively_trading : null;
             }
@@ -925,6 +961,14 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     protected function formatStoredProfile(CompanyProfile $stored): array
     {
+        $shares = ($stored->shares_outstanding !== null && (int) $stored->shares_outstanding > 0)
+            ? (int) $stored->shares_outstanding
+            : null;
+        if ($shares === null && $stored->market_cap !== null && (float) $stored->market_cap > 0 && $stored->price !== null && (float) $stored->price > 0) {
+            $derived = (int) round((float) $stored->market_cap / (float) $stored->price);
+            $shares = $derived > 0 ? $derived : null;
+        }
+
         return [
             'symbol' => $stored->symbol,
             'name' => $stored->company_name ?? '',
@@ -937,7 +981,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             'sub_industry' => $stored->sub_industry ?? '',
             'market_cap' => $stored->market_cap !== null ? (int) $stored->market_cap : null,
             'price' => $stored->price !== null ? (float) $stored->price : null,
-            'shares_outstanding' => $stored->shares_outstanding !== null ? (int) $stored->shares_outstanding : null,
+            'shares_outstanding' => $shares,
             'float_shares' => $stored->float_shares !== null ? (int) $stored->float_shares : null,
             'free_float' => $stored->free_float !== null ? (float) $stored->free_float : null,
             'is_actively_trading' => $stored->is_actively_trading !== null ? (bool) $stored->is_actively_trading : null,
@@ -1143,6 +1187,13 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 'revenue' => $f->revenue !== null ? (float) $f->revenue : null,
                 'net_income' => $f->net_income !== null ? (float) $f->net_income : null,
                 'eps' => $f->eps !== null ? (float) $f->eps : null,
+                'operating_income' => isset($f->raw_metrics['operatingIncome']) && is_numeric($f->raw_metrics['operatingIncome'])
+                    ? (float) $f->raw_metrics['operatingIncome']
+                    : (isset($f->raw_metrics['operating_income']) && is_numeric($f->raw_metrics['operating_income']) ? (float) $f->raw_metrics['operating_income'] : null),
+                'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
                 'raw' => $f->raw_metrics ?? [],
             ])->all();
         }
@@ -1181,7 +1232,8 @@ class PersistentMarketDataProvider implements MarketDataProvider
                         'revenue' => $row['revenue'] ?? null,
                         'net_income' => $row['net_income'] ?? null,
                         'eps' => $row['eps'] ?? null,
-                        'fiscal_year' => isset($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
+                        'fiscal_year' => isset($row['fiscal_year']) ? (int) $row['fiscal_year'] : (isset($row['fiscalYear']) ? (int) $row['fiscalYear'] : null),
+                        'reported_currency' => $row['reported_currency'] ?? ($row['raw']['reportedCurrency'] ?? null),
                         'raw_metrics' => $row['raw'] ?? $row,
                         'retrieved_at' => $now,
                     ]
@@ -1205,6 +1257,13 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 'revenue' => $f->revenue !== null ? (float) $f->revenue : null,
                 'net_income' => $f->net_income !== null ? (float) $f->net_income : null,
                 'eps' => $f->eps !== null ? (float) $f->eps : null,
+                'operating_income' => isset($f->raw_metrics['operatingIncome']) && is_numeric($f->raw_metrics['operatingIncome'])
+                    ? (float) $f->raw_metrics['operatingIncome']
+                    : (isset($f->raw_metrics['operating_income']) && is_numeric($f->raw_metrics['operating_income']) ? (float) $f->raw_metrics['operating_income'] : null),
+                'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
                 'raw' => $f->raw_metrics ?? [],
             ])
             ->all();
@@ -1740,6 +1799,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     $nonNullFields = CompanyProfile::filterPersistedAttributes(array_filter([
                         'company_name' => $item['company_name'] ?? null,
                         'exchange' => $item['exchange'] ?? null,
+                        'currency' => ($existing && ! empty($existing->currency)) ? null : ($item['currency'] ?? null),
                         'market_cap' => $item['market_cap'] ?? null,
                         'price' => $item['price'] ?? null,
                         'shares_outstanding' => $item['shares_outstanding'] ?? null,

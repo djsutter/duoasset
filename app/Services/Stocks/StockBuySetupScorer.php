@@ -895,7 +895,12 @@ class StockBuySetupScorer
         ?float $amazingThreshold = null,
         ?float $exceptionalThreshold = null,
     ): ?float {
-        if ($priceToBook === null || ! is_finite($priceToBook) || $priceToBook <= 0.0) {
+        if (
+            $priceToBook === null
+            || ! is_finite($priceToBook)
+            || $priceToBook < StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO
+            || round($priceToBook, 2) <= 0.0
+        ) {
             return null;
         }
 
@@ -998,23 +1003,33 @@ class StockBuySetupScorer
             return null;
         }
 
-        $pb = $this->nullableFloat(
-            $r->priceToBookRatio
-                ?? $r->price_to_book_ratio
-                ?? $r->pbRatio
-                ?? $r->pb_ratio
-                ?? null
-        );
-        if ($pb !== null) {
-            return (is_finite($pb) && $pb > 0.0) ? $pb : null;
-        }
-
-        // If price_to_book_ratio was explicitly set to a non-numeric or invalid value on an alert attribute
+        // If price_to_book_ratio was explicitly set to a non-numeric, zero, negative,
+        // or sub-0.01 value on an alert attribute or result property, treat as N/A
+        // and never fall through to recompute price / bvps.
         if ($r instanceof StockBuySetupAlert) {
             $rawAttr = $r->getAttributes()['price_to_book_ratio'] ?? null;
-            if ($rawAttr !== null && $rawAttr !== '' && ! is_numeric($rawAttr)) {
-                return null;
+            if ($rawAttr !== null && $rawAttr !== '') {
+                if (! is_numeric($rawAttr)) {
+                    return null;
+                }
+                $attrFloat = (float) $rawAttr;
+                if (! is_finite($attrFloat) || $attrFloat < StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO || round($attrFloat, 2) <= 0.0) {
+                    return null;
+                }
             }
+        }
+
+        $rawPbProp = $r->priceToBookRatio
+            ?? $r->price_to_book_ratio
+            ?? $r->pbRatio
+            ?? $r->pb_ratio
+            ?? null;
+        if ($rawPbProp !== null && $rawPbProp !== '') {
+            $pb = $this->nullableFloat($rawPbProp);
+
+            return ($pb !== null && is_finite($pb) && $pb >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO && round($pb, 2) > 0.0)
+                ? $pb
+                : null;
         }
 
         $price = $this->nullableFloat($r->price ?? null);
@@ -1025,10 +1040,12 @@ class StockBuySetupScorer
             }
         }
 
-        if ($price !== null && is_finite($price) && $price > 0.0 && $bvps !== null && is_finite($bvps) && $bvps > 0.0) {
+        if ($price !== null && is_finite($price) && $price > 0.0 && $bvps !== null && is_finite($bvps) && $bvps >= 0.0001) {
             $computed = $price / $bvps;
 
-            return (is_finite($computed) && $computed > 0.0) ? $computed : null;
+            return (is_finite($computed) && $computed >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO && round($computed, 2) > 0.0)
+                ? $computed
+                : null;
         }
 
         return null;
@@ -1143,11 +1160,13 @@ class StockBuySetupScorer
             return 0;
         }
 
+        StockBuySetupAlert::ensureBookValueSchema();
         app(BuySetupConfigService::class)->ensureBookValueConfigMigrated();
 
         $analyzer = app(StockFundamentalsAnalyzer::class);
         $hasFinancialsTable = \Illuminate\Support\Facades\Schema::hasTable('company_financials');
         $hasProfilesTable = \Illuminate\Support\Facades\Schema::hasTable('company_profiles');
+        $hasPayloadsTable = \Illuminate\Support\Facades\Schema::hasTable('market_data_payloads');
         $hasBookValueCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'book_value_per_share');
         $hasPbCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'price_to_book_ratio');
         $hasEquityCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'stockholders_equity');
@@ -1161,6 +1180,7 @@ class StockBuySetupScorer
             $analyzer,
             $hasFinancialsTable,
             $hasProfilesTable,
+            $hasPayloadsTable,
             $hasBookValueCol,
             $hasPbCol,
             $hasEquityCol,
@@ -1172,7 +1192,56 @@ class StockBuySetupScorer
             foreach ($alerts as $alert) {
                 $symbol = strtoupper(trim((string) $alert->symbol));
 
-                if ($alert->price_to_book_ratio === null && $alert->book_value_per_share === null && $hasFinancialsTable && $symbol !== '') {
+                $profile = ($hasProfilesTable && $symbol !== '')
+                    ? \App\Models\CompanyProfile::query()->where('symbol', $symbol)->first()
+                    : null;
+
+                $alertPrice = ($alert->price !== null && (float) $alert->price > 0.0) ? (float) $alert->price : null;
+                $profilePrice = ($profile?->price !== null && (float) $profile->price > 0.0) ? (float) $profile->price : null;
+                $price = $alertPrice ?? $profilePrice;
+
+                $alertMarketCap = $alert->getAttributes()['market_cap'] ?? null;
+                $profileMarketCap = $profile?->market_cap ?? null;
+
+                $shares = ($alert->shares_outstanding !== null && (int) $alert->shares_outstanding > 0)
+                    ? (int) $alert->shares_outstanding
+                    : (($profile?->shares_outstanding !== null && (int) $profile->shares_outstanding > 0) ? (int) $profile->shares_outstanding : null);
+
+                if ($shares === null) {
+                    $derivedShares = null;
+                    if ($alertMarketCap !== null && (float) $alertMarketCap > 0.0 && $alertPrice !== null && $alertPrice > 0.0) {
+                        $derivedShares = (int) round((float) $alertMarketCap / $alertPrice);
+                    } elseif ($profileMarketCap !== null && (float) $profileMarketCap > 0.0 && $profilePrice !== null && $profilePrice > 0.0) {
+                        $derivedShares = (int) round((float) $profileMarketCap / $profilePrice);
+                    }
+                    if ($derivedShares !== null && $derivedShares > 0) {
+                        $shares = $derivedShares;
+                        if ($alert->shares_outstanding === null) {
+                            $alert->shares_outstanding = $derivedShares;
+                        }
+                    }
+                }
+
+                $currency = ($profile && is_string($profile->currency) && trim($profile->currency) !== '')
+                    ? strtoupper(trim($profile->currency))
+                    : null;
+                if ($currency === null && $hasPayloadsTable && $symbol !== '') {
+                    $payloadRow = \App\Models\MarketDataPayload::query()
+                        ->where('symbol', $symbol)
+                        ->where('data_type', 'profile')
+                        ->orderByDesc('retrieved_at')
+                        ->first();
+                    if ($payloadRow && is_array($payloadRow->payload) && ! empty($payloadRow->payload['currency'])) {
+                        $currency = strtoupper(trim((string) $payloadRow->payload['currency']));
+                    }
+                }
+                if ($currency === null) {
+                    $currency = $this->inferAlertTradingCurrency($alert->exchange ?: $profile?->exchange, $symbol);
+                }
+
+                $balanceRows = [];
+                $incomeRows = [];
+                if ($hasFinancialsTable && $symbol !== '') {
                     $balanceRows = \App\Models\CompanyFinancial::query()
                         ->where('symbol', $symbol)
                         ->where('statement_type', \App\Models\CompanyFinancial::TYPE_BALANCE_SHEET)
@@ -1182,40 +1251,110 @@ class StockBuySetupScorer
                         ->map(fn (\App\Models\CompanyFinancial $f) => [
                             'date' => $f->fiscal_date->toDateString(),
                             'stockholders_equity' => $f->stockholders_equity !== null ? (float) $f->stockholders_equity : null,
-                            'fiscal_year' => $f->fiscal_year,
-                            'period' => $f->period,
-                            'reported_currency' => $f->reported_currency,
+                            'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                            'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                            'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                            'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
                             'raw' => $f->raw_metrics ?? [],
                         ])
                         ->all();
 
-                    if (! empty($balanceRows)) {
-                        $profile = $hasProfilesTable
-                            ? \App\Models\CompanyProfile::query()->where('symbol', $symbol)->first()
-                            : null;
-                        $price = $alert->price !== null ? (float) $alert->price : ($profile?->price !== null ? (float) $profile->price : null);
-                        $shares = $alert->shares_outstanding !== null ? (int) $alert->shares_outstanding : ($profile?->shares_outstanding !== null ? (int) $profile->shares_outstanding : null);
-                        $currency = $profile?->currency;
+                    $incomeRows = \App\Models\CompanyFinancial::query()
+                        ->where('symbol', $symbol)
+                        ->where('statement_type', \App\Models\CompanyFinancial::TYPE_INCOME)
+                        ->orderByDesc('fiscal_date')
+                        ->limit(8)
+                        ->get()
+                        ->map(fn (\App\Models\CompanyFinancial $f) => [
+                            'date' => $f->fiscal_date->toDateString(),
+                            'revenue' => $f->revenue !== null ? (float) $f->revenue : null,
+                            'net_income' => $f->net_income !== null ? (float) $f->net_income : null,
+                            'eps' => $f->eps !== null ? (float) $f->eps : null,
+                            'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                            'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                            'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                            'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
+                            'raw' => $f->raw_metrics ?? [],
+                        ])
+                        ->all();
+                }
 
-                        $bvMetrics = $analyzer->bookValueMetrics($balanceRows, [], $price, $shares, $currency);
-                        if ($hasEquityCol) {
-                            $alert->stockholders_equity = $bvMetrics['stockholders_equity'];
-                        }
+                if (! empty($balanceRows)) {
+                    $bvMetrics = $analyzer->bookValueMetrics($balanceRows, $incomeRows, $price, $shares, $currency);
+                    if ($hasEquityCol) {
+                        $alert->stockholders_equity = $bvMetrics['stockholders_equity'];
+                    }
+                    if ($hasBookValueCol) {
+                        $alert->book_value_per_share = $bvMetrics['book_value_per_share'];
+                    }
+                    if ($hasPbCol) {
+                        $alert->price_to_book_ratio = $bvMetrics['price_to_book_ratio'];
+                    }
+                } else {
+                    $existingEquity = $alert->stockholders_equity !== null ? (float) $alert->stockholders_equity : null;
+                    $existingBvps = $alert->book_value_per_share !== null ? (float) $alert->book_value_per_share : null;
+                    $existingPb = $alert->price_to_book_ratio !== null ? (float) $alert->price_to_book_ratio : null;
+
+                    if ($existingEquity !== null && (! is_finite($existingEquity) || $existingEquity <= 0.0)) {
                         if ($hasBookValueCol) {
-                            $alert->book_value_per_share = $bvMetrics['book_value_per_share'];
+                            $alert->book_value_per_share = null;
                         }
                         if ($hasPbCol) {
-                            $alert->price_to_book_ratio = $bvMetrics['price_to_book_ratio'];
+                            $alert->price_to_book_ratio = null;
                         }
-                    }
-                } elseif ($alert->price_to_book_ratio === null && $alert->book_value_per_share !== null && (float) $alert->book_value_per_share > 0 && $alert->price !== null && (float) $alert->price > 0) {
-                    $computedPb = (float) $alert->price / (float) $alert->book_value_per_share;
-                    if (is_finite($computedPb) && $computedPb > 0.0 && $hasPbCol) {
-                        $alert->price_to_book_ratio = round($computedPb, 6);
+                    } elseif ($existingBvps !== null && (! is_finite($existingBvps) || $existingBvps < 0.0001)) {
+                        if ($hasBookValueCol) {
+                            $alert->book_value_per_share = null;
+                        }
+                        if ($hasPbCol) {
+                            $alert->price_to_book_ratio = null;
+                        }
+                    } elseif ($existingPb !== null) {
+                        if (! is_finite($existingPb) || $existingPb < StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO || round($existingPb, 2) <= 0.0) {
+                            if ($hasPbCol) {
+                                $alert->price_to_book_ratio = null;
+                            }
+                            if ($hasBookValueCol && $price !== null && $price > 0.0) {
+                                $alert->book_value_per_share = null;
+                            }
+                        }
+                    } elseif ($existingBvps !== null && $existingBvps > 0.0 && $price !== null && $price > 0.0) {
+                        $computedPb = $price / $existingBvps;
+                        if (is_finite($computedPb) && $computedPb >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO && round($computedPb, 2) > 0.0) {
+                            if ($hasPbCol) {
+                                $alert->price_to_book_ratio = round($computedPb, 4);
+                            }
+                        } else {
+                            if ($hasBookValueCol) {
+                                $alert->book_value_per_share = null;
+                            }
+                            if ($hasPbCol) {
+                                $alert->price_to_book_ratio = null;
+                            }
+                        }
+                    } elseif ($existingEquity !== null && $existingEquity > 0.0 && $shares !== null && $shares > 0 && $price !== null && $price > 0.0) {
+                        $computedBvps = $existingEquity / $shares;
+                        $computedPb = $computedBvps > 0.0 ? ($price / $computedBvps) : 0.0;
+                        if (
+                            is_finite($computedBvps)
+                            && $computedBvps >= 0.0001
+                            && is_finite($computedPb)
+                            && $computedPb >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO
+                            && round($computedPb, 2) > 0.0
+                        ) {
+                            if ($hasBookValueCol) {
+                                $alert->book_value_per_share = round($computedBvps, 4);
+                            }
+                            if ($hasPbCol) {
+                                $alert->price_to_book_ratio = round($computedPb, 4);
+                            }
+                        }
                     }
                 }
 
                 $breakdown = $this->breakdown($alert, $alert->setup_type);
+                $alert->reason_summary = $this->syncReasonSummaryBookValue($alert->reason_summary, $breakdown);
+
                 $scoreMeta = $this->scoreMetaFromBreakdown($breakdown);
                 $rawScore = $scoreMeta['normalized'];
 
@@ -1269,5 +1408,118 @@ class StockBuySetupScorer
         }
 
         return $updatedCount;
+    }
+
+    private function inferAlertTradingCurrency(?string $exchange, string $symbol): ?string
+    {
+        $ex = strtoupper(trim((string) ($exchange ?? '')));
+        $sym = strtoupper(trim($symbol));
+
+        if (
+            in_array($ex, ['TSX', 'TSXV', 'TSE', 'CVE', 'NEO', 'CSE'], true)
+            || str_ends_with($sym, '.TO')
+            || str_ends_with($sym, '.V')
+            || str_ends_with($sym, '.CN')
+            || str_ends_with($sym, '.NE')
+        ) {
+            return 'CAD';
+        }
+
+        if (in_array($ex, ['NYSE', 'NASDAQ', 'AMEX', 'NMS', 'NYQ', 'NGM', 'NCM', 'BATS', 'ARCA'], true)) {
+            return 'USD';
+        }
+
+        return null;
+    }
+
+    /**
+     * Synchronize the "Book value P/B ..." segment in a persisted alert's
+     * reason_summary with the recalculated Book Value breakdown entry so
+     * stale or invalid "Book value P/B 0.00 (10/10)" strings are cleaned up.
+     *
+     * @param  array<string, array<string, mixed>>  $breakdown
+     */
+    public function syncReasonSummaryBookValue(?string $reasonSummary, array $breakdown): ?string
+    {
+        if ($reasonSummary === null || trim($reasonSummary) === '') {
+            return $reasonSummary;
+        }
+
+        $bvComponent = $breakdown['book_value'] ?? null;
+        $newBvBit = null;
+        if (
+            is_array($bvComponent)
+            && ($bvComponent['available'] ?? false) === true
+            && (int) ($bvComponent['max'] ?? 0) > 0
+            && isset($bvComponent['pb_ratio'])
+            && is_numeric($bvComponent['pb_ratio'])
+            && (float) $bvComponent['pb_ratio'] >= StockFundamentalsAnalyzer::MIN_VALID_PB_RATIO
+            && round((float) $bvComponent['pb_ratio'], 2) > 0.0
+        ) {
+            $pbFormatted = number_format((float) $bvComponent['pb_ratio'], 2);
+            $pts = $bvComponent['points'] ?? 0;
+            $ptsFormatted = is_float($pts) && abs($pts - round($pts)) >= 0.005
+                ? number_format($pts, 2)
+                : (string) round((float) $pts);
+            $maxFormatted = (int) $bvComponent['max'];
+            $newBvBit = "Book value P/B {$pbFormatted} ({$ptsFormatted}/{$maxFormatted})";
+        }
+
+        $bvPattern = '/Book value P\/B\s+[^\;\(\n]+\(\d+(?:\.\d+)?\/\d+\)/i';
+        $hasExistingBvBit = (bool) preg_match($bvPattern, $reasonSummary);
+
+        if ($hasExistingBvBit) {
+            // Collapse any duplicate Book value P/B segments first
+            $deduped = (string) preg_replace(
+                '/(Book value P\/B\s+[^\;\(\n]+\(\d+(?:\.\d+)?\/\d+\))(?:\s*;\s*Book value P\/B\s+[^\;\(\n]+\(\d+(?:\.\d+)?\/\d+\))+/i',
+                '$1',
+                $reasonSummary,
+            );
+
+            if ($newBvBit !== null) {
+                return (string) preg_replace(
+                    $bvPattern,
+                    $newBvBit,
+                    $deduped,
+                );
+            }
+
+            // Remove the stale/invalid Book Value bit
+            $cleaned = (string) preg_replace(
+                '/\s*;\s*Book value P\/B\s+[^\;\(\n]+\(\d+(?:\.\d+)?\/\d+\)/i',
+                '',
+                $deduped,
+            );
+            $cleaned = (string) preg_replace(
+                '/Book value P\/B\s+[^\;\(\n]+\(\d+(?:\.\d+)?\/\d+\)\s*;\s*/i',
+                '',
+                $cleaned,
+            );
+            $cleaned = (string) preg_replace(
+                $bvPattern,
+                '',
+                $cleaned,
+            );
+            // If Fundamentals section is now empty ("Fundamentals:\n."), remove it
+            $cleaned = (string) preg_replace('/\n\nFundamentals:\s*\.\s*$/i', '', $cleaned);
+
+            return trim($cleaned);
+        }
+
+        if ($newBvBit !== null) {
+            if (preg_match('/Fundamentals:\n([^\n]+)\.\s*$/', $reasonSummary)) {
+                return (string) preg_replace(
+                    '/(Fundamentals:\n[^\n]+)\.\s*$/',
+                    '$1; '.$newBvBit.'.',
+                    $reasonSummary,
+                );
+            }
+
+            if (str_starts_with(trim($reasonSummary), 'Technical:')) {
+                return rtrim($reasonSummary)."\n\nFundamentals:\n{$newBvBit}.";
+            }
+        }
+
+        return $reasonSummary;
     }
 }
