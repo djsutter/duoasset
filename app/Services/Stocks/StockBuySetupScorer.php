@@ -130,6 +130,7 @@ class StockBuySetupScorer
                 'max' => $weights['fcf_margin_expansion'] ?? 0,
                 'value' => $this->fcfMarginExpansionValue($r),
             ],
+            'book_value' => $this->bookValueBreakdownEntry($r, $type, $weights['book_value'] ?? 0),
         ];
     }
 
@@ -150,33 +151,34 @@ class StockBuySetupScorer
     }
 
     /**
-     * @param  array<string, array{points: int, max: int}>  $breakdown
+     * @param  array<string, array{points: int|float, max: int}>  $breakdown
      */
     public function scoreFromBreakdown(array $breakdown): int
     {
-        $max = (int) array_sum(array_column($breakdown, 'max'));
-        if ($max <= 0) {
+        $max = (float) array_sum(array_column($breakdown, 'max'));
+        if ($max <= 0.0) {
             return 0;
         }
 
-        $raw = (int) array_sum(array_column($breakdown, 'points'));
+        $raw = (float) array_sum(array_column($breakdown, 'points'));
 
         return max(0, min(100, (int) round(($raw / $max) * 100)));
     }
 
     /**
-     * @param  array<string, array{points: int, max: int}>  $breakdown
-     * @return array{raw: int, max: int, normalized: int}
+     * @param  array<string, array{points: int|float, max: int}>  $breakdown
+     * @return array{raw: int|float, max: int, normalized: int}
      */
     public function scoreMetaFromBreakdown(array $breakdown): array
     {
-        $raw = (int) array_sum(array_column($breakdown, 'points'));
+        $rawFloat = (float) array_sum(array_column($breakdown, 'points'));
         $max = (int) array_sum(array_column($breakdown, 'max'));
+        $raw = abs($rawFloat - round($rawFloat)) < 1e-9 ? (int) round($rawFloat) : round($rawFloat, 2);
 
         return [
             'raw' => $raw,
             'max' => $max,
-            'normalized' => $max > 0 ? max(0, min(100, (int) round(($raw / $max) * 100))) : 0,
+            'normalized' => $max > 0 ? max(0, min(100, (int) round(($rawFloat / $max) * 100))) : 0,
         ];
     }
 
@@ -876,5 +878,396 @@ class StockBuySetupScorer
     private function nullableInt(mixed $value): ?int
     {
         return $value === null || $value === '' || ! is_numeric($value) ? null : (int) $value;
+    }
+
+    /**
+     * Calculate the logarithmic Book Value score fraction in [0, 1].
+     *
+     * Formula:
+     *   distance       = ln(r / A) / ln(E / A)
+     *   score_fraction = clamp(1 - (0.25 * distance), 0, 1)
+     *
+     * Returns null when P/B is missing, non-positive, or non-finite.
+     */
+    public function bookValueScoreFraction(
+        ?float $priceToBook,
+        ?string $setupType = null,
+        ?float $amazingThreshold = null,
+        ?float $exceptionalThreshold = null,
+    ): ?float {
+        if ($priceToBook === null || ! is_finite($priceToBook) || $priceToBook <= 0.0) {
+            return null;
+        }
+
+        if ($amazingThreshold === null || $exceptionalThreshold === null) {
+            $thresholds = app(BuySetupConfigService::class)->getBookValueThresholds($setupType);
+            $amazingThreshold ??= (float) $thresholds['AMAZING_BOOK_VALUE'];
+            $exceptionalThreshold ??= (float) $thresholds['EXCEPTIONAL_BOOK_VALUE'];
+        }
+
+        if (
+            ! is_finite($amazingThreshold)
+            || ! is_finite($exceptionalThreshold)
+            || $amazingThreshold <= 0.0
+            || $exceptionalThreshold <= $amazingThreshold
+        ) {
+            return null;
+        }
+
+        if ($priceToBook <= $amazingThreshold) {
+            return 1.0;
+        }
+
+        $denom = log($exceptionalThreshold / $amazingThreshold);
+        if (! is_finite($denom) || $denom <= 0.0) {
+            return null;
+        }
+
+        $distance = log($priceToBook / $amazingThreshold) / $denom;
+        if (! is_finite($distance)) {
+            return null;
+        }
+
+        return max(0.0, min(1.0, 1.0 - (0.25 * $distance)));
+    }
+
+    /**
+     * Calculate weighted Book Value points using full internal precision.
+     *
+     * Formula:
+     *   book_value_points = W * score_fraction
+     */
+    public function bookValuePoints(
+        ?float $priceToBook,
+        ?int $max = null,
+        ?string $setupType = null,
+        ?float $amazingThreshold = null,
+        ?float $exceptionalThreshold = null,
+    ): int|float {
+        $weight = $max ?? ($this->weights($setupType)['book_value'] ?? 0);
+        if ($weight <= 0) {
+            return 0;
+        }
+
+        $fraction = $this->bookValueScoreFraction($priceToBook, $setupType, $amazingThreshold, $exceptionalThreshold);
+        if ($fraction === null) {
+            return 0;
+        }
+
+        $points = max(0.0, min((float) $weight, $weight * $fraction));
+
+        return abs($points - round($points)) < 1e-9 ? (int) round($points) : $points;
+    }
+
+    /**
+     * Upper zero-score P/B ratio threshold derived from the two anchors:
+     *   zero_score_ratio = A * (E / A)^4
+     */
+    public function bookValueZeroScoreRatio(
+        ?string $setupType = null,
+        ?float $amazingThreshold = null,
+        ?float $exceptionalThreshold = null,
+    ): float {
+        if ($amazingThreshold === null || $exceptionalThreshold === null) {
+            $thresholds = app(BuySetupConfigService::class)->getBookValueThresholds($setupType);
+            $amazingThreshold ??= (float) $thresholds['AMAZING_BOOK_VALUE'];
+            $exceptionalThreshold ??= (float) $thresholds['EXCEPTIONAL_BOOK_VALUE'];
+        }
+
+        if ($amazingThreshold <= 0.0 || $exceptionalThreshold <= $amazingThreshold) {
+            $amazingThreshold = BuySetupConfigService::AMAZING_BOOK_VALUE;
+            $exceptionalThreshold = BuySetupConfigService::EXCEPTIONAL_BOOK_VALUE;
+        }
+
+        return $amazingThreshold * pow($exceptionalThreshold / $amazingThreshold, 4);
+    }
+
+    /**
+     * Extract or compute a valid positive Price-to-Book ratio from a setup result or alert.
+     * Returns null (N/A) when book value is missing, zero, or negative, or when P/B <= 0.
+     */
+    public function extractPriceToBook(StockBuySetupResult|StockBuySetupAlert $r): ?float
+    {
+        $equity = $this->nullableFloat($r->stockholdersEquity ?? $r->stockholders_equity ?? null);
+        if ($equity !== null && (! is_finite($equity) || $equity <= 0.0)) {
+            return null;
+        }
+
+        $bvps = $this->nullableFloat($r->bookValuePerShare ?? $r->book_value_per_share ?? null);
+        if ($bvps !== null && (! is_finite($bvps) || $bvps <= 0.0)) {
+            return null;
+        }
+
+        $pb = $this->nullableFloat(
+            $r->priceToBookRatio
+                ?? $r->price_to_book_ratio
+                ?? $r->pbRatio
+                ?? $r->pb_ratio
+                ?? null
+        );
+        if ($pb !== null) {
+            return (is_finite($pb) && $pb > 0.0) ? $pb : null;
+        }
+
+        // If price_to_book_ratio was explicitly set to a non-numeric or invalid value on an alert attribute
+        if ($r instanceof StockBuySetupAlert) {
+            $rawAttr = $r->getAttributes()['price_to_book_ratio'] ?? null;
+            if ($rawAttr !== null && $rawAttr !== '' && ! is_numeric($rawAttr)) {
+                return null;
+            }
+        }
+
+        $price = $this->nullableFloat($r->price ?? null);
+        if ($bvps === null && $equity !== null && $equity > 0.0) {
+            $shares = $this->nullableInt($r->sharesOutstanding ?? $r->shares_outstanding ?? null);
+            if ($shares !== null && $shares > 0) {
+                $bvps = $equity / $shares;
+            }
+        }
+
+        if ($price !== null && is_finite($price) && $price > 0.0 && $bvps !== null && is_finite($bvps) && $bvps > 0.0) {
+            $computed = $price / $bvps;
+
+            return (is_finite($computed) && $computed > 0.0) ? $computed : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the breakdown entry for the Book Value component.
+     *
+     * Missing, zero, or negative book value is treated as N/A and excluded from
+     * the scoring denominator (`max = 0`), while retaining `configured_max` and
+     * `available = false` for score coverage. A valid expensive P/B (e.g. 4.00)
+     * remains in the denominator (`max = $configuredWeight`) with `points = 0`.
+     *
+     * @return array{
+     *     label: string,
+     *     points: int|float,
+     *     max: int,
+     *     configured_max: int,
+     *     available: bool,
+     *     pb_ratio: float|null,
+     *     score_fraction: float|null,
+     *     score_pct: float|null,
+     *     value: string
+     * }
+     */
+    private function bookValueBreakdownEntry(
+        StockBuySetupResult|StockBuySetupAlert $r,
+        ?string $setupType,
+        int $configuredWeight,
+    ): array {
+        $configuredWeight = max(0, $configuredWeight);
+        $pbRatio = $this->extractPriceToBook($r);
+
+        if ($pbRatio === null) {
+            return [
+                'label' => 'Book Value',
+                'points' => 0,
+                'max' => 0,
+                'configured_max' => $configuredWeight,
+                'available' => false,
+                'pb_ratio' => null,
+                'score_fraction' => null,
+                'score_pct' => null,
+                'value' => 'N/A (book value unavailable)',
+            ];
+        }
+
+        $scoreFraction = $this->bookValueScoreFraction($pbRatio, $setupType) ?? 0.0;
+        $scorePct = round($scoreFraction * 100.0, 2);
+
+        if ($configuredWeight <= 0) {
+            $points = 0;
+            $effectiveMax = 0;
+        } else {
+            $rawPoints = max(0.0, min((float) $configuredWeight, $configuredWeight * $scoreFraction));
+            $points = abs($rawPoints - round($rawPoints)) < 1e-9 ? (int) round($rawPoints) : $rawPoints;
+            $effectiveMax = $configuredWeight;
+        }
+
+        $displayPoints = number_format((float) $points, 2);
+        $displayPb = number_format($pbRatio, 2);
+        $displayScorePct = number_format($scoreFraction * 100.0, 2);
+
+        if ($scoreFraction <= 0.0) {
+            $value = sprintf(
+                "%s / %d (P/B %s)\nP/B Ratio: %s\nComponent Score: %s%%\nWeighted Points: %s / %d",
+                $displayPoints,
+                $configuredWeight,
+                $displayPb,
+                $displayPb,
+                $displayScorePct,
+                $displayPoints,
+                $configuredWeight,
+            );
+        } else {
+            $value = sprintf(
+                "P/B Ratio: %s\nComponent Score: %s%%\nWeighted Points: %s / %d",
+                $displayPb,
+                $displayScorePct,
+                $displayPoints,
+                $configuredWeight,
+            );
+        }
+
+        return [
+            'label' => 'Book Value',
+            'points' => $points,
+            'max' => $effectiveMax,
+            'configured_max' => $configuredWeight,
+            'available' => true,
+            'pb_ratio' => $pbRatio,
+            'score_fraction' => $scoreFraction,
+            'score_pct' => $scorePct,
+            'value' => $value,
+        ];
+    }
+
+    /**
+     * Idempotently recalculate existing persisted StockBuySetupAlert rows to
+     * establish a new scoring baseline (e.g., when introducing Book Value or
+     * migrating configurations) without generating artificial setup
+     * improvement/drop notifications.
+     *
+     * Sets `previous_setup_score = setup_score` and `score_delta = 0` on
+     * recalculated alerts so digest builders treat them as unchanged at the
+     * new baseline, while subsequent genuine score changes continue to
+     * trigger normal events and notification digests.
+     */
+    public function recalculateHistoricalBaseline(): int
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('stock_buy_setup_alerts')) {
+            return 0;
+        }
+
+        app(BuySetupConfigService::class)->ensureBookValueConfigMigrated();
+
+        $analyzer = app(StockFundamentalsAnalyzer::class);
+        $hasFinancialsTable = \Illuminate\Support\Facades\Schema::hasTable('company_financials');
+        $hasProfilesTable = \Illuminate\Support\Facades\Schema::hasTable('company_profiles');
+        $hasBookValueCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'book_value_per_share');
+        $hasPbCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'price_to_book_ratio');
+        $hasEquityCol = \Illuminate\Support\Facades\Schema::hasColumn('stock_buy_setup_alerts', 'stockholders_equity');
+        $hasPrevScoreCol = StockBuySetupAlert::hasRunTrackingColumn('previous_setup_score');
+        $hasScoreDeltaCol = StockBuySetupAlert::hasRunTrackingColumn('score_delta');
+
+        $affectedRuns = [];
+        $updatedCount = 0;
+
+        StockBuySetupAlert::query()->chunkById(200, function ($alerts) use (
+            $analyzer,
+            $hasFinancialsTable,
+            $hasProfilesTable,
+            $hasBookValueCol,
+            $hasPbCol,
+            $hasEquityCol,
+            $hasPrevScoreCol,
+            $hasScoreDeltaCol,
+            &$affectedRuns,
+            &$updatedCount,
+        ) {
+            foreach ($alerts as $alert) {
+                $symbol = strtoupper(trim((string) $alert->symbol));
+
+                if ($alert->price_to_book_ratio === null && $alert->book_value_per_share === null && $hasFinancialsTable && $symbol !== '') {
+                    $balanceRows = \App\Models\CompanyFinancial::query()
+                        ->where('symbol', $symbol)
+                        ->where('statement_type', \App\Models\CompanyFinancial::TYPE_BALANCE_SHEET)
+                        ->orderByDesc('fiscal_date')
+                        ->limit(8)
+                        ->get()
+                        ->map(fn (\App\Models\CompanyFinancial $f) => [
+                            'date' => $f->fiscal_date->toDateString(),
+                            'stockholders_equity' => $f->stockholders_equity !== null ? (float) $f->stockholders_equity : null,
+                            'fiscal_year' => $f->fiscal_year,
+                            'period' => $f->period,
+                            'reported_currency' => $f->reported_currency,
+                            'raw' => $f->raw_metrics ?? [],
+                        ])
+                        ->all();
+
+                    if (! empty($balanceRows)) {
+                        $profile = $hasProfilesTable
+                            ? \App\Models\CompanyProfile::query()->where('symbol', $symbol)->first()
+                            : null;
+                        $price = $alert->price !== null ? (float) $alert->price : ($profile?->price !== null ? (float) $profile->price : null);
+                        $shares = $alert->shares_outstanding !== null ? (int) $alert->shares_outstanding : ($profile?->shares_outstanding !== null ? (int) $profile->shares_outstanding : null);
+                        $currency = $profile?->currency;
+
+                        $bvMetrics = $analyzer->bookValueMetrics($balanceRows, [], $price, $shares, $currency);
+                        if ($hasEquityCol) {
+                            $alert->stockholders_equity = $bvMetrics['stockholders_equity'];
+                        }
+                        if ($hasBookValueCol) {
+                            $alert->book_value_per_share = $bvMetrics['book_value_per_share'];
+                        }
+                        if ($hasPbCol) {
+                            $alert->price_to_book_ratio = $bvMetrics['price_to_book_ratio'];
+                        }
+                    }
+                } elseif ($alert->price_to_book_ratio === null && $alert->book_value_per_share !== null && (float) $alert->book_value_per_share > 0 && $alert->price !== null && (float) $alert->price > 0) {
+                    $computedPb = (float) $alert->price / (float) $alert->book_value_per_share;
+                    if (is_finite($computedPb) && $computedPb > 0.0 && $hasPbCol) {
+                        $alert->price_to_book_ratio = round($computedPb, 6);
+                    }
+                }
+
+                $breakdown = $this->breakdown($alert, $alert->setup_type);
+                $scoreMeta = $this->scoreMetaFromBreakdown($breakdown);
+                $rawScore = $scoreMeta['normalized'];
+
+                $penaltyPct = (float) ($alert->liquidity_penalty_pct ?? 0.0);
+                $penaltyPoints = $penaltyPct > 0.0 ? (int) round($rawScore * ($penaltyPct / 100.0)) : 0;
+                $score = max(0, $rawScore - $penaltyPoints);
+
+                $growthBonus = $this->growthSynergyBonus($alert, $alert->setup_type);
+                $score = min(100, $score + $growthBonus['points']);
+
+                $ignitionBonus = $this->ignitionBonus($alert, $alert->setup_type);
+                $score = min(100, $score + $ignitionBonus['points']);
+
+                $alert->raw_setup_score = $rawScore;
+                $alert->heartbeat_score = $rawScore;
+                $alert->liquidity_penalty_points = $penaltyPoints;
+                $alert->setup_score = $score;
+
+                if ($hasPrevScoreCol) {
+                    $alert->previous_setup_score = $score;
+                }
+                if ($hasScoreDeltaCol) {
+                    $alert->score_delta = 0;
+                }
+
+                $alert->saveQuietly();
+                $updatedCount++;
+
+                if ($alert->scan_run_id !== null) {
+                    $affectedRuns[(int) $alert->scan_run_id] = true;
+                }
+            }
+        });
+
+        foreach (array_keys($affectedRuns) as $runId) {
+            \Illuminate\Support\Facades\Cache::forget(\App\Services\Notifications\SetupScoringDigestBuilder::cacheKey($runId));
+            if (\Illuminate\Support\Facades\Schema::hasTable('stock_buy_setup_runs')) {
+                $run = \App\Models\StockBuySetupRun::find($runId);
+                if ($run && is_array($run->summary_data) && isset($run->summary_data['digest_snapshot'])) {
+                    $summaryData = $run->summary_data;
+                    unset($summaryData['digest_snapshot']);
+                    $run->summary_data = $summaryData;
+                    $run->saveQuietly();
+                }
+            }
+        }
+
+        try {
+            app(\App\Services\Dashboard\DashboardCacheService::class)->invalidateTopScoringSetups();
+        } catch (\Throwable) {
+        }
+
+        return $updatedCount;
     }
 }

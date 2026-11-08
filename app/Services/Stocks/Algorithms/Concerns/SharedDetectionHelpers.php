@@ -146,6 +146,66 @@ trait SharedDetectionHelpers
     }
 
     /**
+     * @param  array<string, mixed>  $context
+     */
+    private function resolveBookValuePerShare(array $context): ?float
+    {
+        $equity = $this->nullableFloat($context['stockholders_equity'] ?? null);
+        if ($equity !== null && (! is_finite($equity) || $equity <= 0.0)) {
+            return null;
+        }
+
+        $bvps = $this->nullableFloat($context['book_value_per_share'] ?? null);
+        if ($bvps !== null) {
+            return (is_finite($bvps) && $bvps > 0.0) ? $bvps : null;
+        }
+
+        $shares = $this->nullableInt($context['shares_outstanding'] ?? null);
+        if ($equity !== null && $equity > 0.0 && $shares !== null && $shares > 0) {
+            $computed = $equity / $shares;
+
+            return (is_finite($computed) && $computed > 0.0) ? round($computed, 6) : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function resolvePriceToBookRatio(array $context, ?float $fallbackPrice = null): ?float
+    {
+        if (array_key_exists('stockholders_equity', $context)) {
+            $equity = $this->nullableFloat($context['stockholders_equity']);
+            if ($equity === null || ! is_finite($equity) || $equity <= 0.0) {
+                return null;
+            }
+        }
+
+        if (array_key_exists('book_value_per_share', $context)) {
+            $rawBvps = $this->nullableFloat($context['book_value_per_share']);
+            if ($rawBvps === null || ! is_finite($rawBvps) || $rawBvps <= 0.0) {
+                return null;
+            }
+        }
+
+        $pb = $this->nullableFloat($context['price_to_book_ratio'] ?? $context['pb_ratio'] ?? null);
+        if ($pb !== null) {
+            return (is_finite($pb) && $pb > 0.0) ? $pb : null;
+        }
+
+        $bvps = $this->resolveBookValuePerShare($context);
+        $price = $this->nullableFloat($context['price'] ?? null) ?? $fallbackPrice;
+        if ($bvps !== null && $bvps > 0.0 && $price !== null && is_finite($price) && $price > 0.0) {
+            $computed = $price / $bvps;
+
+            return (is_finite($computed) && $computed > 0.0) ? round($computed, 6) : null;
+        }
+
+        return null;
+    }
+
+    /**
      * Builds the "Fundamentals:" reason paragraph, reusing the points/max
      * /value already computed by StockBuySetupScorer::breakdown() — the
      * same source of truth backing the Score Breakdown panel — so nothing
@@ -198,6 +258,20 @@ trait SharedDetectionHelpers
             }
 
             $bits[] = "{$label} {$value} ({$component['points']}/{$component['max']})";
+        }
+
+        $bvComponent = $breakdown['book_value'] ?? null;
+        if (
+            is_array($bvComponent)
+            && ($bvComponent['available'] ?? false) === true
+            && (int) ($bvComponent['max'] ?? 0) > 0
+            && isset($bvComponent['pb_ratio'])
+            && is_numeric($bvComponent['pb_ratio'])
+        ) {
+            $pts = (float) ($bvComponent['points'] ?? 0);
+            $ptsStr = abs($pts - round($pts)) < 1e-9 ? (string) (int) round($pts) : number_format($pts, 2);
+            $pbStr = number_format((float) $bvComponent['pb_ratio'], 2);
+            $bits[] = "book value P/B {$pbStr} ({$ptsStr}/{$bvComponent['max']})";
         }
 
         return $bits;

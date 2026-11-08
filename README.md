@@ -468,10 +468,58 @@ for review.
 `StockBuySetupScorer` blends the technicals (spike rarity, base duration, price-range
 compression, ATR contraction, volume dry-up, distance to breakout, moving-average
 alignment, relative strength vs the benchmark) and fundamentals (EPS/sales
-acceleration, Operating/FCF margin expansion) into a weighted 0–100 `setup_score`.
+acceleration, Operating/FCF margin expansion, and **Book Value** P/B valuation) into a
+weighted 0–100 `setup_score`.
 `StockBuySetupLiquidityPenalty` then discounts illiquid ("sleepy volume", i.e. low
 turnover vs float) names by up to the configured per-market-cap-bucket penalty, before
 an optional Growth Synergy Bonus is added back on top (capped at 100 overall).
+
+#### Book Value Weighted Scoring Component
+
+The **Book Value** scoring component evaluates a stock's **Price-to-Book (P/B) ratio**
+using a logarithmic valuation curve that rewards stocks trading near or below tangible
+book value while smoothly tapering points as P/B rises.
+
+- **Per-setup-type configuration keys and defaults:**
+  | Configuration Key | Default | Purpose |
+  | --- | ---: | --- |
+  | `BOOK_VALUE_WEIGHT` | `10` | Maximum points available (`0` or unchecked disables contribution) |
+  | `EXCEPTIONAL_BOOK_VALUE` | `1.25` | P/B ratio anchor earning exactly **75%** of available points |
+  | `AMAZING_BOOK_VALUE` | `0.90` | P/B ratio anchor earning **100%** of available points |
+
+  These are per-setup-type settings persisted in `settings` (`buy_setup_config`), enabled by default for every setup type. Validation enforces `BOOK_VALUE_WEIGHT >= 0` and `0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE`.
+
+- **Logarithmic formula:**
+  Given Price-to-Book ratio $r$, `AMAZING_BOOK_VALUE` $A$, `EXCEPTIONAL_BOOK_VALUE` $E$, and `BOOK_VALUE_WEIGHT` $W$:
+  ```text
+  distance          = ln(r / A) / ln(E / A)
+  score_fraction    = clamp(1 - (0.25 * distance), 0, 1)
+  book_value_points = W * score_fraction
+  zero_score_ratio  = A * (E / A)^4   (~3.349 with default anchors)
+  ```
+  Internal calculations retain full floating-point precision and round only for display and final 0–100 score normalization. Changing either P/B anchor automatically recalibrates the entire curve without any global scale constant.
+
+- **Configuring Book Value per setup type:**
+  On `/watchlist/stock-buy-setups`, click the gear icon to open **Buy Setup Configuration**. Under **Setup Types & Scoring** → **Weighted Score Components**, select the target setup type and adjust the **Book Value** active checkbox, **Weight (Points)**, **Exceptional P/B Ratio**, and **Amazing P/B Ratio** in the expandable row beneath Book Value. Switching setup types loads that type's independent Book Value settings; **Save Configuration**, **Cancel**, and **Reset to Defaults** all apply to these settings.
+
+- **Data sources and freshness:**
+  `EvaluateStockBuySetup` reuses existing FMP quarterly balance sheets cached and persisted in `company_financials` (`PersistentMarketDataProvider`, 24-hour freshness TTL — no extra API calls). `StockFundamentalsAnalyzer::bookValueMetrics()` computes:
+  ```text
+  Book Value Per Share = Latest Valid Stockholders' Equity / Split-Adjusted Shares Outstanding
+  P/B                  = Current Share Price / Latest Valid Book Value Per Share
+  ```
+  Reporting currency compatibility between the balance sheet and share price is verified before computing P/B. When balance sheet equity is unavailable, a valid positive provider-supplied P/B ratio is used as a fallback.
+
+- **Missing, zero, or negative book value handling:**
+  Missing balance sheets, zero or negative stockholders' equity (`<= 0`), negative or zero P/B ratios, currency mismatches, and non-finite values are treated as **`N/A (book value unavailable)`**. They never earn points and are excluded from the active weight denominator (`max = 0`, `available = false`) so stocks with unavailable book value are not artificially penalized or awarded maximum points. Conversely, a valid but expensive valuation (e.g. `P/B 4.00`) earns `0.00 / 10` while remaining in the denominator.
+
+- **Weighted normalization & baseline migration:**
+  Enabling Book Value with default weight `10` increases the default Active Weight Sum (e.g. from `100` to `110` or `130` to `140`). `StockBuySetupScorer` normalizes total earned points against total active applicable weight to keep `setup_score` strictly on a `0–100` scale. During initial migration (`StockBuySetupScorer::recalculateHistoricalBaseline()`), existing `StockBuySetupAlert` rows are idempotently recalculated and baselined (`previous_setup_score = setup_score`, `score_delta = 0`) so introducing Book Value does not trigger artificial improvement or drop notification digests.
+
+- **Basic troubleshooting:**
+  - *Score breakdown shows `N/A (book value unavailable)`:* Check whether the company has negative/zero stockholders' equity in `company_financials` (`statement_type = 'balance_sheet'`), missing `shares_outstanding`, or a reporting currency that differs from its trading currency.
+  - *Configuration modal rejects saving:* Ensure `BOOK_VALUE_WEIGHT >= 0`, `AMAZING_BOOK_VALUE > 0`, and `AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE`.
+  - *Inspecting a single symbol's Book Value breakdown:* Run `php artisan stocks:scan-buy-setups --symbol=AAPL --sync -vv`.
 
 > **Algorithm-aware scoring.** Scoring is shared across all four algorithms per setup
 > type, but the `ma_alignment` component reinterprets its signal based on which

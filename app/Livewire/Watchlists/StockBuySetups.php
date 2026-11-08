@@ -149,6 +149,21 @@ class StockBuySetups extends Component
         $this->configFlash = null;
     }
 
+    public function updated(string $name, mixed $value): void
+    {
+        if (preg_match('/^configState\.setup_types\.([^.]+)\.score_weights\.book_value\.weight$/', $name, $matches)) {
+            $type = $matches[1];
+            if (isset($this->configState['setup_types'][$type])) {
+                $this->configState['setup_types'][$type]['BOOK_VALUE_WEIGHT'] = $value;
+            }
+        } elseif (preg_match('/^configState\.setup_types\.([^.]+)\.BOOK_VALUE_WEIGHT$/', $name, $matches)) {
+            $type = $matches[1];
+            if (isset($this->configState['setup_types'][$type])) {
+                $this->configState['setup_types'][$type]['score_weights']['book_value']['weight'] = $value;
+            }
+        }
+    }
+
     public function addSetupType(): void
     {
         $this->validate([
@@ -257,6 +272,12 @@ class StockBuySetups extends Component
 
         if (! $this->marketCapRangesAreValid()) {
             $this->configFlash = 'Minimum Market Cap must be >= 0, Maximum Market Cap must be > 0, and Minimum Market Cap must not exceed Maximum Market Cap.';
+
+            return;
+        }
+
+        if (! $this->bookValueConfigIsValid()) {
+            $this->configFlash = 'Book Value configuration requires BOOK_VALUE_WEIGHT >= 0 and 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE.';
 
             return;
         }
@@ -461,6 +482,60 @@ class StockBuySetups extends Component
 
             if ($min < 0 || $max <= 0 || $min > $max) {
                 return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Reject invalid Book Value configurations before they are persisted:
+     * - BOOK_VALUE_WEIGHT >= 0 (and score_weights.book_value.weight >= 0)
+     * - 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE
+     */
+    private function bookValueConfigIsValid(): bool
+    {
+        $types = (array) ($this->configState['setup_types'] ?? []);
+
+        foreach ($types as $type) {
+            if (! is_array($type)) {
+                continue;
+            }
+
+            if (array_key_exists('BOOK_VALUE_WEIGHT', $type)) {
+                if (! is_numeric($type['BOOK_VALUE_WEIGHT']) || (float) $type['BOOK_VALUE_WEIGHT'] < 0) {
+                    return false;
+                }
+            }
+
+            $swBv = $type['score_weights']['book_value'] ?? null;
+            if (is_array($swBv) && array_key_exists('weight', $swBv)) {
+                if (! is_numeric($swBv['weight']) || (float) $swBv['weight'] < 0) {
+                    return false;
+                }
+            } elseif ($swBv !== null && ! is_array($swBv)) {
+                if (! is_numeric($swBv) || (float) $swBv < 0) {
+                    return false;
+                }
+            }
+
+            $hasAmazing = array_key_exists('AMAZING_BOOK_VALUE', $type);
+            $hasExceptional = array_key_exists('EXCEPTIONAL_BOOK_VALUE', $type);
+
+            if ($hasAmazing || $hasExceptional) {
+                $rawAmazing = $type['AMAZING_BOOK_VALUE'] ?? BuySetupConfigService::AMAZING_BOOK_VALUE;
+                $rawExceptional = $type['EXCEPTIONAL_BOOK_VALUE'] ?? BuySetupConfigService::EXCEPTIONAL_BOOK_VALUE;
+
+                if (! is_numeric($rawAmazing) || ! is_numeric($rawExceptional)) {
+                    return false;
+                }
+
+                $amazing = (float) $rawAmazing;
+                $exceptional = (float) $rawExceptional;
+
+                if (! is_finite($amazing) || ! is_finite($exceptional) || $amazing <= 0.0 || $amazing >= $exceptional) {
+                    return false;
+                }
             }
         }
 

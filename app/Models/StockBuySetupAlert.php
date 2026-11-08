@@ -72,6 +72,9 @@ use Throwable;
  * @property string|null $fcf_margin_expansion_bps
  * @property string|null $current_ttm_fcf_margin
  * @property string|null $prior_ttm_fcf_margin
+ * @property string|null $book_value_per_share
+ * @property string|null $price_to_book_ratio
+ * @property string|null $stockholders_equity
  * @property int $heartbeat_score
  * @property string|null $reason_summary
  * @property string $status
@@ -146,6 +149,9 @@ class StockBuySetupAlert extends Model
         'fcf_margin_expansion_bps',
         'current_ttm_fcf_margin',
         'prior_ttm_fcf_margin',
+        'book_value_per_share',
+        'price_to_book_ratio',
+        'stockholders_equity',
         'heartbeat_score',
         'reason_summary',
         'status',
@@ -194,6 +200,9 @@ class StockBuySetupAlert extends Model
         'fcf_margin_expansion_bps' => 'decimal:4',
         'current_ttm_fcf_margin' => 'decimal:6',
         'prior_ttm_fcf_margin' => 'decimal:6',
+        'book_value_per_share' => 'decimal:4',
+        'price_to_book_ratio' => 'decimal:4',
+        'stockholders_equity' => 'decimal:2',
         'scan_run_id' => 'integer',
         'first_scan_run_id' => 'integer',
         'setup_score' => 'integer',

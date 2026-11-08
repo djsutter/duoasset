@@ -401,3 +401,118 @@ test('modal rejects invalid ignition bonus configurations', function () {
         ->call('saveConfig')
         ->assertSee('Ignition Bonus: bonus points >= 0, min base days >= 1, min volume dry-up between 0 and 100%, relative volume > 0, price gain >= 0%, full bonus gain >= 0%, and zero bonus gain > full bonus gain.');
 });
+
+test('book value settings persist independently per setup type, switch cleanly, and reset to defaults', function () {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->assertSee('Book Value')
+        ->assertSee('Exceptional P/B Ratio')
+        ->assertSee('Amazing P/B Ratio')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.enabled', true)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.weight', 10)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.BOOK_VALUE_WEIGHT', 10)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.25)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 0.90)
+        // Customize heartbeat_consolidation_spike
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.weight', 20)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.50)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 0.75)
+        // Switch to range_compression_breakout and verify its independent defaults
+        ->call('selectConfigSetupType', 'range_compression_breakout')
+        ->assertSet('selectedConfigSetupType', 'range_compression_breakout')
+        ->assertSet('configState.setup_types.range_compression_breakout.score_weights.book_value.weight', 10)
+        ->assertSet('configState.setup_types.range_compression_breakout.EXCEPTIONAL_BOOK_VALUE', 1.25)
+        ->assertSet('configState.setup_types.range_compression_breakout.AMAZING_BOOK_VALUE', 0.90)
+        // Customize range_compression_breakout differently
+        ->set('configState.setup_types.range_compression_breakout.score_weights.book_value.weight', 15)
+        ->set('configState.setup_types.range_compression_breakout.EXCEPTIONAL_BOOK_VALUE', 1.80)
+        ->set('configState.setup_types.range_compression_breakout.AMAZING_BOOK_VALUE', 1.10)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    expect($service->getBookValueConfig('heartbeat_consolidation_spike'))
+        ->toMatchArray([
+            'enabled' => true,
+            'BOOK_VALUE_WEIGHT' => 20,
+            'EXCEPTIONAL_BOOK_VALUE' => 1.50,
+            'AMAZING_BOOK_VALUE' => 0.75,
+        ])
+        ->and($service->getBookValueConfig('range_compression_breakout'))
+        ->toMatchArray([
+            'enabled' => true,
+            'BOOK_VALUE_WEIGHT' => 15,
+            'EXCEPTIONAL_BOOK_VALUE' => 1.80,
+            'AMAZING_BOOK_VALUE' => 1.10,
+        ]);
+
+    // Reset to Defaults restores BOOK_VALUE_WEIGHT=10, EXCEPTIONAL_BOOK_VALUE=1.25, AMAZING_BOOK_VALUE=0.90
+    $component->call('resetConfigToDefaults')
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.BOOK_VALUE_WEIGHT', 10)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.25)
+        ->assertSet('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 0.90)
+        ->assertSet('configState.setup_types.range_compression_breakout.BOOK_VALUE_WEIGHT', 10);
+});
+
+test('disabling book value active checkbox removes scoring contribution while preserving configured weight and thresholds', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.weight', 18)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.60)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 0.85)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.enabled', false)
+        ->call('saveConfig')
+        ->assertSee('Buy setup configuration saved successfully.');
+
+    $service = app(BuySetupConfigService::class);
+    $bvConfig = $service->getBookValueConfig('heartbeat_consolidation_spike');
+
+    // Effective scoring weight is 0 when disabled, while configured weight & thresholds are preserved
+    expect($service->getScoreWeights('heartbeat_consolidation_spike')['book_value'])->toBe(0)
+        ->and($bvConfig['enabled'])->toBeFalse()
+        ->and($bvConfig['BOOK_VALUE_WEIGHT'])->toBe(18)
+        ->and($bvConfig['EXCEPTIONAL_BOOK_VALUE'])->toBe(1.60)
+        ->and($bvConfig['AMAZING_BOOK_VALUE'])->toBe(0.85);
+});
+
+test('modal enforces book value validation rules 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE and BOOK_VALUE_WEIGHT >= 0', function () {
+    $user = User::factory()->create();
+
+    // 1. AMAZING_BOOK_VALUE >= EXCEPTIONAL_BOOK_VALUE is rejected
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 1.50)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.25)
+        ->call('saveConfig')
+        ->assertSee('Book Value configuration requires BOOK_VALUE_WEIGHT >= 0 and 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE.');
+
+    // 2. AMAZING_BOOK_VALUE <= 0 is rejected
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.AMAZING_BOOK_VALUE', 0)
+        ->set('configState.setup_types.heartbeat_consolidation_spike.EXCEPTIONAL_BOOK_VALUE', 1.25)
+        ->call('saveConfig')
+        ->assertSee('Book Value configuration requires BOOK_VALUE_WEIGHT >= 0 and 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE.');
+
+    // 3. BOOK_VALUE_WEIGHT < 0 is rejected
+    Livewire::actingAs($user)
+        ->test(StockBuySetups::class)
+        ->call('openConfigModal')
+        ->set('configState.setup_types.heartbeat_consolidation_spike.score_weights.book_value.weight', -5)
+        ->call('saveConfig')
+        ->assertSee('Book Value configuration requires BOOK_VALUE_WEIGHT >= 0 and 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE.');
+
+    // Persisted defaults remain untouched
+    $bvConfig = app(BuySetupConfigService::class)->getBookValueConfig('heartbeat_consolidation_spike');
+    expect($bvConfig['BOOK_VALUE_WEIGHT'])->toBe(10)
+        ->and($bvConfig['EXCEPTIONAL_BOOK_VALUE'])->toBe(1.25)
+        ->and($bvConfig['AMAZING_BOOK_VALUE'])->toBe(0.90);
+});

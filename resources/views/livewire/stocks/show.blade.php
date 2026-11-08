@@ -1616,19 +1616,27 @@
                                             {{ $component['label'] ?? ucfirst(str_replace('_', ' ', $key)) }}
                                         </div>
                                         @if (isset($component['value']))
-                                            <div class="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                            <div class="text-[11px] text-zinc-500 dark:text-zinc-400 whitespace-pre-line">
                                                 {{ $component['value'] }}
                                             </div>
                                         @endif
                                     </div>
 
                                     <div class="text-right">
-                                        <span class="font-mono text-sm font-bold text-sky-600 dark:text-sky-400">
-                                            {{ $component['points'] ?? 0 }}
-                                        </span>
-                                        <span class="text-xs text-zinc-400">
-                                            / {{ $component['max'] ?? 0 }}
-                                        </span>
+                                        @if (isset($component['available']) && $component['available'] === false)
+                                            <span class="font-mono text-sm font-bold text-zinc-400">N/A</span>
+                                        @else
+                                            @php
+                                                $pts = (float) ($component['points'] ?? 0);
+                                                $formattedPts = abs($pts - round($pts)) < 1e-9 ? (string) (int) round($pts) : number_format($pts, 2);
+                                            @endphp
+                                            <span class="font-mono text-sm font-bold text-sky-600 dark:text-sky-400">
+                                                {{ $formattedPts }}
+                                            </span>
+                                            <span class="text-xs text-zinc-400">
+                                                / {{ $component['max'] ?? 0 }}
+                                            </span>
+                                        @endif
                                     </div>
                                 </div>
                             @endforeach

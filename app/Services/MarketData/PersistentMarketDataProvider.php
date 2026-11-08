@@ -1255,6 +1255,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return $existing->map(fn (CompanyFinancial $f) => [
                 'date' => $f->fiscal_date->toDateString(),
                 'stockholders_equity' => $f->stockholders_equity !== null ? (float) $f->stockholders_equity : null,
+                'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
                 'raw' => $f->raw_metrics ?? [],
             ])->all();
         }
@@ -1290,7 +1294,8 @@ class PersistentMarketDataProvider implements MarketDataProvider
                     ],
                     [
                         'stockholders_equity' => $row['stockholders_equity'] ?? null,
-                        'fiscal_year' => isset($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
+                        'fiscal_year' => isset($row['fiscal_year']) ? (int) $row['fiscal_year'] : (isset($row['fiscalYear']) ? (int) $row['fiscalYear'] : null),
+                        'reported_currency' => $row['reported_currency'] ?? ($row['raw']['reportedCurrency'] ?? null),
                         'raw_metrics' => $row['raw'] ?? $row,
                         'retrieved_at' => $now,
                     ]
@@ -1312,6 +1317,10 @@ class PersistentMarketDataProvider implements MarketDataProvider
             ->map(fn (CompanyFinancial $f) => [
                 'date' => $f->fiscal_date->toDateString(),
                 'stockholders_equity' => $f->stockholders_equity !== null ? (float) $f->stockholders_equity : null,
+                'fiscal_year' => $f->fiscal_year ?? (isset($f->raw_metrics['fiscalYear']) && is_numeric($f->raw_metrics['fiscalYear']) ? (int) $f->raw_metrics['fiscalYear'] : null),
+                'period' => $f->period !== 'quarter' ? $f->period : ($f->raw_metrics['period'] ?? $f->period),
+                'filing_date' => $f->raw_metrics['fillingDate'] ?? $f->raw_metrics['filingDate'] ?? null,
+                'reported_currency' => $f->reported_currency ?? ($f->raw_metrics['reportedCurrency'] ?? null),
                 'raw' => $f->raw_metrics ?? [],
             ])
             ->all();

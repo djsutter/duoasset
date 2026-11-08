@@ -81,6 +81,27 @@ class BuySetupConfigService
     public const DEFAULT_MAX_MARKET_CAP = 1000000000000;
 
     /**
+     * Default per-setup-type Book Value (P/B ratio) logarithmic scoring
+     * configuration keys and defaults.
+     */
+    public const BOOK_VALUE_WEIGHT = 10;
+
+    public const EXCEPTIONAL_BOOK_VALUE = 1.25;
+
+    public const AMAZING_BOOK_VALUE = 0.90;
+
+    public const DEFAULT_BOOK_VALUE_WEIGHT = self::BOOK_VALUE_WEIGHT;
+
+    public const DEFAULT_EXCEPTIONAL_BOOK_VALUE = self::EXCEPTIONAL_BOOK_VALUE;
+
+    public const DEFAULT_AMAZING_BOOK_VALUE = self::AMAZING_BOOK_VALUE;
+
+    public const DEFAULT_BOOK_VALUE_THRESHOLDS = [
+        'EXCEPTIONAL_BOOK_VALUE' => self::EXCEPTIONAL_BOOK_VALUE,
+        'AMAZING_BOOK_VALUE' => self::AMAZING_BOOK_VALUE,
+    ];
+
+    /**
      * Default configuration matching the initial specification.
      */
     public const DEFAULT_CONFIG = [
@@ -128,7 +149,11 @@ class BuySetupConfigService
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => true],
                     'fcf_margin_expansion' => ['weight' => 10, 'enabled' => true],
+                    'book_value' => ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true],
                 ],
+                'BOOK_VALUE_WEIGHT' => self::BOOK_VALUE_WEIGHT,
+                'EXCEPTIONAL_BOOK_VALUE' => self::EXCEPTIONAL_BOOK_VALUE,
+                'AMAZING_BOOK_VALUE' => self::AMAZING_BOOK_VALUE,
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
@@ -167,7 +192,11 @@ class BuySetupConfigService
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                     'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'book_value' => ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true],
                 ],
+                'BOOK_VALUE_WEIGHT' => self::BOOK_VALUE_WEIGHT,
+                'EXCEPTIONAL_BOOK_VALUE' => self::EXCEPTIONAL_BOOK_VALUE,
+                'AMAZING_BOOK_VALUE' => self::AMAZING_BOOK_VALUE,
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
@@ -206,7 +235,11 @@ class BuySetupConfigService
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                     'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'book_value' => ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true],
                 ],
+                'BOOK_VALUE_WEIGHT' => self::BOOK_VALUE_WEIGHT,
+                'EXCEPTIONAL_BOOK_VALUE' => self::EXCEPTIONAL_BOOK_VALUE,
+                'AMAZING_BOOK_VALUE' => self::AMAZING_BOOK_VALUE,
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
@@ -245,7 +278,11 @@ class BuySetupConfigService
                     'sales_acceleration' => ['weight' => 5, 'enabled' => true],
                     'operating_margin_expansion' => ['weight' => 10, 'enabled' => false],
                     'fcf_margin_expansion' => ['weight' => 10, 'enabled' => false],
+                    'book_value' => ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true],
                 ],
+                'BOOK_VALUE_WEIGHT' => self::BOOK_VALUE_WEIGHT,
+                'EXCEPTIONAL_BOOK_VALUE' => self::EXCEPTIONAL_BOOK_VALUE,
+                'AMAZING_BOOK_VALUE' => self::AMAZING_BOOK_VALUE,
                 'operating_margin_expansion_thresholds' => self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS,
                 'fcf_margin_expansion_thresholds' => self::DEFAULT_FCF_MARGIN_EXPANSION_THRESHOLDS,
                 'growth_synergy_bonus' => self::DEFAULT_GROWTH_SYNERGY_BONUS,
@@ -555,7 +592,107 @@ class BuySetupConfigService
             }
         }
 
+        if (isset($type['BOOK_VALUE_WEIGHT']) && is_numeric($type['BOOK_VALUE_WEIGHT'])) {
+            $bvWeight = max(0, (int) $type['BOOK_VALUE_WEIGHT']);
+            if (! isset($type['score_weights']['book_value'])) {
+                $weights['book_value']['weight'] = $bvWeight;
+            }
+        }
+
         return $weights;
+    }
+
+    /**
+     * Get the Book Value scoring configuration for a setup type.
+     *
+     * @return array{
+     *     enabled: bool,
+     *     weight: int,
+     *     BOOK_VALUE_WEIGHT: int,
+     *     EXCEPTIONAL_BOOK_VALUE: float,
+     *     AMAZING_BOOK_VALUE: float,
+     *     exceptional_book_value: float,
+     *     amazing_book_value: float
+     * }
+     */
+    public function getBookValueConfig(?string $setupType = null): array
+    {
+        $type = $this->getSetupType($setupType);
+        $weightsMeta = $this->getScoreWeightsMeta($setupType);
+        $bvMeta = $weightsMeta['book_value'] ?? ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true];
+
+        $weight = (int) ($bvMeta['weight'] ?? self::BOOK_VALUE_WEIGHT);
+        $enabled = (bool) ($bvMeta['enabled'] ?? true);
+
+        $exceptional = isset($type['EXCEPTIONAL_BOOK_VALUE']) && is_numeric($type['EXCEPTIONAL_BOOK_VALUE'])
+            ? (float) $type['EXCEPTIONAL_BOOK_VALUE']
+            : self::EXCEPTIONAL_BOOK_VALUE;
+        $amazing = isset($type['AMAZING_BOOK_VALUE']) && is_numeric($type['AMAZING_BOOK_VALUE'])
+            ? (float) $type['AMAZING_BOOK_VALUE']
+            : self::AMAZING_BOOK_VALUE;
+
+        if (! is_finite($amazing) || ! is_finite($exceptional) || $amazing <= 0 || $amazing >= $exceptional) {
+            $exceptional = self::EXCEPTIONAL_BOOK_VALUE;
+            $amazing = self::AMAZING_BOOK_VALUE;
+        }
+
+        return [
+            'enabled' => $enabled,
+            'weight' => max(0, $weight),
+            'BOOK_VALUE_WEIGHT' => max(0, $weight),
+            'EXCEPTIONAL_BOOK_VALUE' => $exceptional,
+            'AMAZING_BOOK_VALUE' => $amazing,
+            'exceptional_book_value' => $exceptional,
+            'amazing_book_value' => $amazing,
+        ];
+    }
+
+    /**
+     * Get the Book Value P/B ratio anchor thresholds for a setup type.
+     *
+     * @return array{EXCEPTIONAL_BOOK_VALUE: float, AMAZING_BOOK_VALUE: float}
+     */
+    public function getBookValueThresholds(?string $setupType = null): array
+    {
+        $config = $this->getBookValueConfig($setupType);
+
+        return [
+            'EXCEPTIONAL_BOOK_VALUE' => $config['EXCEPTIONAL_BOOK_VALUE'],
+            'AMAZING_BOOK_VALUE' => $config['AMAZING_BOOK_VALUE'],
+        ];
+    }
+
+    /**
+     * Idempotently ensure any persisted buy_setup_config in the database
+     * includes the Book Value configuration keys across all setup types
+     * while preserving existing configuration values and component weights.
+     *
+     * @return array<string, mixed>
+     */
+    public function ensureBookValueConfigMigrated(): array
+    {
+        try {
+            $setting = Setting::query()->where('key', self::SETTING_KEY)->first();
+            if (! $setting || empty($setting->value)) {
+                return $this->getConfig();
+            }
+
+            $saved = json_decode($setting->value, true);
+            if (! is_array($saved)) {
+                return $this->getConfig();
+            }
+
+            $merged = $this->mergeWithDefaults($saved);
+            Setting::updateOrCreate(
+                ['key' => self::SETTING_KEY],
+                ['value' => json_encode($merged)]
+            );
+            $this->syncToRuntimeConfig($merged);
+
+            return $merged;
+        } catch (\Throwable) {
+            return $this->getConfig();
+        }
     }
 
     /**
@@ -771,6 +908,9 @@ class BuySetupConfigService
             'sleepy_volume_micro_cap_penalty_pct' => $defaultType['sleepy_volume_micro_cap_penalty_pct'],
             'prior_year_revenue_penalties' => $defaultType['prior_year_revenue_penalties'],
             'score_weights' => $defaultType['score_weights'],
+            'BOOK_VALUE_WEIGHT' => $defaultType['BOOK_VALUE_WEIGHT'],
+            'EXCEPTIONAL_BOOK_VALUE' => $defaultType['EXCEPTIONAL_BOOK_VALUE'],
+            'AMAZING_BOOK_VALUE' => $defaultType['AMAZING_BOOK_VALUE'],
             'operating_margin_expansion_thresholds' => $defaultType['operating_margin_expansion_thresholds'],
             'fcf_margin_expansion_thresholds' => $defaultType['fcf_margin_expansion_thresholds'],
             'growth_synergy_bonus' => $defaultType['growth_synergy_bonus'],
@@ -881,6 +1021,12 @@ class BuySetupConfigService
             }
         }
 
+        $bookValueConfig = $this->mergeBookValueConfig($key, $saved, $default, $weights['book_value'] ?? ['weight' => self::BOOK_VALUE_WEIGHT, 'enabled' => true]);
+        $weights['book_value'] = [
+            'weight' => $bookValueConfig['BOOK_VALUE_WEIGHT'],
+            'enabled' => $bookValueConfig['enabled'],
+        ];
+
         $penalties = [];
         if (isset($saved['prior_year_revenue_penalties']) && is_array($saved['prior_year_revenue_penalties'])) {
             foreach (array_slice($saved['prior_year_revenue_penalties'], 0, 10) as $item) {
@@ -922,6 +1068,9 @@ class BuySetupConfigService
             'sleepy_volume_micro_cap_penalty_pct' => (float) ($saved['sleepy_volume_micro_cap_penalty_pct'] ?? $default['sleepy_volume_micro_cap_penalty_pct']),
             'prior_year_revenue_penalties' => $penalties,
             'score_weights' => $weights,
+            'BOOK_VALUE_WEIGHT' => $bookValueConfig['BOOK_VALUE_WEIGHT'],
+            'EXCEPTIONAL_BOOK_VALUE' => $bookValueConfig['EXCEPTIONAL_BOOK_VALUE'],
+            'AMAZING_BOOK_VALUE' => $bookValueConfig['AMAZING_BOOK_VALUE'],
             'operating_margin_expansion_thresholds' => $this->mergeOperatingMarginExpansionThresholds(
                 $saved['operating_margin_expansion_thresholds'] ?? null,
                 (array) ($default['operating_margin_expansion_thresholds'] ?? self::DEFAULT_OPERATING_MARGIN_EXPANSION_THRESHOLDS),
@@ -994,6 +1143,127 @@ class BuySetupConfigService
         }
 
         return ['min_market_cap' => $min, 'max_market_cap' => $max];
+    }
+
+    /**
+     * Merge/validate the per-setup-type Book Value configuration.
+     *
+     * Enforces:
+     * - BOOK_VALUE_WEIGHT >= 0
+     * - 0 < AMAZING_BOOK_VALUE < EXCEPTIONAL_BOOK_VALUE
+     *
+     * Synchronizes `BOOK_VALUE_WEIGHT` and `score_weights.book_value.weight`
+     * so callers and UI bindings can update either key interchangeably.
+     *
+     * @param  array<string, mixed>  $saved
+     * @param  array<string, mixed>  $default
+     * @param  array{weight: int, enabled: bool}  $mergedScoreWeight
+     * @return array{BOOK_VALUE_WEIGHT: int, EXCEPTIONAL_BOOK_VALUE: float, AMAZING_BOOK_VALUE: float, enabled: bool}
+     */
+    private function mergeBookValueConfig(string $setupTypeKey, array $saved, array $default, array $mergedScoreWeight): array
+    {
+        $defaultWeight = (int) ($default['BOOK_VALUE_WEIGHT'] ?? self::BOOK_VALUE_WEIGHT);
+        $defaultExceptional = (float) ($default['EXCEPTIONAL_BOOK_VALUE'] ?? self::EXCEPTIONAL_BOOK_VALUE);
+        $defaultAmazing = (float) ($default['AMAZING_BOOK_VALUE'] ?? self::AMAZING_BOOK_VALUE);
+        $defaultEnabled = (bool) ($default['score_weights']['book_value']['enabled'] ?? true);
+
+        $savedWeights = (array) ($saved['score_weights'] ?? []);
+        $rawSwEntry = $savedWeights['book_value'] ?? null;
+        $hasSwWeight = is_array($rawSwEntry)
+            ? array_key_exists('weight', $rawSwEntry)
+            : $rawSwEntry !== null;
+        $rawSwWeight = is_array($rawSwEntry) ? ($rawSwEntry['weight'] ?? null) : $rawSwEntry;
+        $hasAllCapsWeight = array_key_exists('BOOK_VALUE_WEIGHT', $saved);
+        $rawAllCapsWeight = $saved['BOOK_VALUE_WEIGHT'] ?? null;
+
+        $resolvedRawWeight = $defaultWeight;
+        if ($hasAllCapsWeight && $hasSwWeight) {
+            $swInt = is_numeric($rawSwWeight) ? (int) $rawSwWeight : null;
+            $acInt = is_numeric($rawAllCapsWeight) ? (int) $rawAllCapsWeight : null;
+            if ($swInt === null || $acInt === null) {
+                $resolvedRawWeight = -1;
+            } elseif ($swInt === $acInt) {
+                $resolvedRawWeight = $acInt;
+            } else {
+                $priorWeight = $this->priorPersistedBookValueWeight($setupTypeKey, $defaultWeight);
+                if ($acInt !== $priorWeight && $swInt === $priorWeight) {
+                    $resolvedRawWeight = $acInt;
+                } elseif ($swInt !== $priorWeight && $acInt === $priorWeight) {
+                    $resolvedRawWeight = $swInt;
+                } else {
+                    $resolvedRawWeight = $acInt;
+                }
+            }
+        } elseif ($hasAllCapsWeight) {
+            $resolvedRawWeight = is_numeric($rawAllCapsWeight) ? (int) $rawAllCapsWeight : -1;
+        } elseif ($hasSwWeight) {
+            $resolvedRawWeight = is_numeric($rawSwWeight) ? (int) $rawSwWeight : -1;
+        }
+
+        $weight = $resolvedRawWeight >= 0 ? $resolvedRawWeight : $defaultWeight;
+
+        $enabled = is_array($rawSwEntry) && array_key_exists('enabled', $rawSwEntry)
+            ? (bool) $rawSwEntry['enabled']
+            : (bool) ($mergedScoreWeight['enabled'] ?? $defaultEnabled);
+
+        $rawAmazing = $saved['AMAZING_BOOK_VALUE']
+            ?? $saved['amazing_book_value']
+            ?? $saved['book_value_thresholds']['AMAZING_BOOK_VALUE']
+            ?? $saved['book_value_thresholds']['amazing_book_value']
+            ?? $defaultAmazing;
+
+        $rawExceptional = $saved['EXCEPTIONAL_BOOK_VALUE']
+            ?? $saved['exceptional_book_value']
+            ?? $saved['book_value_thresholds']['EXCEPTIONAL_BOOK_VALUE']
+            ?? $saved['book_value_thresholds']['exceptional_book_value']
+            ?? $defaultExceptional;
+
+        $amazing = $defaultAmazing;
+        $exceptional = $defaultExceptional;
+
+        if (is_numeric($rawAmazing) && is_numeric($rawExceptional)) {
+            $candidateAmazing = (float) $rawAmazing;
+            $candidateExceptional = (float) $rawExceptional;
+            if (
+                is_finite($candidateAmazing)
+                && is_finite($candidateExceptional)
+                && $candidateAmazing > 0.0
+                && $candidateAmazing < $candidateExceptional
+            ) {
+                $amazing = $candidateAmazing;
+                $exceptional = $candidateExceptional;
+            }
+        }
+
+        return [
+            'BOOK_VALUE_WEIGHT' => $weight,
+            'EXCEPTIONAL_BOOK_VALUE' => $exceptional,
+            'AMAZING_BOOK_VALUE' => $amazing,
+            'enabled' => $enabled,
+        ];
+    }
+
+    private function priorPersistedBookValueWeight(string $setupTypeKey, int $fallback): int
+    {
+        try {
+            $setting = Setting::query()->where('key', self::SETTING_KEY)->first();
+            if ($setting && ! empty($setting->value)) {
+                $decoded = json_decode($setting->value, true);
+                $type = $decoded['setup_types'][$setupTypeKey] ?? null;
+                if (is_array($type)) {
+                    if (isset($type['BOOK_VALUE_WEIGHT']) && is_numeric($type['BOOK_VALUE_WEIGHT'])) {
+                        return (int) $type['BOOK_VALUE_WEIGHT'];
+                    }
+                    $sw = $type['score_weights']['book_value'] ?? null;
+                    if (is_array($sw) && isset($sw['weight']) && is_numeric($sw['weight'])) {
+                        return (int) $sw['weight'];
+                    }
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return $fallback;
     }
 
     /**

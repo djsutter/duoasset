@@ -1263,6 +1263,17 @@ class FmpMarketDataProvider implements MarketDataProvider
                     ?? $row['totalEquity']
                     ?? null,
             ),
+            'book_value_per_share' => $this->toFloat(
+                $row['bookValuePerShare']
+                    ?? $row['book_value_per_share']
+                    ?? null,
+            ),
+            'shares_outstanding' => $this->toInt(
+                $row['commonStockSharesOutstanding']
+                    ?? $row['weightedAverageShsOut']
+                    ?? $row['sharesOutstanding']
+                    ?? null,
+            ),
             'fiscal_year' => isset($row['fiscalYear']) && is_numeric($row['fiscalYear']) ? (int) $row['fiscalYear'] : null,
             'period' => $row['period'] ?? null,
             'filing_date' => $row['fillingDate'] ?? $row['filingDate'] ?? null,

@@ -182,10 +182,16 @@
                         $breakdown = $scoreBreakdowns[$alert->id] ?? [];
                         $maxPossible = array_sum(array_column($breakdown, 'max'));
                         $breakdownWithPct = array_map(function ($item) use ($maxPossible) {
-                            $max = (int) ($item['max'] ?? 0);
-                            $points = (int) ($item['points'] ?? 0);
+                            $max = (float) ($item['max'] ?? 0);
+                            $points = (float) ($item['points'] ?? 0);
                             $pct = $max > 0 ? (int) round(($points / $max) * 100) : 0;
-                            return array_merge($item, ['pct' => $pct]);
+                            $displayPoints = isset($item['available']) && $item['available'] === false
+                                ? 'N/A'
+                                : (abs($points - round($points)) < 1e-9 ? (string) (int) round($points) : number_format($points, 2));
+                            return array_merge($item, [
+                                'pct' => $pct,
+                                'display_points' => $displayPoints,
+                            ]);
                         }, array_values($breakdown));
 
                         $ignBonus = $scorer->ignitionBonus($alert, $alert->setup_type);
@@ -263,6 +269,8 @@
                             'prior_ttm_fcf_margin' => $alert->prior_ttm_fcf_margin !== null ? number_format((float) $alert->prior_ttm_fcf_margin * 100, 1).'%' : '—',
                             'current_ttm_fcf_margin' => $alert->current_ttm_fcf_margin !== null ? number_format((float) $alert->current_ttm_fcf_margin * 100, 1).'%' : '—',
                             'fcf_margin_expansion_bps' => $alert->fcf_margin_expansion_bps !== null ? number_format((float) $alert->fcf_margin_expansion_bps, 0).' bps' : '—',
+                            'book_value_per_share' => $alert->book_value_per_share !== null ? '$'.number_format((float) $alert->book_value_per_share, 2) : '—',
+                            'price_to_book_ratio' => $alert->price_to_book_ratio !== null ? number_format((float) $alert->price_to_book_ratio, 2) : 'N/A',
                             'reason_summary' => $alert->reason_summary ?? '—',
                             'status' => ucfirst((string) $alert->status),
                             'detected_at' => $alert->detected_at ? \Carbon\Carbon::parse($alert->detected_at)->toDateTimeString() : '—',
@@ -441,6 +449,8 @@
                                     <dt class="text-zinc-500">{{ __('Prior TTM FCF margin') }}</dt><dd class="text-right font-medium" x-text="selected?.prior_ttm_fcf_margin"></dd>
                                     <dt class="text-zinc-500">{{ __('Current TTM FCF margin') }}</dt><dd class="text-right font-medium" x-text="selected?.current_ttm_fcf_margin"></dd>
                                     <dt class="text-zinc-500">{{ __('FCF margin expansion (bps)') }}</dt><dd class="text-right font-medium" x-text="selected?.fcf_margin_expansion_bps"></dd>
+                                    <dt class="text-zinc-500">{{ __('Book value / share') }}</dt><dd class="text-right font-medium" x-text="selected?.book_value_per_share"></dd>
+                                    <dt class="text-zinc-500">{{ __('P/B ratio') }}</dt><dd class="text-right font-medium" x-text="selected?.price_to_book_ratio"></dd>
                                 </dl>
                             </div>
                         </div>
@@ -479,7 +489,8 @@
                                             <div>
                                                 <div class="mb-1 flex justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400">
                                                     <span x-text="component.label"></span>
-                                                    <span><span x-text="component.points"></span>/<span x-text="component.max"></span></span>
+                                                    <span x-show="component.available === false">N/A</span>
+                                                    <span x-show="component.available !== false"><span x-text="component.display_points ?? component.points"></span>/<span x-text="component.max"></span></span>
                                                 </div>
                                                 <div class="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
                                                     <div class="h-2 rounded-full bg-emerald-500" :style="`width: ${component.pct}%`"></div>
@@ -792,7 +803,7 @@
                                         </span>
                                     </div>
 
-                                    <div class="overflow-x-auto">
+                                    <div class="overflow-x-auto" x-data="{ bookValueExpanded: true }">
                                         <table class="da-table text-sm">
                                             <thead>
                                                 <tr>
@@ -816,6 +827,7 @@
                                                         'sales_acceleration' => 'Sales acceleration',
                                                         'operating_margin_expansion' => 'Operating margin expansion',
                                                         'fcf_margin_expansion' => 'FCF margin expansion',
+                                                        'book_value' => 'Book Value',
                                                     ];
                                                 @endphp
 
@@ -828,7 +840,16 @@
                                                                    class="rounded border-zinc-300 text-sky-600 focus:ring-sky-500 size-4">
                                                         </td>
                                                         <td class="font-medium">
-                                                            {{ __($cLabel) }}
+                                                            @if ($cKey === 'book_value')
+                                                                <button type="button"
+                                                                        x-on:click="bookValueExpanded = !bookValueExpanded"
+                                                                        class="inline-flex items-center gap-1.5 text-left font-medium hover:text-sky-600 dark:hover:text-sky-400">
+                                                                    <span>{{ __($cLabel) }}</span>
+                                                                    <span class="text-xs text-zinc-400" x-text="bookValueExpanded ? '▾' : '▸'"></span>
+                                                                </button>
+                                                            @else
+                                                                {{ __($cLabel) }}
+                                                            @endif
                                                         </td>
                                                         <td class="text-right">
                                                             <input type="number"
@@ -840,6 +861,35 @@
                                                                    class="da-input text-right py-1 w-28 inline-block">
                                                         </td>
                                                     </tr>
+                                                    @if ($cKey === 'book_value')
+                                                        <tr wire:key="type-weight-book-value-params-{{ $selectedConfigSetupType }}"
+                                                            x-show="bookValueExpanded"
+                                                            class="bg-zinc-50/70 dark:bg-zinc-900/40">
+                                                            <td></td>
+                                                            <td colspan="2" class="py-2.5 pl-4 pr-3">
+                                                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md">
+                                                                    <div>
+                                                                        <label class="da-label text-xs">{{ __('Exceptional P/B Ratio') }} <span class="text-[10px] font-normal text-zinc-400">(75%)</span></label>
+                                                                        <input type="number"
+                                                                               step="0.01"
+                                                                               min="0.01"
+                                                                               wire:key="type-bv-exceptional-{{ $selectedConfigSetupType }}"
+                                                                               wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.EXCEPTIONAL_BOOK_VALUE"
+                                                                               class="da-input py-1 text-xs">
+                                                                    </div>
+                                                                    <div>
+                                                                        <label class="da-label text-xs">{{ __('Amazing P/B Ratio') }} <span class="text-[10px] font-normal text-zinc-400">(100%)</span></label>
+                                                                        <input type="number"
+                                                                               step="0.01"
+                                                                               min="0.01"
+                                                                               wire:key="type-bv-amazing-{{ $selectedConfigSetupType }}"
+                                                                               wire:model="configState.setup_types.{{ $selectedConfigSetupType }}.AMAZING_BOOK_VALUE"
+                                                                               class="da-input py-1 text-xs">
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    @endif
                                                 @endforeach
                                             </tbody>
                                         </table>

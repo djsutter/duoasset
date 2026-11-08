@@ -339,6 +339,9 @@ class EarlyBreakoutFollowThroughAlgorithm implements BuySetupAlgorithm
             sharesOutstanding: $this->nullableInt($context['shares_outstanding'] ?? null),
             floatShares: $this->nullableInt($context['float_shares'] ?? null),
             freeFloat: $this->nullableFloat($context['free_float'] ?? null),
+            bookValuePerShare: $this->resolveBookValuePerShare($context),
+            priceToBookRatio: $this->resolvePriceToBookRatio($context, $spikeClose),
+            stockholdersEquity: $this->nullableFloat($context['stockholders_equity'] ?? null),
         );
 
         $priorYearRevenue = $this->nullableFloat($context['prior_year_revenue'] ?? null);

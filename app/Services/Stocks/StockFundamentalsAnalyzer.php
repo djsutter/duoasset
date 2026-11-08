@@ -42,14 +42,22 @@ class StockFundamentalsAnalyzer
 
     private const MAX_MARGIN_EXPANSION_BPS = 99999999.9999;
 
+    private const MAX_BOOK_VALUE_MAGNITUDE = 999999999999.9999;
+
     /**
      * @param  array<int, array<string, mixed>>  $incomeRows
      * @param  array<int, array<string, mixed>>  $balanceRows
      * @param  array<int, array<string, mixed>>  $cashFlowRows
      * @return array<string, mixed>
      */
-    public function analyze(array $incomeRows, array $balanceRows = [], array $cashFlowRows = []): array
-    {
+    public function analyze(
+        array $incomeRows,
+        array $balanceRows = [],
+        array $cashFlowRows = [],
+        ?float $price = null,
+        ?int $sharesOutstanding = null,
+        ?string $priceCurrency = null,
+    ): array {
         // Use one observation per fiscal quarter before computing any YoY or
         // TTM metric. Duplicate filings otherwise shift the i-4 comparator.
         $income = array_reverse($this->dedupeQuartersDescending($incomeRows));
@@ -96,7 +104,185 @@ class StockFundamentalsAnalyzer
                 : null,
             'eps_growth_sequence' => array_values(array_slice($epsYoy, -4)),
             'revenue_growth_sequence' => array_values(array_slice($revenueYoy, -4)),
-        ], $this->operatingMarginExpansion($incomeRows), $this->fcfMarginExpansion($incomeRows, $cashFlowRows));
+        ], $this->operatingMarginExpansion($incomeRows), $this->fcfMarginExpansion($incomeRows, $cashFlowRows), $this->bookValueMetrics($balanceRows, $incomeRows, $price, $sharesOutstanding, $priceCurrency));
+    }
+
+    /**
+     * Book Value per Share and Price-to-Book (P/B) ratio derived from the
+     * latest valid quarterly balance sheet and current share price.
+     *
+     * Formula:
+     *   book_value_per_share = latest_stockholders_equity / shares_outstanding
+     *   price_to_book_ratio  = current_share_price / book_value_per_share
+     *
+     * Safeguards:
+     * - Missing, zero, or negative stockholders' equity / book value per share
+     *   returns null for book_value_per_share and price_to_book_ratio (N/A).
+     * - Currency mismatches between the balance sheet and share price / income
+     *   statement return null rather than mixing currencies without FX.
+     * - Non-finite or out-of-range values return null.
+     *
+     * @param  array<int, array<string, mixed>>  $balanceRows
+     * @param  array<int, array<string, mixed>>  $incomeRows
+     * @return array{
+     *     stockholders_equity: float|null,
+     *     book_value_per_share: float|null,
+     *     price_to_book_ratio: float|null,
+     *     book_value_reporting_date: string|null,
+     *     book_value_currency: string|null
+     * }
+     */
+    public function bookValueMetrics(
+        array $balanceRows,
+        array $incomeRows = [],
+        ?float $price = null,
+        ?int $sharesOutstanding = null,
+        ?string $priceCurrency = null,
+    ): array {
+        $empty = [
+            'stockholders_equity' => null,
+            'book_value_per_share' => null,
+            'price_to_book_ratio' => null,
+            'book_value_reporting_date' => null,
+            'book_value_currency' => null,
+        ];
+
+        $dedupedBalance = $this->dedupeQuartersDescending($balanceRows);
+        if (empty($dedupedBalance)) {
+            return $empty;
+        }
+
+        $latestBalance = $dedupedBalance[0];
+        $reportingDate = isset($latestBalance['date']) && $latestBalance['date'] !== ''
+            ? substr((string) $latestBalance['date'], 0, 10)
+            : null;
+        $balanceCurrency = strtoupper(trim((string) ($latestBalance['reported_currency'] ?? $latestBalance['raw']['reportedCurrency'] ?? '')));
+        $balanceCurrency = $balanceCurrency !== '' ? $balanceCurrency : null;
+
+        // Currency compatibility check: never divide a price in one currency
+        // by book value per share reported in a different currency.
+        $normalizedPriceCurrency = strtoupper(trim((string) ($priceCurrency ?? '')));
+        if ($normalizedPriceCurrency !== '' && $balanceCurrency !== null && $normalizedPriceCurrency !== $balanceCurrency) {
+            return array_merge($empty, [
+                'book_value_reporting_date' => $reportingDate,
+                'book_value_currency' => $balanceCurrency,
+            ]);
+        }
+
+        $dedupedIncome = $this->dedupeQuartersDescending($incomeRows);
+        if ($normalizedPriceCurrency === '' && ! empty($dedupedIncome) && $balanceCurrency !== null) {
+            $incomeCurrency = strtoupper(trim((string) ($dedupedIncome[0]['reported_currency'] ?? $dedupedIncome[0]['raw']['reportedCurrency'] ?? '')));
+            if ($incomeCurrency !== '' && $incomeCurrency !== $balanceCurrency) {
+                return array_merge($empty, [
+                    'book_value_reporting_date' => $reportingDate,
+                    'book_value_currency' => $balanceCurrency,
+                ]);
+            }
+        }
+
+        $equity = $this->toFloat(
+            $latestBalance['stockholders_equity']
+                ?? $latestBalance['raw']['totalStockholdersEquity']
+                ?? $latestBalance['raw']['totalShareholdersEquity']
+                ?? $latestBalance['raw']['stockholdersEquity']
+                ?? $latestBalance['raw']['totalEquity']
+                ?? null
+        );
+
+        $persistedEquity = ($equity !== null && is_finite($equity) && abs($equity) <= 999999999999999999.99)
+            ? round($equity, 2)
+            : null;
+
+        // Zero or negative book value is invalid for P/B scoring and must
+        // be treated as N/A (null book_value_per_share and price_to_book_ratio).
+        if ($equity !== null && (! is_finite($equity) || $equity <= 0.0)) {
+            return [
+                'stockholders_equity' => $persistedEquity,
+                'book_value_per_share' => null,
+                'price_to_book_ratio' => null,
+                'book_value_reporting_date' => $reportingDate,
+                'book_value_currency' => $balanceCurrency,
+            ];
+        }
+
+        $shares = ($sharesOutstanding !== null && $sharesOutstanding > 0)
+            ? (float) $sharesOutstanding
+            : $this->extractStatementShares($latestBalance, $dedupedIncome);
+
+        $bvps = null;
+        if ($equity !== null && $equity > 0.0 && $shares !== null && $shares > 0.0) {
+            $bvps = $equity / $shares;
+        } else {
+            $directBvps = $this->toFloat(
+                $latestBalance['book_value_per_share']
+                    ?? $latestBalance['raw']['bookValuePerShare']
+                    ?? null
+            );
+            if ($directBvps !== null && is_finite($directBvps) && $directBvps > 0.0) {
+                $bvps = $directBvps;
+            }
+        }
+
+        if ($bvps === null || ! is_finite($bvps) || $bvps <= 0.0 || $bvps > self::MAX_BOOK_VALUE_MAGNITUDE) {
+            return [
+                'stockholders_equity' => $persistedEquity,
+                'book_value_per_share' => null,
+                'price_to_book_ratio' => null,
+                'book_value_reporting_date' => $reportingDate,
+                'book_value_currency' => $balanceCurrency,
+            ];
+        }
+
+        $pbRatio = null;
+        if ($price !== null && is_finite($price) && $price > 0.0) {
+            $rawPb = $price / $bvps;
+            if (is_finite($rawPb) && $rawPb > 0.0 && $rawPb <= self::MAX_BOOK_VALUE_MAGNITUDE) {
+                $pbRatio = round($rawPb, 6);
+            }
+        }
+
+        return [
+            'stockholders_equity' => $persistedEquity,
+            'book_value_per_share' => round($bvps, 6),
+            'price_to_book_ratio' => $pbRatio,
+            'book_value_reporting_date' => $reportingDate,
+            'book_value_currency' => $balanceCurrency,
+        ];
+    }
+
+    /**
+     * Extract shares outstanding from the balance sheet row or matching
+     * quarterly income statement when profile shares_outstanding is absent.
+     *
+     * @param  array<string, mixed>  $balanceRow
+     * @param  array<int, array<string, mixed>>  $dedupedIncome
+     */
+    private function extractStatementShares(array $balanceRow, array $dedupedIncome): ?float
+    {
+        $candidates = [
+            $balanceRow['shares_outstanding'] ?? null,
+            $balanceRow['raw']['commonStockSharesOutstanding'] ?? null,
+            $balanceRow['raw']['weightedAverageShsOut'] ?? null,
+            $balanceRow['raw']['sharesOutstanding'] ?? null,
+        ];
+
+        foreach ($dedupedIncome as $incRow) {
+            if ($this->sameQuarter($balanceRow, $incRow)) {
+                $candidates[] = $incRow['shares_outstanding'] ?? null;
+                $candidates[] = $incRow['raw']['weightedAverageShsOut'] ?? null;
+                $candidates[] = $incRow['raw']['weightedAverageShsOutDil'] ?? null;
+                break;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $val = $this->toFloat($candidate);
+            if ($val !== null && is_finite($val) && $val > 0.0) {
+                return $val;
+            }
+        }
+
+        return null;
     }
 
     /**

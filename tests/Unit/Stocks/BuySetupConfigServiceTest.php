@@ -360,3 +360,56 @@ test('configuring global min market cap in scanner controls is used and not circ
     $enabledRange = $freshService->getEnabledSetupTypesMarketCapRange();
     expect($enabledRange['min'])->toBe(10000000);
 });
+
+test('every default and dynamically created setup type includes default Book Value configuration', function () {
+    $service = new BuySetupConfigService;
+    $config = $service->getConfig();
+
+    foreach ($config['setup_types'] as $key => $type) {
+        expect($type['BOOK_VALUE_WEIGHT'])->toBe(10)
+            ->and($type['EXCEPTIONAL_BOOK_VALUE'])->toBe(1.25)
+            ->and($type['AMAZING_BOOK_VALUE'])->toBe(0.90)
+            ->and($type['score_weights']['book_value'])->toEqual(['weight' => 10, 'enabled' => true])
+            ->and($service->getScoreWeights($key)['book_value'])->toBe(10);
+    }
+
+    $dynamic = $service->createDefaultSetupType('giga_growth', 'Giga Growth');
+    expect($dynamic['BOOK_VALUE_WEIGHT'])->toBe(10)
+        ->and($dynamic['EXCEPTIONAL_BOOK_VALUE'])->toBe(1.25)
+        ->and($dynamic['AMAZING_BOOK_VALUE'])->toBe(0.90)
+        ->and($dynamic['score_weights']['book_value'])->toEqual(['weight' => 10, 'enabled' => true]);
+});
+
+test('legacy saved configuration receives Book Value defaults while preserving existing weights and settings', function () {
+    $legacyPayload = [
+        'notify_min_setup_score' => 77,
+        'setup_types' => [
+            'heartbeat_consolidation_spike' => [
+                'key' => 'heartbeat_consolidation_spike',
+                'label' => 'Heartbeat consolidation',
+                'enabled' => true,
+                'score_weights' => [
+                    'spike_rarity' => ['weight' => 33, 'enabled' => true],
+                    'base_duration' => ['weight' => 12, 'enabled' => false],
+                ],
+            ],
+        ],
+    ];
+
+    \App\Models\Setting::updateOrCreate(
+        ['key' => BuySetupConfigService::SETTING_KEY],
+        ['value' => json_encode($legacyPayload)]
+    );
+
+    $service = new BuySetupConfigService;
+    $migrated = $service->ensureBookValueConfigMigrated();
+
+    $hb = $migrated['setup_types']['heartbeat_consolidation_spike'];
+    expect($migrated['notify_min_setup_score'])->toBe(77)
+        ->and($hb['score_weights']['spike_rarity'])->toEqual(['weight' => 33, 'enabled' => true])
+        ->and($hb['score_weights']['base_duration'])->toEqual(['weight' => 12, 'enabled' => false])
+        ->and($hb['BOOK_VALUE_WEIGHT'])->toBe(10)
+        ->and($hb['EXCEPTIONAL_BOOK_VALUE'])->toBe(1.25)
+        ->and($hb['AMAZING_BOOK_VALUE'])->toBe(0.90)
+        ->and($hb['score_weights']['book_value'])->toEqual(['weight' => 10, 'enabled' => true]);
+});

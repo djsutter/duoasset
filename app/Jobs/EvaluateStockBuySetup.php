@@ -169,7 +169,15 @@ class EvaluateStockBuySetup implements ShouldQueue
             $benchmarks = $configService->getBenchmarkSymbols();
             $benchmarkBars = $this->loadBenchmark($provider, $benchmarks);
             $debug['benchmark_bars'] = count($benchmarkBars);
-            $fundamentalMetrics = $this->loadFundamentalMetrics($provider, $fundamentals, $symbol, $configService);
+            $fundamentalMetrics = $this->loadFundamentalMetrics(
+                $provider,
+                $fundamentals,
+                $symbol,
+                $configService,
+                $price,
+                $sharesOutstanding,
+                $profile,
+            );
             $debug['fundamentals_loaded'] = ! empty($fundamentalMetrics);
 
             $results = $scanner->evaluateAll($bars, $benchmarkBars, array_merge([
@@ -304,6 +312,38 @@ class EvaluateStockBuySetup implements ShouldQueue
                 if ($previousSetupScore === null && $alert->exists && ($this->scanRunId === null || ! $hasScanRunColumn || $alert->scan_run_id !== $this->scanRunId)) {
                     $previousSetupScore = $alert->setup_score !== null ? (int) $alert->setup_score : null;
                 }
+
+                // If an existing historical alert predated Book Value scoring (had no
+                // stored P/B or book value) and its prior score matches the current
+                // pre-Book-Value score, establish the new Book-Value-inclusive score
+                // as the baseline rather than reporting an artificial delta.
+                if (
+                    $alert->exists
+                    && $previousSetupScore !== null
+                    && $alert->price_to_book_ratio === null
+                    && $alert->book_value_per_share === null
+                    && $result->priceToBookRatio !== null
+                    && $previousSetupScore !== $result->setupScore
+                ) {
+                    $breakdownWithoutBv = $breakdown;
+                    unset($breakdownWithoutBv['book_value']);
+                    $rawWithoutBv = $scorer->scoreMetaFromBreakdown($breakdownWithoutBv)['normalized'];
+                    $liqWithoutBv = $liquidityPenalty->apply(
+                        $rawWithoutBv,
+                        $result->marketCapCategory,
+                        $result->floatShares,
+                        $result->sharesOutstanding,
+                        $bars,
+                        $result->setupType,
+                    );
+                    $scoreWithoutBv = min(100, (int) $liqWithoutBv['adjusted_score'] + $growthSynergyBonus['points']);
+                    $scoreWithoutBv = min(100, $scoreWithoutBv + $ignitionBonus['points']);
+
+                    if ($previousSetupScore === $scoreWithoutBv) {
+                        $previousSetupScore = $result->setupScore;
+                    }
+                }
+
                 $scoreDelta = $previousSetupScore !== null
                     ? ($result->setupScore - $previousSetupScore)
                     : null;
@@ -364,6 +404,9 @@ class EvaluateStockBuySetup implements ShouldQueue
                     'fcf_margin_expansion_bps' => $result->fcfMarginExpansionBps,
                     'current_ttm_fcf_margin' => $result->currentTtmFcfMargin,
                     'prior_ttm_fcf_margin' => $result->priorTtmFcfMargin,
+                    'book_value_per_share' => $result->bookValuePerShare,
+                    'price_to_book_ratio' => $result->priceToBookRatio,
+                    'stockholders_equity' => $result->stockholdersEquity,
                     'heartbeat_score' => $result->heartbeatScore,
                     'reason_summary' => $result->reasonSummary,
                 ];
@@ -519,6 +562,7 @@ class EvaluateStockBuySetup implements ShouldQueue
     }
 
     /**
+     * @param  array<string, mixed>  $profile
      * @return array<string, mixed>
      */
     private function loadFundamentalMetrics(
@@ -526,28 +570,51 @@ class EvaluateStockBuySetup implements ShouldQueue
         StockFundamentalsAnalyzer $fundamentals,
         string $symbol,
         BuySetupConfigService $configService,
+        ?float $price = null,
+        ?int $sharesOutstanding = null,
+        array $profile = [],
     ): array {
         try {
             $income = $provider->quarterlyIncomeStatements($symbol, 8);
-            if (empty($income)) {
+            $balance = $provider->quarterlyBalanceSheets($symbol, 8);
+            if (empty($income) && empty($balance)) {
                 return [];
             }
-
-            $balance = $provider->quarterlyBalanceSheets($symbol, 8);
 
             // Quarterly cash flow statements are an extra FMP call per
             // symbol and are only needed for FCF Margin Expansion / the
             // Growth Synergy Bonus, both disabled by default. Skip the
             // fetch entirely when no configured setup type needs it.
-            $cashFlow = $configService->isCashFlowDataNeeded()
+            $cashFlow = (! empty($income) && $configService->isCashFlowDataNeeded())
                 ? $provider->quarterlyCashFlowStatements($symbol, 8)
                 : [];
-            $metrics = $fundamentals->analyze($income, $balance, $cashFlow);
+            $metrics = $fundamentals->analyze(
+                $income,
+                $balance,
+                $cashFlow,
+                $price,
+                $sharesOutstanding,
+                isset($profile['currency']) && is_string($profile['currency']) ? $profile['currency'] : null,
+            );
+
+            // Fallback to a valid provider-supplied P/B ratio only when balance
+            // sheet equity is absent (never when equity is zero or negative).
+            if (($metrics['price_to_book_ratio'] ?? null) === null && ($metrics['stockholders_equity'] ?? null) === null && empty($balance)) {
+                $providerPb = $this->nullableFloat(
+                    $profile['price_to_book_ratio']
+                        ?? $profile['raw']['priceToBookRatio']
+                        ?? $profile['raw']['priceToBook']
+                        ?? null
+                );
+                if ($providerPb !== null && is_finite($providerPb) && $providerPb > 0.0) {
+                    $metrics['price_to_book_ratio'] = round($providerPb, 6);
+                }
+            }
 
             // FMP supplies absolute revenue on each quarterly income statement,
             // not a dedicated prior_year_revenue field. Derive the comparable
             // prior-year quarter here for sales-acceleration denominator damping.
-            $metrics['prior_year_revenue'] = $this->priorYearRevenue($income);
+            $metrics['prior_year_revenue'] = ! empty($income) ? $this->priorYearRevenue($income) : null;
 
             return $metrics;
         } catch (Throwable $e) {

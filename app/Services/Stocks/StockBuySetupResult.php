@@ -97,5 +97,8 @@ final class StockBuySetupResult
         public readonly ?int $sharesOutstanding = null,
         public readonly ?int $floatShares = null,
         public readonly ?float $freeFloat = null,
+        public readonly ?float $bookValuePerShare = null,
+        public readonly ?float $priceToBookRatio = null,
+        public readonly ?float $stockholdersEquity = null,
     ) {}
 }
