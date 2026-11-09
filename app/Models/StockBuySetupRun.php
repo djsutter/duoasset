@@ -198,6 +198,7 @@ class StockBuySetupRun extends Model
             }
 
             $screenerRejected = (int) (($run->summary_data ?? [])['screener_rejected_count'] ?? 0);
+            $suppressDigest = ! empty(($run->summary_data ?? [])['no_digest']);
             if (
                 $run->trigger !== 'cli-sync'
                 && $run->trigger !== 'coordinated'
@@ -208,7 +209,7 @@ class StockBuySetupRun extends Model
             ) {
                 $run->status = 'completed';
                 $run->completed_at = now();
-                $justCompleted = true;
+                $justCompleted = ! $suppressDigest;
             }
 
             $run->save();

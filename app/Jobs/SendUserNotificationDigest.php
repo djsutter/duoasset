@@ -70,6 +70,10 @@ class SendUserNotificationDigest implements ShouldQueue
         });
 
         if (! $delivery) {
+            Log::info('digest.delivery_already_handled', [
+                'delivery_id' => $this->deliveryId,
+            ]);
+
             return;
         }
 
@@ -87,6 +91,7 @@ class SendUserNotificationDigest implements ShouldQueue
                     'scan_run_id' => $delivery->scan_run_id,
                     'category' => $delivery->category,
                     'user_id' => $delivery->user_id,
+                    'email' => $user?->email,
                 ]);
 
                 return;
@@ -117,6 +122,8 @@ class SendUserNotificationDigest implements ShouldQueue
                     'scan_run_id' => $delivery->scan_run_id,
                     'category' => $delivery->category,
                     'user_id' => $delivery->user_id,
+                    'email' => $user->email,
+                    'summary_counts' => $digestPayload['summary_counts'] ?? [],
                 ]);
 
                 return;
@@ -136,6 +143,7 @@ class SendUserNotificationDigest implements ShouldQueue
                     'scan_run_id' => $delivery->scan_run_id,
                     'category' => $delivery->category,
                     'user_id' => $delivery->user_id,
+                    'email' => $user->email,
                 ]);
 
                 return;
@@ -161,6 +169,9 @@ class SendUserNotificationDigest implements ShouldQueue
                 'scan_run_id' => $delivery->scan_run_id,
                 'category' => $delivery->category,
                 'user_id' => $delivery->user_id,
+                'email' => $user->email,
+                'mailer' => config('mail.default'),
+                'channels' => $notification->via($user),
                 'attempts' => $delivery->attempts,
                 'summary_counts' => $digestPayload['summary_counts'] ?? [],
             ]);

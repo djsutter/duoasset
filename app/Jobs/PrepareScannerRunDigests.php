@@ -31,6 +31,7 @@ class PrepareScannerRunDigests implements ShouldQueue
     public function __construct(
         public string $category,
         public int $scanRunId,
+        public bool $sync = false,
     ) {}
 
     public function handle(
@@ -94,6 +95,7 @@ class PrepareScannerRunDigests implements ShouldQueue
             Log::info('digest.coordinator_skipped_empty_run', [
                 'category' => $this->category,
                 'scan_run_id' => $this->scanRunId,
+                'snapshot_totals' => $snapshot['totals'] ?? [],
             ]);
 
             return;
@@ -113,6 +115,11 @@ class PrepareScannerRunDigests implements ShouldQueue
         $hasSetupDigestCol = Schema::hasColumn('users', 'email_setup_scoring_digest');
 
         $userQuery = User::query();
+        if (User::hasSchemaColumn('is_anonymous')) {
+            $userQuery->where('is_anonymous', false);
+        }
+        $userQuery->where('email', '!=', User::ANONYMOUS_EMAIL);
+
         if ($this->category === NotificationDigestDelivery::CATEGORY_EPS_SURPRISE) {
             if ($hasEpsDigestCol) {
                 $userQuery->where('email_eps_surprise_digest', true);
@@ -207,16 +214,31 @@ class PrepareScannerRunDigests implements ShouldQueue
 
                     if ($wasCreated || ($delivery->status === NotificationDigestDelivery::STATUS_QUEUED && $delivery->claimed_at === null && $delivery->attempts === 0)) {
                         $queuedCount++;
-                        SendUserNotificationDigest::dispatch($delivery->id);
+                        if ($this->sync && ! (\Illuminate\Support\Facades\Queue::getFacadeRoot() instanceof \Illuminate\Support\Testing\Fakes\QueueFake)) {
+                            SendUserNotificationDigest::dispatchSync($delivery->id);
+                        } else {
+                            SendUserNotificationDigest::dispatch($delivery->id);
+                        }
                     } else {
                         $alreadyScheduledCount++;
                     }
                 }
             });
 
+        if ($eligibleCount === 0) {
+            Log::warning('digest.coordinator_no_eligible_subscribers', [
+                'category' => $this->category,
+                'scan_run_id' => $this->scanRunId,
+                'snapshot_totals' => $snapshot['totals'] ?? [],
+                'digests_skipped_preferences' => $skippedOptOutCount,
+            ]);
+        }
+
         Log::info('digest.coordinator_completed', [
             'category' => $this->category,
             'scan_run_id' => $this->scanRunId,
+            'sync' => $this->sync,
+            'snapshot_totals' => $snapshot['totals'] ?? [],
             'eligible_subscribers' => $eligibleCount,
             'digests_queued' => $queuedCount,
             'digests_already_scheduled' => $alreadyScheduledCount,

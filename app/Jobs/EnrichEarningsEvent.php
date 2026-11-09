@@ -39,6 +39,7 @@ class EnrichEarningsEvent implements ShouldQueue
         public int $earningsEventId,
         public ?int $scanRunId = null,
         public bool $forceRescan = false,
+        public bool $preserveExistingRunId = false,
     ) {}
 
     public function handle(MarketDataProvider $provider, EarningsSurpriseScorer $scorer, StockProvisioner $stocks): void
@@ -199,8 +200,10 @@ class EnrichEarningsEvent implements ShouldQueue
         }
 
         if ($hasAlertScanRunCol && $effectiveRunId !== null && (int) $alert->scan_run_id !== (int) $effectiveRunId) {
-            $alert->scan_run_id = $effectiveRunId;
-            $needsSave = true;
+            if (! $this->preserveExistingRunId || $alert->scan_run_id === null) {
+                $alert->scan_run_id = $effectiveRunId;
+                $needsSave = true;
+            }
         }
 
         if ($needsSave) {

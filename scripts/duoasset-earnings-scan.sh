@@ -15,8 +15,11 @@ cd "$APP_DIR"
 
 "$PHP" artisan digest:start-collection eps_surprise --from="$FROM_DATE" --to="$TO_DATE"
 
-"$PHP" artisan earnings:scan-surprises -vvv \
+if ! "$PHP" artisan earnings:scan-surprises -vvv \
+  --fresh \
   --from="$FROM_DATE" \
-  --to="$TO_DATE"
+  --to="$TO_DATE"; then
+  echo "WARNING: earnings:scan-surprises exited with non-zero status; preparing digest from collected results"
+fi
 
 exec "$PHP" artisan digest:prepare eps_surprise

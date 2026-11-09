@@ -31,11 +31,13 @@ for exchange in "${EXCHANGES[@]}"; do
         echo "[$count/$total] $exchange $letter ($(date))"
         echo "------------------------------------------------------------------"
 
-        "$PHP" artisan stocks:scan-buy-setups \
+        if ! "$PHP" artisan stocks:scan-buy-setups \
             --exchange="$exchange" \
             --letter="$letter" \
             --sync \
-            -vv
+            -vv; then
+            echo "WARNING: Slice $exchange $letter exited with non-zero status; continuing collection ($(date))"
+        fi
 
         echo "Completed $exchange $letter ($(date))"
     done

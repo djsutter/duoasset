@@ -93,14 +93,16 @@ class ScanEarningsSurprises extends Command
         $hasEventScanRunCol = Schema::hasTable('earnings_events') && Schema::hasColumn('earnings_events', 'scan_run_id');
         $hasAlertScanRunCol = Schema::hasTable('earnings_alerts') && Schema::hasColumn('earnings_alerts', 'scan_run_id');
 
+        $suppressDigest = (bool) $this->option('no-digest');
         $coordinator = app(\App\Services\Notifications\ScannerDigestCoordinator::class);
         $explicitRunId = $this->option('scan-run-id');
         $coordinatedRun = $hasScanRunsTable
             ? (is_numeric($explicitRunId)
                 ? EarningsScanRun::find((int) $explicitRunId)
-                : $coordinator->activeCollectionRun(NotificationDigestDelivery::CATEGORY_EPS_SURPRISE))
+                : ($suppressDigest ? null : $coordinator->activeCollectionRun(NotificationDigestDelivery::CATEGORY_EPS_SURPRISE)))
             : null;
         $isCoordinatedSlice = $coordinatedRun !== null;
+        $preserveExistingRunId = $suppressDigest && ! $isCoordinatedSlice;
 
         $scanRun = $coordinatedRun ?? ($hasScanRunsTable
             ? EarningsScanRun::create([
@@ -109,6 +111,9 @@ class ScanEarningsSurprises extends Command
                 'trigger' => 'cli',
                 'from_date' => $from->toDateString(),
                 'to_date' => $to->toDateString(),
+                'summary_data' => [
+                    'no_digest' => $suppressDigest,
+                ],
             ])
             : null);
 
@@ -173,7 +178,7 @@ class ScanEarningsSurprises extends Command
                     'detected_at' => now(),
                 ], fn ($v) => $v !== null);
 
-                if ($hasEventScanRunCol && $scanRun !== null) {
+                if ($hasEventScanRunCol && $scanRun !== null && ! $preserveExistingRunId) {
                     $eventAttributes['scan_run_id'] = $scanRun->id;
                 }
 
@@ -185,6 +190,11 @@ class ScanEarningsSurprises extends Command
                     ],
                     $eventAttributes,
                 );
+
+                if ($hasEventScanRunCol && $scanRun !== null && $preserveExistingRunId && $event->scan_run_id === null) {
+                    $event->scan_run_id = $scanRun->id;
+                    $event->save();
+                }
 
                 $revEst = $row['revenue_estimated'] ?? null;
                 $revAct = $row['revenue_actual'] ?? null;
@@ -202,6 +212,10 @@ class ScanEarningsSurprises extends Command
                 // on (event_id, alert_type, direction). With --force we still
                 // re-run enrichment to refresh profile/quote-derived fields.
                 if (! $force && $event->alerts()->count() >= 2) {
+                    if ($hasAlertScanRunCol && $scanRun !== null && ! $preserveExistingRunId) {
+                        $event->alerts()->update(['scan_run_id' => $scanRun->id]);
+                    }
+
                     // Already alerted in both directions — nothing more to do.
                     continue;
                 }
@@ -210,7 +224,7 @@ class ScanEarningsSurprises extends Command
                 // are populated immediately — otherwise on a default install
                 // (QUEUE_CONNECTION=database) the jobs pile up until a worker
                 // is started, leaving those columns empty on the watchlist.
-                EnrichEarningsEvent::dispatchSync($event->id, $scanRun?->id, $force);
+                EnrichEarningsEvent::dispatchSync($event->id, $scanRun?->id, $force, $preserveExistingRunId);
                 $dispatched++;
             } catch (Throwable $e) {
                 $errors++;
@@ -220,6 +234,15 @@ class ScanEarningsSurprises extends Command
                 ]);
                 // Continue with next row — never fail the whole command.
             }
+        }
+
+        if ($scanRun !== null && $hasAlertScanRunCol && ! $preserveExistingRunId && ($processed > 0 || $isCoordinatedSlice)) {
+            EarningsAlert::query()
+                ->where('alert_type', 'eps_surprise')
+                ->whereHas('earningsEvent', function ($q) use ($from, $to) {
+                    $q->whereBetween('report_date', [$from->toDateString(), $to->toDateString()]);
+                })
+                ->update(['scan_run_id' => $scanRun->id]);
         }
 
         if ($scanRun !== null) {

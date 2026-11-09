@@ -12,6 +12,7 @@
         $improvements = $digest['watchlist_improvements'] ?? [];
         $drops = $digest['watchlist_drops'] ?? [];
         $newlyScored = $digest['watchlist_newly_scored'] ?? [];
+        $unchangedWatched = $digest['watchlist_unchanged'] ?? [];
         $otherNotices = $digest['other_notices'] ?? [];
     @endphp
     <div style="max-width:760px;margin:24px auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:8px;overflow:hidden;">
@@ -119,6 +120,34 @@
                         </tbody>
                     </table>
                 @endif
+
+                @if (count($unchangedWatched) > 0)
+                    <h2 style="font-size:16px;font-weight:700;margin:24px 0 10px;color:#334155;">⚪ Your Watchlist — Active Setups (Score Unchanged)</h2>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+                        <thead>
+                            <tr style="background:#f4f4f5;text-align:left;border-bottom:1px solid #d4d4d8;">
+                                <th style="padding:8px;">Symbol &amp; Score</th>
+                                <th style="padding:8px;">Company</th>
+                                <th style="padding:8px;">Setup Signal</th>
+                                <th style="padding:8px;">Dashboard</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($unchangedWatched as $item)
+                                <tr style="border-bottom:1px solid #e4e4e7;">
+                                    <td style="padding:8px;font-weight:700;color:#334155;">
+                                        ⚪ {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (Unchanged)
+                                    </td>
+                                    <td style="padding:8px;">{{ $item['company_name'] }}</td>
+                                    <td style="padding:8px;">{{ $item['setup_label'] }}</td>
+                                    <td style="padding:8px;">
+                                        <a href="{{ $item['dashboard_url'] }}" style="color:#2563eb;text-decoration:none;">View {{ $item['symbol'] }}</a>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @endif
             @endif
 
             <h2 style="font-size:16px;font-weight:700;margin:24px 0 4px;color:#0f172a;">📊 Other Setup Scoring Notices</h2>
@@ -143,8 +172,10 @@
                                         🆕 {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (New)
                                     @elseif (($item['score_delta'] ?? 0) > 0)
                                         🟢 {{ $item['symbol'] }} — {{ $item['previous_setup_score'] }} → {{ $item['setup_score'] }} (+{{ $item['score_delta'] }})
-                                    @else
+                                    @elseif (($item['score_delta'] ?? 0) < 0)
                                         🔴 {{ $item['symbol'] }} — {{ $item['previous_setup_score'] }} → {{ $item['setup_score'] }} ({{ $item['score_delta'] }})
+                                    @else
+                                        ⚪ {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (Unchanged)
                                     @endif
                                 </td>
                                 <td style="padding:8px;">{{ $item['company_name'] }}</td>

@@ -1393,9 +1393,10 @@ class StockBuySetupScorer
             \Illuminate\Support\Facades\Cache::forget(\App\Services\Notifications\SetupScoringDigestBuilder::cacheKey($runId));
             if (\Illuminate\Support\Facades\Schema::hasTable('stock_buy_setup_runs')) {
                 $run = \App\Models\StockBuySetupRun::find($runId);
-                if ($run && is_array($run->summary_data) && isset($run->summary_data['digest_snapshot'])) {
-                    $summaryData = $run->summary_data;
+                if ($run) {
+                    $summaryData = is_array($run->summary_data) ? $run->summary_data : [];
                     unset($summaryData['digest_snapshot']);
+                    $summaryData['baseline_recalculated'] = true;
                     $run->summary_data = $summaryData;
                     $run->saveQuietly();
                 }

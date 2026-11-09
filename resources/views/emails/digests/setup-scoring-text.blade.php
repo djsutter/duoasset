@@ -4,6 +4,7 @@
     $improvements = $digest['watchlist_improvements'] ?? [];
     $drops = $digest['watchlist_drops'] ?? [];
     $newlyScored = $digest['watchlist_newly_scored'] ?? [];
+    $unchangedWatched = $digest['watchlist_unchanged'] ?? [];
     $otherNotices = $digest['other_notices'] ?? [];
 @endphp
 DuoAsset — Setup Scoring Digest
@@ -44,6 +45,14 @@ No watchlist setup score drops in this run.
 @endforeach
 
 @endif
+@if (count($unchangedWatched) > 0)
+⚪ Your Watchlist — Active Setups (Score Unchanged)
+------------------------------------------------------------
+@foreach ($unchangedWatched as $item)
+⚪ {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (Unchanged) | {{ $item['company_name'] }} | {{ $item['setup_label'] }} | {{ $item['dashboard_url'] }}
+@endforeach
+
+@endif
 @endif
 📊 Other Setup Scoring Notices (Showing {{ count($otherNotices) }} of {{ (int) ($counts['other_notices_total'] ?? count($otherNotices)) }})
 ------------------------------------------------------------
@@ -53,8 +62,10 @@ No watchlist setup score drops in this run.
 🆕 {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (New) | {{ $item['company_name'] }} | {{ $item['setup_label'] }} | {{ $item['dashboard_url'] }}
 @elseif (($item['score_delta'] ?? 0) > 0)
 🟢 {{ $item['symbol'] }} — {{ $item['previous_setup_score'] }} → {{ $item['setup_score'] }} (+{{ $item['score_delta'] }}) | {{ $item['company_name'] }} | {{ $item['setup_label'] }} | {{ $item['dashboard_url'] }}
-@else
+@elseif (($item['score_delta'] ?? 0) < 0)
 🔴 {{ $item['symbol'] }} — {{ $item['previous_setup_score'] }} → {{ $item['setup_score'] }} ({{ $item['score_delta'] }}) | {{ $item['company_name'] }} | {{ $item['setup_label'] }} | {{ $item['dashboard_url'] }}
+@else
+⚪ {{ $item['symbol'] }} — Score {{ $item['setup_score'] }} (Unchanged) | {{ $item['company_name'] }} | {{ $item['setup_label'] }} | {{ $item['dashboard_url'] }}
 @endif
 @endforeach
 @else

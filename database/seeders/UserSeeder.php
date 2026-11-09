@@ -21,6 +21,10 @@ class UserSeeder extends Seeder
             'view_mode' => 'stocks',
             'email_verified_at' => $user->email_verified_at ?? now(),
             'activation_token' => null,
+            'notify_eps_earnings' => true,
+            'email_eps_surprise_digest' => true,
+            'notify_stock_buy_setup' => true,
+            'email_setup_scoring_digest' => true,
         ])->save();
         $user = User::query()->firstOrNew(['email' => 'joe@7pro.ca']);
         $user->forceFill([
@@ -30,6 +34,10 @@ class UserSeeder extends Seeder
             'view_mode' => 'stocks',
             'email_verified_at' => $user->email_verified_at ?? now(),
             'activation_token' => null,
+            'notify_eps_earnings' => true,
+            'email_eps_surprise_digest' => true,
+            'notify_stock_buy_setup' => true,
+            'email_setup_scoring_digest' => true,
         ])->save();
 
         User::ensureAnonymousUser();

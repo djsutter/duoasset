@@ -132,11 +132,12 @@ class ScanBuySetups extends Command
             'top' => [],
         ];
 
+        $suppressDigest = (bool) $this->option('no-digest');
         $coordinator = app(\App\Services\Notifications\ScannerDigestCoordinator::class);
         $explicitRunId = $this->option('scan-run-id');
         $coordinatedRun = is_numeric($explicitRunId)
             ? StockBuySetupRun::find((int) $explicitRunId)
-            : $coordinator->activeCollectionRun(\App\Models\NotificationDigestDelivery::CATEGORY_SETUP_SCORING);
+            : ($suppressDigest ? null : $coordinator->activeCollectionRun(\App\Models\NotificationDigestDelivery::CATEGORY_SETUP_SCORING));
 
         $isCoordinatedSlice = $coordinatedRun !== null;
         $scanRun = $coordinatedRun ?? StockBuySetupRun::create([
@@ -149,6 +150,7 @@ class ScanBuySetups extends Command
                 'letter' => $letter,
                 'exchanges' => $exchanges,
                 'explicit' => ! empty($explicit),
+                'no_digest' => $suppressDigest,
             ],
         ]);
 

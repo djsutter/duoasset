@@ -246,6 +246,12 @@ class EvaluateStockBuySetup implements ShouldQueue
             $hasPbColumn = StockBuySetupAlert::hasRunTrackingColumn('price_to_book_ratio');
             $hasEquityColumn = StockBuySetupAlert::hasRunTrackingColumn('stockholders_equity');
 
+            $isNoDigestRun = false;
+            if ($this->scanRunId !== null && \Illuminate\Support\Facades\Schema::hasTable('stock_buy_setup_runs')) {
+                $currentRun = StockBuySetupRun::find($this->scanRunId);
+                $isNoDigestRun = (bool) ($currentRun?->summary_data['no_digest'] ?? false);
+            }
+
             $priorAlertsQuery = StockBuySetupAlert::query()->where('symbol', $symbol);
             if ($this->scanRunId !== null && $hasScanRunColumn) {
                 $priorAlertsQuery->where(function ($q) {
@@ -333,38 +339,11 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $result->liquidityPenaltyPoints = (int) $liquidity['penalty_points'];
 
                 $previousSetupScore = $priorSymbolScore;
-                if ($previousSetupScore === null && $alert->exists && ($this->scanRunId === null || ! $hasScanRunColumn || $alert->scan_run_id !== $this->scanRunId)) {
-                    $previousSetupScore = $alert->setup_score !== null ? (int) $alert->setup_score : null;
-                }
-
-                // If an existing historical alert predated Book Value scoring (had no
-                // stored P/B or book value) and its prior score matches the current
-                // pre-Book-Value score, establish the new Book-Value-inclusive score
-                // as the baseline rather than reporting an artificial delta.
-                if (
-                    $alert->exists
-                    && $previousSetupScore !== null
-                    && $alert->price_to_book_ratio === null
-                    && $alert->book_value_per_share === null
-                    && $result->priceToBookRatio !== null
-                    && $previousSetupScore !== $result->setupScore
-                ) {
-                    $breakdownWithoutBv = $breakdown;
-                    unset($breakdownWithoutBv['book_value']);
-                    $rawWithoutBv = $scorer->scoreMetaFromBreakdown($breakdownWithoutBv)['normalized'];
-                    $liqWithoutBv = $liquidityPenalty->apply(
-                        $rawWithoutBv,
-                        $result->marketCapCategory,
-                        $result->floatShares,
-                        $result->sharesOutstanding,
-                        $bars,
-                        $result->setupType,
-                    );
-                    $scoreWithoutBv = min(100, (int) $liqWithoutBv['adjusted_score'] + $growthSynergyBonus['points']);
-                    $scoreWithoutBv = min(100, $scoreWithoutBv + $ignitionBonus['points']);
-
-                    if ($previousSetupScore === $scoreWithoutBv) {
-                        $previousSetupScore = $result->setupScore;
+                if ($previousSetupScore === null && $alert->exists) {
+                    if ($this->scanRunId !== null && $hasScanRunColumn && (int) $alert->scan_run_id === (int) $this->scanRunId) {
+                        $previousSetupScore = $alert->previous_setup_score !== null ? (int) $alert->previous_setup_score : null;
+                    } else {
+                        $previousSetupScore = $alert->setup_score !== null ? (int) $alert->setup_score : null;
                     }
                 }
 
@@ -442,7 +421,7 @@ class EvaluateStockBuySetup implements ShouldQueue
                     $attributes['stockholders_equity'] = $result->stockholdersEquity;
                 }
 
-                if ($hasScanRunColumn) {
+                if ($hasScanRunColumn && (! $isNoDigestRun || ! $alert->exists || $alert->scan_run_id === null)) {
                     $attributes['scan_run_id'] = $this->scanRunId;
                 }
                 if ($hasFirstScanRunColumn) {
@@ -458,8 +437,8 @@ class EvaluateStockBuySetup implements ShouldQueue
                 $alert->fill($attributes);
                 if ($wasRecentlyCreated) {
                     $alert->status = 'new';
-                    $alert->detected_at = now();
                 }
+                $alert->detected_at = now();
                 $alert->save();
                 app(DashboardCacheService::class)->invalidateTopScoringSetups();
 

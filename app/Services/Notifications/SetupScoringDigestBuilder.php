@@ -32,6 +32,8 @@ class SetupScoringDigestBuilder
         $run = StockBuySetupRun::find($scanRunId);
         $configService = app(BuySetupConfigService::class);
         $notifyMinScore = $configService->getNotifyMinSetupScore();
+        $minHeartbeatScore = (int) ($configService->getConfig()['min_heartbeat_score'] ?? 50);
+        $effectiveMinScore = min($notifyMinScore, $minHeartbeatScore > 0 ? $minHeartbeatScore : 50);
         $otherNoticesLimit = (int) config(
             'market_data.buy_setup_scanner.digest_other_notices_limit',
             self::DEFAULT_OTHER_NOTICES_LIMIT,
@@ -41,15 +43,15 @@ class SetupScoringDigestBuilder
 
         $consolidated = $this->consolidateBySymbol($alerts);
 
-        // Significant market-wide setup notices: meet notify_min_setup_score and
-        // represent either a newly scored setup or a score change (score_delta != 0).
-        $significantNotices = array_values(array_filter(
+        $isBaselineRecalculated = (bool) ($run?->summary_data['baseline_recalculated'] ?? false);
+
+        $changedNotices = array_values(array_filter(
             $consolidated,
-            fn (array $item) => $item['setup_score'] >= $notifyMinScore
+            fn (array $item) => $item['setup_score'] >= $effectiveMinScore
                 && ($item['is_newly_scored'] || ($item['score_delta'] !== null && $item['score_delta'] !== 0)),
         ));
 
-        usort($significantNotices, function (array $a, array $b): int {
+        usort($changedNotices, function (array $a, array $b): int {
             $scoreCmp = $b['setup_score'] <=> $a['setup_score'];
             if ($scoreCmp !== 0) {
                 return $scoreCmp;
@@ -65,15 +67,50 @@ class SetupScoringDigestBuilder
             return strcmp($a['symbol'], $b['symbol']);
         });
 
+        $hasAnyWatchlistChangeCandidate = false;
+        foreach ($consolidated as $item) {
+            if ($item['is_newly_scored'] || ($item['score_delta'] !== null && $item['score_delta'] !== 0)) {
+                $hasAnyWatchlistChangeCandidate = true;
+                break;
+            }
+        }
+
+        $unchangedQualifyingNotices = [];
+        if (! $isBaselineRecalculated && empty($changedNotices) && ! $hasAnyWatchlistChangeCandidate) {
+            $unchangedQualifyingNotices = array_values(array_filter(
+                $consolidated,
+                fn (array $item) => $item['setup_score'] >= $effectiveMinScore
+                    && ! $item['is_newly_scored']
+                    && ($item['score_delta'] === null || $item['score_delta'] === 0),
+            ));
+
+            usort($unchangedQualifyingNotices, function (array $a, array $b): int {
+                $scoreCmp = $b['setup_score'] <=> $a['setup_score'];
+                if ($scoreCmp !== 0) {
+                    return $scoreCmp;
+                }
+
+                return strcmp($a['symbol'], $b['symbol']);
+            });
+        }
+
+        $significantNotices = ! empty($changedNotices)
+            ? $changedNotices
+            : $unchangedQualifyingNotices;
+
         $snapshot = [
             'scan_run_id' => $scanRunId,
             'completed_at' => $run?->completed_at?->toIso8601String() ?? now()->toIso8601String(),
-            'notify_min_score' => $notifyMinScore,
+            'notify_min_score' => $effectiveMinScore,
             'other_notices_limit' => $otherNoticesLimit,
-            'is_run_empty' => empty($consolidated),
+            'is_baseline_recalculated' => $isBaselineRecalculated,
+            'include_unchanged_fallback' => empty($changedNotices) && ! $hasAnyWatchlistChangeCandidate && ! $isBaselineRecalculated,
+            'is_run_empty' => empty($significantNotices) && ! $hasAnyWatchlistChangeCandidate,
             'totals' => [
                 'total_consolidated_symbols' => count($consolidated),
                 'total_significant_notices' => count($significantNotices),
+                'total_changed_notices' => count($changedNotices),
+                'total_unchanged_qualifying_notices' => count($unchangedQualifyingNotices),
             ],
             'other_notices_candidates' => array_slice($significantNotices, 0, self::SNAPSHOT_NOTICES_BUFFER),
         ];
@@ -135,8 +172,11 @@ class SetupScoringDigestBuilder
         $watchlistImprovements = [];
         $watchlistDrops = [];
         $watchlistNewlyScored = [];
+        $watchlistUnchanged = [];
         $watchedSignificantCount = 0;
         $notifyMinScore = (int) ($snapshot['notify_min_score'] ?? 50);
+        $isBaselineRecalculated = (bool) ($snapshot['is_baseline_recalculated'] ?? false);
+        $includeUnchangedFallback = (bool) ($snapshot['include_unchanged_fallback'] ?? false);
 
         if ($hasWatchlist) {
             // Query ONLY the user's watched symbols for this scanner run.
@@ -147,7 +187,7 @@ class SetupScoringDigestBuilder
             foreach ($consolidatedWatched as $item) {
                 $item['is_watched'] = true;
 
-                if ($item['setup_score'] >= $notifyMinScore && ($item['is_newly_scored'] || ($item['score_delta'] !== null && $item['score_delta'] !== 0))) {
+                if ($item['setup_score'] >= $notifyMinScore && ($item['is_newly_scored'] || ($item['score_delta'] !== null && $item['score_delta'] !== 0) || $includeUnchangedFallback)) {
                     $watchedSignificantCount++;
                 }
 
@@ -157,6 +197,8 @@ class SetupScoringDigestBuilder
                     $watchlistImprovements[] = $item;
                 } elseif ($item['score_delta'] < 0) {
                     $watchlistDrops[] = $item;
+                } elseif ($includeUnchangedFallback && ! $isBaselineRecalculated && $item['setup_score'] >= $notifyMinScore) {
+                    $watchlistUnchanged[] = $item;
                 }
             }
 
@@ -199,6 +241,16 @@ class SetupScoringDigestBuilder
 
                 return strcmp($a['symbol'], $b['symbol']);
             });
+
+            // Sort unchanged watched qualifying setups: highest setup score first
+            usort($watchlistUnchanged, function (array $a, array $b): int {
+                $scoreCmp = $b['setup_score'] <=> $a['setup_score'];
+                if ($scoreCmp !== 0) {
+                    return $scoreCmp;
+                }
+
+                return strcmp($a['symbol'], $b['symbol']);
+            });
         }
 
         $otherLimit = (int) ($snapshot['other_notices_limit'] ?? self::DEFAULT_OTHER_NOTICES_LIMIT);
@@ -220,6 +272,7 @@ class SetupScoringDigestBuilder
         $isEmpty = empty($watchlistImprovements)
             && empty($watchlistDrops)
             && empty($watchlistNewlyScored)
+            && empty($watchlistUnchanged)
             && empty($otherNotices);
 
         return [
@@ -231,12 +284,14 @@ class SetupScoringDigestBuilder
             'watchlist_improvements' => $watchlistImprovements,
             'watchlist_drops' => $watchlistDrops,
             'watchlist_newly_scored' => $watchlistNewlyScored,
+            'watchlist_unchanged' => $watchlistUnchanged,
             'other_notices' => $otherNotices,
             'watchlists_dashboard_url' => url('/watchlist/stock-buy-setups'),
             'summary_counts' => [
                 'watchlist_improvements' => count($watchlistImprovements),
                 'watchlist_drops' => count($watchlistDrops),
                 'watchlist_newly_scored' => count($watchlistNewlyScored),
+                'watchlist_unchanged' => count($watchlistUnchanged),
                 'other_notices_displayed' => count($otherNotices),
                 'other_notices_total' => $totalOtherNotices,
                 'other_notices_limit' => $otherLimit,

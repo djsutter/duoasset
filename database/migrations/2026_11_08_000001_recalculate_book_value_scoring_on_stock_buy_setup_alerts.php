@@ -112,9 +112,9 @@ return new class extends Migration
                     });
             }
 
-            // 3. Re-evaluate and refresh all historical stock_buy_setup_alerts safely
+            // 3. Ensure persisted buy_setup_config includes Book Value keys; leave alert score
+            // recalculation to the next scanner run so score_delta reflects component/weight adjustments.
             app(BuySetupConfigService::class)->ensureBookValueConfigMigrated();
-            app(StockBuySetupScorer::class)->recalculateHistoricalBaseline();
         } catch (\Throwable) {
         }
     }

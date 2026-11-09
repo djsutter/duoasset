@@ -39,7 +39,21 @@ class PrepareDigestCommand extends Command
             return self::SUCCESS;
         }
 
-        $this->info("Finalized collection and dispatched consolidated digest for [{$category}] (Run #{$preparedRunId}).");
+        $deliveriesCount = 0;
+        $sentCount = 0;
+        if (\Illuminate\Support\Facades\Schema::hasTable('notification_digest_deliveries')) {
+            $deliveriesCount = \App\Models\NotificationDigestDelivery::query()
+                ->where('category', $category)
+                ->where('scan_run_id', $preparedRunId)
+                ->count();
+            $sentCount = \App\Models\NotificationDigestDelivery::query()
+                ->where('category', $category)
+                ->where('scan_run_id', $preparedRunId)
+                ->where('status', \App\Models\NotificationDigestDelivery::STATUS_SENT)
+                ->count();
+        }
+
+        $this->info("Finalized collection and dispatched consolidated digest for [{$category}] (Run #{$preparedRunId}, deliveries: {$deliveriesCount}, sent: {$sentCount}).");
 
         return self::SUCCESS;
     }

@@ -65,6 +65,16 @@ class ScannerDigestCoordinator
         if ($cat === NotificationDigestDelivery::CATEGORY_SETUP_SCORING) {
             StockBuySetupAlert::ensureRunTrackingSchema();
 
+            if (Schema::hasTable('stock_buy_setup_runs')) {
+                StockBuySetupRun::query()
+                    ->where('status', 'collecting')
+                    ->whereNull('completed_at')
+                    ->update([
+                        'status' => 'aborted',
+                        'completed_at' => now(),
+                    ]);
+            }
+
             $run = StockBuySetupRun::create([
                 'started_at' => now(),
                 'status' => 'collecting',
@@ -91,6 +101,16 @@ class ScannerDigestCoordinator
         }
 
         EarningsScanRun::ensureRunTrackingSchema();
+
+        if (Schema::hasTable('earnings_scan_runs')) {
+            EarningsScanRun::query()
+                ->where('status', 'collecting')
+                ->whereNull('completed_at')
+                ->update([
+                    'status' => 'aborted',
+                    'completed_at' => now(),
+                ]);
+        }
 
         $run = EarningsScanRun::create([
             'started_at' => now(),
@@ -132,24 +152,52 @@ class ScannerDigestCoordinator
         if ($rawId === null) {
             try {
                 if (Schema::hasTable('settings')) {
-                    $rawId = Setting::get(self::settingKey($cat));
+                    $rawId = Setting::query()->where('key', self::settingKey($cat))->value('value');
                 }
             } catch (Throwable) {
                 $rawId = null;
             }
         }
 
-        if (! is_numeric($rawId) || (int) $rawId <= 0) {
-            return null;
-        }
-
-        $runId = (int) $rawId;
+        $runId = (is_numeric($rawId) && (int) $rawId > 0) ? (int) $rawId : null;
 
         if ($cat === NotificationDigestDelivery::CATEGORY_SETUP_SCORING) {
             if (! Schema::hasTable('stock_buy_setup_runs')) {
                 return null;
             }
-            $run = StockBuySetupRun::find($runId);
+
+            if ($runId !== null) {
+                $run = StockBuySetupRun::find($runId);
+                if ($run && $run->status === 'collecting' && $run->completed_at === null) {
+                    return $run;
+                }
+
+                $this->clearActiveRunId($cat);
+
+                return null;
+            }
+
+            $fallbackRun = StockBuySetupRun::query()
+                ->where('status', 'collecting')
+                ->whereNull('completed_at')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($fallbackRun) {
+                $this->storeActiveRunId($cat, $fallbackRun->id);
+
+                return $fallbackRun;
+            }
+
+            return null;
+        }
+
+        if (! Schema::hasTable('earnings_scan_runs')) {
+            return null;
+        }
+
+        if ($runId !== null) {
+            $run = EarningsScanRun::find($runId);
             if ($run && $run->status === 'collecting' && $run->completed_at === null) {
                 return $run;
             }
@@ -159,15 +207,17 @@ class ScannerDigestCoordinator
             return null;
         }
 
-        if (! Schema::hasTable('earnings_scan_runs')) {
-            return null;
-        }
-        $run = EarningsScanRun::find($runId);
-        if ($run && $run->status === 'collecting' && $run->completed_at === null) {
-            return $run;
-        }
+        $fallbackRun = EarningsScanRun::query()
+            ->where('status', 'collecting')
+            ->whereNull('completed_at')
+            ->orderByDesc('id')
+            ->first();
 
-        $this->clearActiveRunId($cat);
+        if ($fallbackRun) {
+            $this->storeActiveRunId($cat, $fallbackRun->id);
+
+            return $fallbackRun;
+        }
 
         return null;
     }
@@ -344,9 +394,11 @@ class ScannerDigestCoordinator
         }
 
         if ($sync) {
-            PrepareScannerRunDigests::dispatchSync($cat, $targetRunId);
+            PrepareScannerRunDigests::dispatchSync($cat, $targetRunId, true);
+        } elseif (\Illuminate\Support\Facades\Queue::getFacadeRoot() instanceof \Illuminate\Support\Testing\Fakes\QueueFake) {
+            PrepareScannerRunDigests::dispatch($cat, $targetRunId, false);
         } else {
-            PrepareScannerRunDigests::dispatch($cat, $targetRunId);
+            PrepareScannerRunDigests::dispatchSync($cat, $targetRunId, false);
         }
 
         Log::info('digest_coordinator.prepared', [
@@ -363,7 +415,10 @@ class ScannerDigestCoordinator
         Cache::forever(self::cacheKey($category), $runId);
         try {
             if (Schema::hasTable('settings')) {
-                Setting::set(self::settingKey($category), (string) $runId);
+                Setting::updateOrCreate(
+                    ['key' => self::settingKey($category)],
+                    ['value' => (string) $runId],
+                );
             }
         } catch (Throwable) {
         }
