@@ -14,7 +14,7 @@ class WatchlistPolicy
 
     public function view(User $user, Watchlist $watchlist): bool
     {
-        return $watchlist->user_id === $user->id;
+        return $watchlist->is_global || $watchlist->user_id === $user->id;
     }
 
     public function create(User $user): bool
@@ -24,11 +24,19 @@ class WatchlistPolicy
 
     public function update(User $user, Watchlist $watchlist): bool
     {
+        if ($watchlist->is_global) {
+            return $user->isAdmin();
+        }
+
         return $watchlist->user_id === $user->id;
     }
 
     public function delete(User $user, Watchlist $watchlist): bool
     {
+        if ($watchlist->is_global) {
+            return $user->isAdmin();
+        }
+
         return $watchlist->user_id === $user->id;
     }
 }

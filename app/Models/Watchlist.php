@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property int $user_id
+ * @property bool $is_global
  * @property string $name
  * @property string|null $description
  * @property string|null $sector_label
@@ -23,6 +24,7 @@ class Watchlist extends Model
 
     protected $fillable = [
         'user_id',
+        'is_global',
         'name',
         'description',
         'sector_label',
@@ -30,6 +32,7 @@ class Watchlist extends Model
     ];
 
     protected $casts = [
+        'is_global' => 'boolean',
         'is_default' => 'boolean',
     ];
 

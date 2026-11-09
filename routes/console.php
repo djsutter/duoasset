@@ -59,6 +59,16 @@ Schedule::command('moneyflow:update --interval=eod')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Dashboard Snapshot Pre-Warming — keep active market context snapshots primed
+// during trading hours so users get instant dashboard rendering.
+Schedule::command('dashboard:warm-context stocks')
+    ->weekdays()
+    ->timezone('America/New_York')
+    ->between('09:00', '17:00')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');

@@ -5,7 +5,14 @@
             <span>/</span>
             <span>{{ $watchlist->name }}</span>
         </div>
-        <h1 class="text-2xl font-semibold">{{ $watchlist->name }}</h1>
+        <div class="flex items-center gap-3">
+            <h1 class="text-2xl font-semibold">{{ $watchlist->name }}</h1>
+            @if ($watchlist->is_global)
+                <span class="rounded bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    {{ __('Global Watchlist') }}
+                </span>
+            @endif
+        </div>
         @if ($watchlist->description)
             <p class="text-sm text-zinc-500 dark:text-zinc-400">{{ $watchlist->description }}</p>
         @endif
@@ -94,11 +101,13 @@
             <button type="button" wire:click="clearFilters" class="da-btn-ghost">
                 {{ __('Clear filters') }}
             </button>
-            @if (! $showAddForm)
-                <button type="button" wire:click="openAddForm" class="da-btn-primary">
-                    {{ __('Add Stock') }}
-                </button>
-            @endif
+            @can('update', $watchlist)
+                @if (! $showAddForm)
+                    <button type="button" wire:click="openAddForm" class="da-btn-primary">
+                        {{ __('Add Stock') }}
+                    </button>
+                @endif
+            @endcan
         </div>
     </div>
 
@@ -276,7 +285,9 @@
                     <th class="text-right"><button type="button" wire:click="sortBy('target_price')" class="da-sort">{{ __('Target') }}</button></th>
                     <th class="text-right"><button type="button" wire:click="sortBy('stop_price')" class="da-sort">{{ __('Stop') }}</button></th>
                     <th>{{ __('Notes') }}</th>
-                    <th class="text-right">{{ __('Actions') }}</th>
+                    @can('update', $watchlist)
+                        <th class="text-right">{{ __('Actions') }}</th>
+                    @endcan
                 </tr>
             </thead>
             <tbody>
@@ -304,16 +315,18 @@
                     <td class="text-right">@money($item->target_price)</td>
                     <td class="text-right">@money($item->stop_price)</td>
                     <td class="max-w-xs truncate">{{ $item->notes }}</td>
-                    <td class="text-right">
-                        <button type="button"
-                                wire:click="removeItem({{ $item->id }})"
-                                wire:confirm="{{ __('Remove this stock?') }}"
-                                class="da-btn-danger">{{ __('Remove') }}</button>
-                    </td>
+                    @can('update', $watchlist)
+                        <td class="text-right">
+                            <button type="button"
+                                    wire:click="removeItem({{ $item->id }})"
+                                    wire:confirm="{{ __('Remove this stock?') }}"
+                                    class="da-btn-danger">{{ __('Remove') }}</button>
+                        </td>
+                    @endcan
                 </tr>
             @empty
                 <tr>
-                    <td colspan="17" class="text-center text-zinc-500 py-6">
+                    <td colspan="{{ auth()->user()?->can('update', $watchlist) ? 17 : 16 }}" class="text-center text-zinc-500 py-6">
                         {{ __('No stocks in this watchlist yet.') }}
                     </td>
                 </tr>

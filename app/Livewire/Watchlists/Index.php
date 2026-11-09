@@ -4,31 +4,38 @@ namespace App\Livewire\Watchlists;
 
 use App\Models\Watchlist;
 use Illuminate\Support\Facades\DB;
-use Livewire\Attributes\Validate;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 
 class Index extends Component
 {
     public ?int $editingId = null;
 
-    #[Validate('required|string|max:255')]
     public string $name = '';
 
-    #[Validate('nullable|string|max:1000')]
     public ?string $description = null;
 
-    #[Validate('nullable|string|max:255')]
     public ?string $sector_label = null;
 
     public bool $is_default = false;
 
+    public bool $is_global = false;
+
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('watchlists', 'name')
+                    ->where('user_id', auth()->id())
+                    ->ignore($this->editingId),
+            ],
             'description' => ['nullable', 'string', 'max:1000'],
             'sector_label' => ['nullable', 'string', 'max:255'],
             'is_default' => ['boolean'],
+            'is_global' => ['boolean'],
         ];
     }
 
@@ -39,6 +46,7 @@ class Index extends Component
         $this->description = null;
         $this->sector_label = null;
         $this->is_default = false;
+        $this->is_global = false;
         $this->resetErrorBag();
     }
 
@@ -51,12 +59,19 @@ class Index extends Component
         $this->name = $watchlist->name;
         $this->description = $watchlist->description;
         $this->sector_label = $watchlist->sector_label;
-        $this->is_default = $watchlist->is_default;
+        $this->is_default = (bool) $watchlist->is_default;
+        $this->is_global = (bool) $watchlist->is_global;
     }
 
     public function save(): void
     {
         $data = $this->validate();
+
+        /** @var \App\Models\User|null $user */
+        $user = auth()->user();
+        if (! $user || ! $user->isAdmin()) {
+            $data['is_global'] = false;
+        }
 
         if ($this->editingId) {
             $watchlist = Watchlist::findOrFail($this->editingId);
@@ -69,6 +84,10 @@ class Index extends Component
 
         if (! empty($data['is_default']) && $data['is_default']) {
             $this->applyDefault($watchlist);
+        }
+
+        if (! empty($data['is_global']) && $data['is_global']) {
+            $this->applyGlobal($watchlist);
         }
 
         session()->flash('status', __('Watchlist saved.'));
@@ -106,10 +125,26 @@ class Index extends Component
         });
     }
 
+    private function applyGlobal(Watchlist $watchlist): void
+    {
+        DB::transaction(function () use ($watchlist) {
+            if ($watchlist->is_global) {
+                Watchlist::query()
+                    ->where('id', '!=', $watchlist->id)
+                    ->where('is_global', true)
+                    ->update(['is_global' => false]);
+            }
+        });
+    }
+
     public function render()
     {
         $watchlists = Watchlist::query()
-            ->where('user_id', auth()->id())
+            ->where(function ($query) {
+                $query->where('user_id', auth()->id())
+                    ->orWhere('is_global', true);
+            })
+            ->orderByDesc('is_global')
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get();

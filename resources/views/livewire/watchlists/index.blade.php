@@ -45,6 +45,16 @@
                 <label for="is_default" class="text-sm">{{ __('Default watchlist') }}</label>
             </div>
 
+            @if (auth()->user()?->isAdmin())
+                <div class="md:col-span-2 flex items-center gap-2">
+                    <input type="checkbox" id="is_global" wire:model="is_global"
+                           class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500" />
+                    <label for="is_global" class="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                        {{ __('Global watchlist (accessible by all users)') }}
+                    </label>
+                </div>
+            @endif
+
             <div class="md:col-span-2 flex gap-2">
                 <button type="submit" class="da-btn-primary">
                     {{ $editingId ? __('Update') : __('Create') }}
@@ -75,6 +85,11 @@
                            class="font-medium text-indigo-600 hover:underline dark:text-sky-300">
                             {{ $w->name }}
                         </a>
+                        @if ($w->is_global)
+                            <span class="ml-2 rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                {{ __('Global') }}
+                            </span>
+                        @endif
                     </td>
                     <td>
                         @if ($w->is_default)
@@ -87,15 +102,19 @@
                     </td>
                     <td class="text-right">
                         <div class="inline-flex gap-2">
-                            <button type="button" wire:click="edit({{ $w->id }})"
-                                    class="da-btn-secondary">{{ __('Edit') }}</button>
-                            @unless ($w->is_default)
-                                <button type="button" wire:click="setDefault({{ $w->id }})"
-                                        class="da-btn-secondary">{{ __('Set Default') }}</button>
-                            @endunless
-                            <button type="button" wire:click="delete({{ $w->id }})"
-                                    wire:confirm="{{ __('Delete this watchlist?') }}"
-                                    class="da-btn-danger">{{ __('Delete') }}</button>
+                            @can('update', $w)
+                                <button type="button" wire:click="edit({{ $w->id }})"
+                                        class="da-btn-secondary">{{ __('Edit') }}</button>
+                                @unless ($w->is_default || $w->is_global)
+                                    <button type="button" wire:click="setDefault({{ $w->id }})"
+                                            class="da-btn-secondary">{{ __('Set Default') }}</button>
+                                @endunless
+                            @endcan
+                            @can('delete', $w)
+                                <button type="button" wire:click="delete({{ $w->id }})"
+                                        wire:confirm="{{ __('Delete this watchlist?') }}"
+                                        class="da-btn-danger">{{ __('Delete') }}</button>
+                            @endcan
                         </div>
                     </td>
                 </tr>

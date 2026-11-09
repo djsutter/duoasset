@@ -41,6 +41,14 @@ class PrewarmDashboardCacheJob implements ShouldQueue
                 ->with(['items.stock'])
                 ->first();
 
+            if (! $watchlist) {
+                $watchlist = Watchlist::query()
+                    ->where('is_global', true)
+                    ->orderBy('id')
+                    ->with(['items.stock'])
+                    ->first();
+            }
+
             $cache->warmForUser($user, $watchlist, $provider);
         } catch (Throwable $e) {
             Log::warning('dashboard.prewarm_failed', [

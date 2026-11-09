@@ -255,6 +255,7 @@ class Show extends Component
 
     public function openAddForm(): void
     {
+        $this->authorize('update', $this->watchlist);
         $this->resetAddForm();
         $this->showAddForm = true;
     }

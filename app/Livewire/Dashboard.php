@@ -66,9 +66,19 @@ class Dashboard extends Component
             return null;
         }
 
-        return Watchlist::query()
+        $watchlist = Watchlist::query()
             ->where('user_id', $user->id)
             ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->with(['items.stock'])
+            ->first();
+
+        if ($watchlist) {
+            return $watchlist;
+        }
+
+        return Watchlist::query()
+            ->where('is_global', true)
             ->orderBy('id')
             ->with(['items.stock'])
             ->first();
