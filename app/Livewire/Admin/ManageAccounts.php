@@ -145,7 +145,35 @@ class ManageAccounts extends Component
     {
         $this->showRoleModal = false;
         $this->selectedUserId = null;
+        $this->selectedRole = 'guest';
         $this->selectedRoles = [];
+    }
+
+    public function updatedSelectedRole($value): void
+    {
+        if ($value !== '' && $value !== null) {
+            $this->selectedRoles = [$value];
+        }
+    }
+
+    public function updatedSelectedRoles($value): void
+    {
+        if (! is_array($value)) {
+            return;
+        }
+
+        $hasGuest = in_array(UserRole::GUEST->value, $this->selectedRoles, true);
+        $nonGuestRoles = array_values(array_filter($this->selectedRoles, fn ($r) => $r !== UserRole::GUEST->value));
+
+        if ($hasGuest && ! empty($nonGuestRoles)) {
+            if (end($this->selectedRoles) === UserRole::GUEST->value) {
+                $this->selectedRoles = [UserRole::GUEST->value];
+            } else {
+                $this->selectedRoles = $nonGuestRoles;
+            }
+        }
+
+        $this->selectedRole = ! empty($this->selectedRoles) ? end($this->selectedRoles) : 'guest';
     }
 
     public function toggleAssignedRole(string $roleValue): void
@@ -156,27 +184,50 @@ class ManageAccounts extends Component
                 fn (string $v) => $v !== $roleValue
             ));
         } else {
-            $this->selectedRoles[] = $roleValue;
+            if ($roleValue === UserRole::GUEST->value) {
+                $this->selectedRoles = [UserRole::GUEST->value];
+            } else {
+                $this->selectedRoles = array_values(array_filter(
+                    $this->selectedRoles,
+                    fn (string $v) => $v !== UserRole::GUEST->value
+                ));
+                $this->selectedRoles[] = $roleValue;
+            }
         }
+
+        $this->selectedRole = ! empty($this->selectedRoles) ? end($this->selectedRoles) : 'guest';
     }
 
     public function updateRole(): void
     {
+        if (empty($this->selectedRoles) && ! empty($this->selectedRole)) {
+            $this->selectedRoles = [$this->selectedRole];
+        }
+
         $this->validate([
-            'selectedRole' => ['required', Rule::enum(UserRole::class)],
+            'selectedRoles' => ['nullable', 'array'],
+            'selectedRoles.*' => ['string', Rule::enum(UserRole::class)],
+            'selectedRole' => ['nullable', 'string'],
         ]);
 
         $user = User::findOrFail($this->selectedUserId);
 
-        if ($user->id === Auth::id() && $this->selectedRole !== UserRole::ADMINISTRATOR->value) {
-            $this->addError('selectedRole', 'You cannot remove administrator privileges from your own active account.');
+        if ($user->id === Auth::id()) {
+            $hasAdmin = in_array(UserRole::ADMINISTRATOR->value, $this->selectedRoles, true);
 
-            return;
+            if (! $hasAdmin) {
+                $this->addError('selectedRole', 'You cannot remove administrator privileges from your own active account.');
+                $this->addError('selectedRoles', 'You cannot remove administrator privileges from your own active account.');
+
+                return;
+            }
         }
 
-        $user->assignRole($this->selectedRole);
+        $user->syncRoles($this->selectedRoles);
 
-        session()->flash('message', "Role for '{$user->name}' was updated to {$user->role->label()}.");
+        $assigned = $user->assignedRoles();
+        $roleLabels = empty($assigned) ? 'Guest' : implode(', ', array_map(fn (UserRole $r) => $r->label(), $assigned));
+        session()->flash('message', "Role for '{$user->name}' was updated to {$roleLabels}.");
         $this->closeRoleModal();
     }
 

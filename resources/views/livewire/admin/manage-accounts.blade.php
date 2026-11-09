@@ -282,25 +282,38 @@
 
                 <div class="relative w-full max-w-md overflow-hidden rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
                     <div class="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
-                        <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">{{ __('Assign / Change Role') }}</h3>
+                        <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">{{ __('Assign / Change Roles') }}</h3>
                         <button type="button" wire:click="closeRoleModal" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
                             <flux:icon icon="x-mark" variant="mini" class="size-5" />
                         </button>
                     </div>
 
                     <div class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-                        {{ __('Updating role for:') }} <strong class="text-zinc-900 dark:text-white">{{ $selectedUserForRole->name }}</strong> ({{ $selectedUserForRole->email }})
+                        {{ __('Updating roles for:') }} <strong class="text-zinc-900 dark:text-white">{{ $selectedUserForRole->name }}</strong> ({{ $selectedUserForRole->email }})
                     </div>
 
                     <form wire:submit="updateRole" class="mt-4 space-y-4">
                         <div>
-                            <label class="da-label">{{ __('Select Role') }}</label>
-                            <select wire:model="selectedRole" class="da-input" data-testid="assign-role-select">
+                            <label class="da-label mb-2">{{ __('Select Roles') }}</label>
+                            <p class="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                                {{ __('Check all roles that apply to grant multi-domain or combined subscriber permissions.') }}
+                            </p>
+                            <div class="space-y-2 rounded-lg border border-zinc-200 dark:border-zinc-700/60 p-3 bg-zinc-50/50 dark:bg-zinc-800/30" data-testid="assign-roles-checkbox-list">
                                 @foreach ($roles as $role)
-                                    <option value="{{ $role->value }}">{{ $role->label() }}</option>
+                                    <label class="flex items-center gap-3 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer select-none py-1 hover:text-zinc-900 dark:hover:text-white"
+                                           data-testid="role-label-{{ $role->value }}">
+                                        <input type="checkbox"
+                                               wire:model.live="selectedRoles"
+                                               value="{{ $role->value }}"
+                                               class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 size-4 dark:border-zinc-600 dark:bg-zinc-800"
+                                               data-testid="role-checkbox-{{ $role->value }}" />
+                                        <span class="font-medium">{{ $role->label() }}</span>
+                                    </label>
                                 @endforeach
-                            </select>
-                            @error('selectedRole') <p class="da-error">{{ $message }}</p> @enderror
+                            </div>
+                            @error('selectedRoles') <p class="da-error mt-1">{{ $message }}</p> @enderror
+                            @error('selectedRoles.*') <p class="da-error mt-1">{{ $message }}</p> @enderror
+                            @error('selectedRole') <p class="da-error mt-1">{{ $message }}</p> @enderror
                         </div>
 
                         <div class="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
@@ -308,7 +321,7 @@
                                 {{ __('Cancel') }}
                             </button>
                             <button type="submit" class="da-btn da-btn-primary" data-testid="submit-update-role">
-                                {{ __('Save Role') }}
+                                {{ __('Save Roles') }}
                             </button>
                         </div>
                     </form>

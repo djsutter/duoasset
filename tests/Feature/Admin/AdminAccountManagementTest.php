@@ -135,15 +135,167 @@ test('admin can update role for an account', function () {
     expect($target->fresh()->role)->toBe(UserRole::FULL_SUBSCRIPTION);
 });
 
+test('role modal renders checkboxes allowing multiple roles to be selected', function () {
+    $admin = User::factory()->administrator()->create();
+    $target = User::factory()->guest()->create();
+
+    Livewire::actingAs($admin)
+        ->test(ManageAccounts::class)
+        ->call('openRoleModal', $target->id)
+        ->assertSeeHtml('data-testid="assign-roles-checkbox-list"')
+        ->assertSeeHtml('data-testid="role-checkbox-equities"')
+        ->assertSeeHtml('data-testid="role-checkbox-futures"')
+        ->assertSeeHtml('data-testid="role-checkbox-crypto"')
+        ->assertSeeHtml('data-testid="role-checkbox-full_subscription"')
+        ->assertSeeHtml('data-testid="role-checkbox-administrator"')
+        ->assertSeeHtml('data-testid="role-checkbox-guest"');
+});
+
+test('admin can assign multiple roles including both futures and equities subscribers using checkboxes', function () {
+    $admin = User::factory()->administrator()->create();
+    $target = User::factory()->guest()->create();
+
+    Livewire::actingAs($admin)
+        ->test(ManageAccounts::class)
+        ->call('openRoleModal', $target->id)
+        ->set('selectedRoles', [UserRole::EQUITIES->value, UserRole::FUTURES->value])
+        ->call('updateRole')
+        ->assertHasNoErrors();
+
+    $assigned = $target->fresh()->assignedRoles();
+    expect($assigned)->toContain(UserRole::EQUITIES)
+        ->and($assigned)->toContain(UserRole::FUTURES)
+        ->and($target->fresh()->hasStockAccess())->toBeTrue()
+        ->and($target->fresh()->hasFuturesAccess())->toBeTrue()
+        ->and($target->fresh()->hasCryptoAccess())->toBeFalse();
+});
+
+test('admin can toggle assigned roles using toggleAssignedRole method', function () {
+    $admin = User::factory()->administrator()->create();
+    $target = User::factory()->guest()->create();
+
+    $component = Livewire::actingAs($admin)
+        ->test(ManageAccounts::class)
+        ->call('openRoleModal', $target->id)
+        ->call('toggleAssignedRole', UserRole::EQUITIES->value)
+        ->call('toggleAssignedRole', UserRole::FUTURES->value)
+        ->call('updateRole')
+        ->assertHasNoErrors();
+
+    $assigned = $target->fresh()->assignedRoles();
+    expect($assigned)->toContain(UserRole::EQUITIES)
+        ->and($assigned)->toContain(UserRole::FUTURES);
+});
+
+test('user with both futures and equities roles applied can toggle context between futures and stocks with appropriate access to each', function () {
+    $admin = User::factory()->administrator()->create();
+    $target = User::factory()->guest()->create([
+        'name' => 'Dual Trader',
+        'email' => 'dualtrader@example.com',
+    ]);
+
+    // 1. Admin assigns both Equities Subscriber and Futures Subscriber to target user
+    Livewire::actingAs($admin)
+        ->test(ManageAccounts::class)
+        ->call('openRoleModal', $target->id)
+        ->set('selectedRoles', [UserRole::EQUITIES->value, UserRole::FUTURES->value])
+        ->call('updateRole')
+        ->assertHasNoErrors();
+
+    $user = $target->fresh();
+    expect($user->hasStockAccess())->toBeTrue()
+        ->and($user->hasFuturesAccess())->toBeTrue()
+        ->and($user->hasCryptoAccess())->toBeFalse()
+        ->and($user->canToggleViewMode())->toBeTrue()
+        ->and($user->permittedViewModes())->toEqualCanonicalizing(['stocks', 'futures']);
+
+    // 2. User sees perspective switcher with Stocks and Futures options, without Crypto
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\ViewModeToggle::class)
+        ->assertSeeHtml('data-testid="view-mode-stocks"')
+        ->assertSeeHtml('data-testid="view-mode-futures"')
+        ->assertDontSeeHtml('data-testid="view-mode-crypto"');
+
+    // 3. User switches to Futures perspective
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\ViewModeToggle::class)
+        ->call('setViewMode', 'futures')
+        ->assertSet('viewMode', 'futures')
+        ->assertDispatched('view-mode-updated');
+
+    expect($user->fresh()->view_mode)->toBe('futures');
+
+    // In Futures context, visiting /dashboard renders Futures Overview
+    $this->actingAs($user->fresh())
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Futures Overview')
+        ->assertSee('data-testid="futures-dashboard"', false);
+
+    // Futures domain route is accessible
+    $this->actingAs($user->fresh())
+        ->get(route('futures.show', ['symbol' => 'gcusd']))
+        ->assertOk();
+
+    // Stocks domain route is also accessible
+    $this->actingAs($user->fresh())
+        ->get(route('stocks.index'))
+        ->assertOk();
+
+    // Crypto domain route is forbidden (403)
+    $this->actingAs($user->fresh())
+        ->get(route('wallets.index'))
+        ->assertForbidden();
+
+    // 4. User toggles context from Futures to Stocks
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\ViewModeToggle::class)
+        ->call('setViewMode', 'stocks')
+        ->assertSet('viewMode', 'stocks')
+        ->assertDispatched('view-mode-updated');
+
+    expect($user->fresh()->view_mode)->toBe('stocks');
+
+    // In Stocks context, visiting /dashboard renders Stocks Dashboard
+    $this->actingAs($user->fresh())
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Market Overview')
+        ->assertDontSee('Futures Overview');
+
+    // Main navigation contains stock menu items and not crypto menu items
+    Livewire::actingAs($user->fresh())
+        ->test(\App\Livewire\MainNavigation::class)
+        ->assertSee('Stocks')
+        ->assertSee('Money Flows')
+        ->assertDontSee('Wallets');
+
+    // Stocks domain route is accessible
+    $this->actingAs($user->fresh())
+        ->get(route('stocks.index'))
+        ->assertOk();
+
+    // Futures domain route is still accessible
+    $this->actingAs($user->fresh())
+        ->get(route('futures.show', ['symbol' => 'siusd']))
+        ->assertOk();
+
+    // Attempting to switch to unauthorized crypto perspective is rejected
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\ViewModeToggle::class)
+        ->call('setViewMode', 'crypto')
+        ->assertForbidden();
+});
+
 test('admin cannot demote their own active account from administrator', function () {
     $admin = User::factory()->administrator()->create();
 
     Livewire::actingAs($admin)
         ->test(ManageAccounts::class)
         ->call('openRoleModal', $admin->id)
-        ->set('selectedRole', 'guest')
+        ->set('selectedRoles', [UserRole::GUEST->value])
         ->call('updateRole')
-        ->assertHasErrors(['selectedRole']);
+        ->assertHasErrors(['selectedRoles']);
 
     expect($admin->fresh()->role)->toBe(UserRole::ADMINISTRATOR);
 });
