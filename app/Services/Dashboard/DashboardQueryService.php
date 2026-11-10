@@ -108,28 +108,42 @@ class DashboardQueryService
 
             try {
                 $cacheKey = "dash_stock_gain_{$item->id}_{$addedAt->timestamp}";
-                $gainInfo = Cache::remember($cacheKey, 900, function () use ($provider, $symbol, $addedAt) {
-                    $bars = $provider->historicalDailyBars($symbol, $addedAt->copy()->startOfDay(), now()->endOfDay());
-                    if (empty($bars)) {
-                        return null;
+                $gainInfo = Cache::get($cacheKey);
+
+                if (! is_array($gainInfo)) {
+                    $from = $addedAt->copy()->startOfDay();
+                    $to = now()->endOfDay();
+
+                    $bars = method_exists($provider, 'storedDailyBars')
+                        ? $provider->storedDailyBars($symbol, $from, $to)
+                        : (method_exists($provider, 'historicalDailyBars') ? $provider->historicalDailyBars($symbol, $from, $to) : []);
+
+                    $needsIngest = method_exists($provider, 'isDailyBarsStaleOrMissing')
+                        ? $provider->isDailyBarsStaleOrMissing($symbol, $from, $to)
+                        : empty($bars);
+
+                    if ($needsIngest) {
+                        \App\Jobs\IngestHistoricalBarsJob::dispatchIfNeeded($symbol, $from->toDateString(), $to->toDateString());
                     }
 
-                    $firstBar = $bars[0];
-                    $lastBar = end($bars);
+                    if (! empty($bars) && count($bars) >= 2) {
+                        $firstBar = $bars[0];
+                        $lastBar = end($bars);
 
-                    $entry = (float) ($firstBar['close'] ?? $firstBar['adj_close'] ?? 0);
-                    $latest = (float) ($lastBar['close'] ?? $lastBar['adj_close'] ?? 0);
+                        $entry = (float) ($firstBar['close'] ?? $firstBar['adj_close'] ?? 0);
+                        $latest = (float) ($lastBar['close'] ?? $lastBar['adj_close'] ?? 0);
 
-                    if ($entry <= 0 || $latest <= 0) {
-                        return null;
+                        if ($entry > 0 && $latest > 0) {
+                            $gainInfo = [
+                                'entry_price' => $entry,
+                                'latest_price' => $latest,
+                                'gain_pct' => round((($latest - $entry) / $entry) * 100, 2),
+                            ];
+
+                            Cache::put($cacheKey, $gainInfo, 900);
+                        }
                     }
-
-                    return [
-                        'entry_price' => $entry,
-                        'latest_price' => $latest,
-                        'gain_pct' => round((($latest - $entry) / $entry) * 100, 2),
-                    ];
-                });
+                }
 
                 if ($gainInfo) {
                     $results->push([

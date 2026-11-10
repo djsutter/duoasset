@@ -906,13 +906,42 @@ class DashboardCacheService
             return collect();
         }
 
-        $envelope = $this->rememberStale(
-            self::userGainersKey($user->id),
-            $this->ttlFor($user),
-            fn () => $this->queries->highestGainingStocks($watchlist, $provider)
-        );
+        $key = self::userGainersKey($user->id);
+        $currentGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+        $envelope = $this->getEnvelope($key);
 
-        return $this->unwrapCollection($envelope['data']);
+        if ($envelope !== null
+            && (! isset($envelope['watchlist_id']) || $envelope['watchlist_id'] === $watchlist->id)
+            && ((int) ($envelope['generation'] ?? $currentGen)) === $currentGen
+        ) {
+            return $this->unwrapCollection($envelope['data']);
+        }
+
+        $recovered = $this->tryRecoverEnvelopeFromDurable($key);
+        if ($recovered !== null
+            && (! isset($recovered['watchlist_id']) || $recovered['watchlist_id'] === $watchlist->id)
+            && ((int) ($recovered['generation'] ?? $currentGen)) === $currentGen
+        ) {
+            return $this->unwrapCollection($recovered['data']);
+        }
+
+        $data = $this->queries->highestGainingStocks($watchlist, $provider);
+
+        $nowGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+        $activeWatchlist = app(\App\Services\Watchlists\WatchlistResolver::class)->resolveForUser($user);
+
+        if ($nowGen === $currentGen && $activeWatchlist?->id === $watchlist->id) {
+            $envelope = [
+                'data' => $data,
+                'stale_at' => now()->timestamp + $this->ttlFor($user),
+                'watchlist_id' => $watchlist->id,
+                'generation' => $currentGen,
+            ];
+            Cache::forever($key, $envelope);
+            $this->persistDurableUserGainers($key, $envelope);
+        }
+
+        return $data;
     }
 
     public function invalidateTopScoringSetups(): void
@@ -939,6 +968,7 @@ class DashboardCacheService
     {
         $key = self::userGainersKey($userId);
         Cache::forget($key);
+        Cache::increment("dash_user_{$userId}_gainers_gen");
 
         try {
             MarketDataPayload::query()
@@ -946,6 +976,67 @@ class DashboardCacheService
                 ->where('data_type', 'dashboard_user_gainers')
                 ->delete();
         } catch (Throwable) {
+        }
+    }
+
+    public function invalidateGlobalWatchlistGainers(): void
+    {
+        $userIdsWithPersonal = Watchlist::query()
+            ->where('is_global', false)
+            ->whereNotNull('user_id')
+            ->distinct()
+            ->pluck('user_id')
+            ->all();
+
+        $usersRelyingOnGlobal = User::query()
+            ->whereNotIn('id', $userIdsWithPersonal)
+            ->pluck('id');
+
+        foreach ($usersRelyingOnGlobal as $userId) {
+            $this->invalidateUserGainers((int) $userId);
+        }
+    }
+
+    public function invalidateGainersForSymbol(string $symbol): void
+    {
+        $symbol = strtoupper(trim($symbol));
+        if ($symbol === '') {
+            return;
+        }
+
+        $stockIds = \App\Models\Stock::query()->where('symbol', $symbol)->pluck('id');
+        if ($stockIds->isEmpty()) {
+            return;
+        }
+
+        $items = \App\Models\WatchlistItem::query()
+            ->whereIn('stock_id', $stockIds)
+            ->with('watchlist')
+            ->get();
+
+        $hasGlobalWatchlist = false;
+        $affectedUserIds = [];
+
+        foreach ($items as $item) {
+            if ($item->created_at) {
+                Cache::forget("dash_stock_gain_{$item->id}_{$item->created_at->timestamp}");
+            }
+
+            if ($item->watchlist) {
+                if ($item->watchlist->is_global) {
+                    $hasGlobalWatchlist = true;
+                } elseif ($item->watchlist->user_id) {
+                    $affectedUserIds[] = (int) $item->watchlist->user_id;
+                }
+            }
+        }
+
+        foreach (array_unique($affectedUserIds) as $userId) {
+            $this->invalidateUserGainers($userId);
+        }
+
+        if ($hasGlobalWatchlist) {
+            $this->invalidateGlobalWatchlistGainers();
         }
     }
 
@@ -968,11 +1059,23 @@ class DashboardCacheService
         $this->warmContextSnapshot('stocks');
 
         if ($watchlist !== null && $watchlist->items->isNotEmpty()) {
-            $this->putEnvelope(
-                self::userGainersKey($user->id),
-                $this->queries->highestGainingStocks($watchlist, $provider),
-                $ttl
-            );
+            $key = self::userGainersKey($user->id);
+            $currentGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+            $data = $this->queries->highestGainingStocks($watchlist, $provider);
+
+            $nowGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+            $activeWatchlist = app(\App\Services\Watchlists\WatchlistResolver::class)->resolveForUser($user);
+
+            if ($nowGen === $currentGen && $activeWatchlist?->id === $watchlist->id) {
+                $envelope = [
+                    'data' => $data,
+                    'stale_at' => now()->timestamp + $ttl,
+                    'watchlist_id' => $watchlist->id,
+                    'generation' => $currentGen,
+                ];
+                Cache::forever($key, $envelope);
+                $this->persistDurableUserGainers($key, $envelope);
+            }
         }
     }
 
@@ -1243,6 +1346,8 @@ class DashboardCacheService
                     'payload' => [
                         'schema_version' => self::SCHEMA_VERSION,
                         'user_id' => $userId,
+                        'watchlist_id' => $envelope['watchlist_id'] ?? null,
+                        'generation' => (int) ($envelope['generation'] ?? 1),
                         'data' => $serialized,
                         'generated_at' => now()->toIso8601String(),
                     ],
@@ -1326,6 +1431,8 @@ class DashboardCacheService
                 $envelope = [
                     'data' => $rows,
                     'stale_at' => now()->timestamp - 1,
+                    'watchlist_id' => $payload['watchlist_id'] ?? null,
+                    'generation' => (int) ($payload['generation'] ?? 1),
                 ];
                 Cache::forever($key, $envelope);
 

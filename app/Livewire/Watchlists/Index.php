@@ -73,6 +73,10 @@ class Index extends Component
             $data['is_global'] = false;
         }
 
+        if (! empty($data['is_global']) && $data['is_global']) {
+            $data['is_default'] = false;
+        }
+
         if ($this->editingId) {
             $watchlist = Watchlist::findOrFail($this->editingId);
             $this->authorize('update', $watchlist);
@@ -82,7 +86,7 @@ class Index extends Component
             $watchlist = Watchlist::create($data + ['user_id' => auth()->id()]);
         }
 
-        if (! empty($data['is_default']) && $data['is_default']) {
+        if (! empty($data['is_default']) && $data['is_default'] && ! $watchlist->is_global) {
             $this->applyDefault($watchlist);
         }
 
@@ -108,6 +112,10 @@ class Index extends Component
         $watchlist = Watchlist::findOrFail($id);
         $this->authorize('update', $watchlist);
 
+        if ($watchlist->is_global) {
+            return;
+        }
+
         $this->applyDefault($watchlist);
 
         session()->flash('status', __('Default watchlist updated.'));
@@ -115,9 +123,14 @@ class Index extends Component
 
     private function applyDefault(Watchlist $watchlist): void
     {
+        if ($watchlist->is_global) {
+            return;
+        }
+
         DB::transaction(function () use ($watchlist) {
             Watchlist::query()
                 ->where('user_id', $watchlist->user_id)
+                ->where('is_global', false)
                 ->where('id', '!=', $watchlist->id)
                 ->update(['is_default' => false]);
 

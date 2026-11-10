@@ -38,13 +38,85 @@ class Watchlist extends Model
 
     protected static function booted(): void
     {
-        $forgetGainers = function (Watchlist $watchlist) {
+        static::saving(function (Watchlist $watchlist) {
+            if ($watchlist->is_global) {
+                $watchlist->is_default = false;
+            }
+        });
+
+        static::saved(function (Watchlist $watchlist) {
+            if ($watchlist->user_id && ! $watchlist->is_global) {
+                if ($watchlist->is_default) {
+                    Watchlist::withoutEvents(function () use ($watchlist) {
+                        Watchlist::query()
+                            ->where('user_id', $watchlist->user_id)
+                            ->where('id', '!=', $watchlist->id)
+                            ->where('is_default', true)
+                            ->update(['is_default' => false]);
+                    });
+                } else {
+                    $hasDefault = Watchlist::query()
+                        ->where('user_id', $watchlist->user_id)
+                        ->where('is_global', false)
+                        ->where('is_default', true)
+                        ->exists();
+
+                    if (! $hasDefault) {
+                        $oldest = Watchlist::query()
+                            ->where('user_id', $watchlist->user_id)
+                            ->where('is_global', false)
+                            ->orderBy('id')
+                            ->first();
+
+                        if ($oldest) {
+                            Watchlist::withoutEvents(function () use ($oldest) {
+                                $oldest->update(['is_default' => true]);
+                            });
+                        }
+                    }
+                }
+            }
+
             if ($watchlist->user_id) {
                 app(DashboardCacheService::class)->invalidateUserGainers((int) $watchlist->user_id);
             }
-        };
-        static::saved($forgetGainers);
-        static::deleted($forgetGainers);
+
+            if ($watchlist->is_global) {
+                app(DashboardCacheService::class)->invalidateGlobalWatchlistGainers();
+            }
+        });
+
+        static::deleted(function (Watchlist $watchlist) {
+            if ($watchlist->user_id) {
+                app(DashboardCacheService::class)->invalidateUserGainers((int) $watchlist->user_id);
+            }
+
+            if ($watchlist->is_global) {
+                app(DashboardCacheService::class)->invalidateGlobalWatchlistGainers();
+            }
+
+            if ($watchlist->user_id && ! $watchlist->is_global) {
+                $hasDefault = Watchlist::query()
+                    ->where('user_id', $watchlist->user_id)
+                    ->where('is_global', false)
+                    ->where('is_default', true)
+                    ->exists();
+
+                if (! $hasDefault) {
+                    $next = Watchlist::query()
+                        ->where('user_id', $watchlist->user_id)
+                        ->where('is_global', false)
+                        ->orderBy('id')
+                        ->first();
+
+                    if ($next) {
+                        Watchlist::withoutEvents(function () use ($next) {
+                            $next->update(['is_default' => true]);
+                        });
+                    }
+                }
+            }
+        });
     }
 
     public function user(): BelongsTo

@@ -89,7 +89,7 @@ class FakeMarketDataProvider implements MarketDataProvider
         return $this->surpriseRows;
     }
 
-    protected function normalizeFuturesAlias(string $symbol): string
+    public function normalizeFuturesAlias(string $symbol): string
     {
         $sym = strtoupper(trim($symbol));
         if ($sym === '') {
@@ -191,6 +191,40 @@ class FakeMarketDataProvider implements MarketDataProvider
         $normalized = $this->normalizeFuturesAlias($raw);
 
         return $this->dailyBars[$raw] ?? $this->dailyBars[$normalized] ?? [];
+    }
+
+    public function storedDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
+    {
+        $raw = strtoupper(trim($symbol));
+        $normalized = $this->normalizeFuturesAlias($raw);
+
+        if (isset($this->dailyBars[$raw]) || isset($this->dailyBars[$normalized])) {
+            return $this->dailyBars[$raw] ?? $this->dailyBars[$normalized] ?? [];
+        }
+
+        return \App\Models\StockDailyBar::query()
+            ->where('symbol', $raw)
+            ->whereBetween('bar_date', [$from->toDateString(), $to->toDateString()])
+            ->orderBy('bar_date')
+            ->get()
+            ->map(fn (\App\Models\StockDailyBar $b) => [
+                'date' => $b->bar_date->toDateString(),
+                'open' => (float) $b->open,
+                'high' => (float) $b->high,
+                'low' => (float) $b->low,
+                'close' => (float) $b->close,
+                'adj_close' => $b->adj_close !== null ? (float) $b->adj_close : null,
+                'volume' => (int) $b->volume,
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function isDailyBarsStaleOrMissing(string $symbol, CarbonInterface $from, CarbonInterface $to): bool
+    {
+        $bars = $this->storedDailyBars($symbol, $from, $to);
+
+        return empty($bars);
     }
 
     public function historicalIntradayBars(string $symbol, string $interval, CarbonInterface $from, CarbonInterface $to): array

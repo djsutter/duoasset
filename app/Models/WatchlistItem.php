@@ -46,9 +46,14 @@ class WatchlistItem extends Model
     protected static function booted(): void
     {
         $forgetGainers = function (WatchlistItem $item) {
-            $userId = Watchlist::query()->whereKey($item->watchlist_id)->value('user_id');
-            if ($userId) {
-                app(DashboardCacheService::class)->invalidateUserGainers((int) $userId);
+            $watchlist = Watchlist::query()->whereKey($item->watchlist_id)->first();
+            if ($watchlist) {
+                if ($watchlist->user_id) {
+                    app(DashboardCacheService::class)->invalidateUserGainers((int) $watchlist->user_id);
+                }
+                if ($watchlist->is_global) {
+                    app(DashboardCacheService::class)->invalidateGlobalWatchlistGainers();
+                }
             }
         };
         static::saved($forgetGainers);

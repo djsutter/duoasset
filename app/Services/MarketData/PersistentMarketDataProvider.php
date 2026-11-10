@@ -61,7 +61,7 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return '';
         }
 
-        if (method_exists($this->upstream, 'normalizeFuturesAlias')) {
+        if (is_callable([$this->upstream, 'normalizeFuturesAlias'])) {
             return $this->upstream->normalizeFuturesAlias($sym);
         }
 
@@ -320,6 +320,82 @@ class PersistentMarketDataProvider implements MarketDataProvider
                 Cache::put("duoasset.market_data.cache_version.{$type}", $curr + 1, now()->addDays(30));
             }
         }
+    }
+
+    public function storedDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array
+    {
+        $symbol = $this->normalizeFuturesAlias($symbol);
+        if ($symbol === '') {
+            return [];
+        }
+
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+
+        return StockDailyBar::query()
+            ->where('symbol', $symbol)
+            ->whereBetween('bar_date', [$fromStr, $toStr])
+            ->orderBy('bar_date')
+            ->get()
+            ->map(fn (StockDailyBar $b) => [
+                'date' => $b->bar_date->toDateString(),
+                'open' => (float) $b->open,
+                'high' => (float) $b->high,
+                'low' => (float) $b->low,
+                'close' => (float) $b->close,
+                'adj_close' => $b->adj_close !== null ? (float) $b->adj_close : null,
+                'volume' => (int) $b->volume,
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function isDailyBarsStaleOrMissing(string $symbol, CarbonInterface $from, CarbonInterface $to): bool
+    {
+        $symbol = $this->normalizeFuturesAlias($symbol);
+        if ($symbol === '') {
+            return false;
+        }
+
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+        $fromDate = CarbonImmutable::parse($fromStr);
+        $toDate = CarbonImmutable::parse($toStr);
+
+        $existing = StockDailyBar::query()
+            ->where('symbol', $symbol)
+            ->whereBetween('bar_date', [$fromStr, $toStr])
+            ->orderBy('bar_date')
+            ->get();
+
+        if ($existing->isEmpty()) {
+            return true;
+        }
+
+        $firstStored = CarbonImmutable::parse($existing->first()->bar_date);
+        $lastStored = CarbonImmutable::parse($existing->last()->bar_date);
+
+        if ($fromDate->lessThan($firstStored) && $this->hasTradingDays($fromDate, $firstStored->subDay(), $symbol)) {
+            return true;
+        }
+
+        for ($i = 0; $i < $existing->count() - 1; $i++) {
+            $currDate = CarbonImmutable::parse($existing[$i]->bar_date);
+            $nextDate = CarbonImmutable::parse($existing[$i + 1]->bar_date);
+            $gapStart = $currDate->addDay();
+            $gapEnd = $nextDate->subDay();
+
+            if ($gapStart->lessThanOrEqualTo($gapEnd) && $this->hasTradingDays($gapStart, $gapEnd, $symbol)) {
+                return true;
+            }
+        }
+
+        $unfinishedLast = $this->shouldRefreshUnfinishedDay($existing->last());
+        if (($toDate->greaterThan($lastStored) && $this->hasTradingDays($lastStored->addDay(), $toDate, $symbol)) || $unfinishedLast) {
+            return true;
+        }
+
+        return false;
     }
 
     public function historicalDailyBars(string $symbol, CarbonInterface $from, CarbonInterface $to): array

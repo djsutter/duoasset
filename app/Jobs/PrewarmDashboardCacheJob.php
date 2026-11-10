@@ -26,28 +26,16 @@ class PrewarmDashboardCacheJob implements ShouldQueue
 
     public function __construct(public int $userId) {}
 
-    public function handle(DashboardCacheService $cache, MarketDataProvider $provider): void
+    public function handle(DashboardCacheService $cache, MarketDataProvider $provider, ?\App\Services\Watchlists\WatchlistResolver $resolver = null): void
     {
+        $resolver ??= app(\App\Services\Watchlists\WatchlistResolver::class);
         $user = User::find($this->userId);
         if (! $user) {
             return;
         }
 
         try {
-            $watchlist = Watchlist::query()
-                ->where('user_id', $user->id)
-                ->orderByDesc('is_default')
-                ->orderBy('id')
-                ->with(['items.stock'])
-                ->first();
-
-            if (! $watchlist) {
-                $watchlist = Watchlist::query()
-                    ->where('is_global', true)
-                    ->orderBy('id')
-                    ->with(['items.stock'])
-                    ->first();
-            }
+            $watchlist = $resolver->resolveForUser($user);
 
             $cache->warmForUser($user, $watchlist, $provider);
         } catch (Throwable $e) {
