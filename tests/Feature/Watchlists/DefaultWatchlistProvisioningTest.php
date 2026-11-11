@@ -803,6 +803,97 @@ class DefaultWatchlistProvisioningTest extends TestCase
         $this->assertEquals(20.0, (float) $results->firstWhere('symbol', 'STILL_BEAT')->eps_surprise_percent);
     }
 
+    public function test_eps_ranking_selects_latest_completed_result_when_upcoming_event_has_null_surprise(): void
+    {
+        // UPCOMING_BEAT: Completed beat (+35% on Jun 1) and upcoming future event (Nov 20 with NULL surprise) -> MUST BE RETURNED (+35%)
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_BEAT',
+            'company_name' => 'Upcoming Beat Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-06-01',
+            'eps_surprise_percent' => 35.0,
+            'source' => 'test',
+        ]);
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_BEAT',
+            'company_name' => 'Upcoming Beat Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-11-20',
+            'eps_surprise_percent' => null,
+            'source' => 'test',
+        ]);
+
+        // UPCOMING_MISS: Completed miss (-15% on Jun 1) and upcoming event (Nov 20 with NULL surprise) -> MUST NOT BE RETURNED
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_MISS',
+            'company_name' => 'Upcoming Miss Co',
+            'exchange' => 'NYSE',
+            'report_date' => '2026-06-01',
+            'eps_surprise_percent' => -15.0,
+            'source' => 'test',
+        ]);
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_MISS',
+            'company_name' => 'Upcoming Miss Co',
+            'exchange' => 'NYSE',
+            'report_date' => '2026-11-20',
+            'eps_surprise_percent' => null,
+            'source' => 'test',
+        ]);
+
+        // UPCOMING_STALE_BEAT: Old beat (+50% on Jan 1), Recent miss (-20% on Jun 1), Upcoming event (Nov 20 with NULL surprise) -> MUST NOT BE RETURNED
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_STALE_BEAT',
+            'company_name' => 'Upcoming Stale Beat Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-01-01',
+            'eps_surprise_percent' => 50.0,
+            'source' => 'test',
+        ]);
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_STALE_BEAT',
+            'company_name' => 'Upcoming Stale Beat Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-06-01',
+            'eps_surprise_percent' => -20.0,
+            'source' => 'test',
+        ]);
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_STALE_BEAT',
+            'company_name' => 'Upcoming Stale Beat Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-11-20',
+            'eps_surprise_percent' => null,
+            'source' => 'test',
+        ]);
+
+        // UPCOMING_ONLY: Only an upcoming event (Nov 20 with NULL surprise) -> MUST NOT BE RETURNED
+        EarningsEvent::create([
+            'symbol' => 'UPCOMING_ONLY',
+            'company_name' => 'Upcoming Only Co',
+            'exchange' => 'NASDAQ',
+            'report_date' => '2026-11-20',
+            'eps_surprise_percent' => null,
+            'source' => 'test',
+        ]);
+
+        $results = app(DashboardQueryService::class)->highestEpsSurprises(10);
+        $symbols = $results->pluck('symbol')->all();
+
+        // Upcoming beat should be returned using its latest completed result
+        $this->assertContains('UPCOMING_BEAT', $symbols);
+        $this->assertEquals(35.0, (float) $results->firstWhere('symbol', 'UPCOMING_BEAT')->eps_surprise_percent);
+
+        // Negative completed result should not be returned
+        $this->assertNotContains('UPCOMING_MISS', $symbols);
+
+        // Stale beat should not be returned because the latest completed result was a miss
+        $this->assertNotContains('UPCOMING_STALE_BEAT', $symbols);
+
+        // Upcoming only should not be returned
+        $this->assertNotContains('UPCOMING_ONLY', $symbols);
+    }
+
     public function test_backfill_command_reports_failures_accurately_and_exits_with_failure_status(): void
     {
         StockBuySetupAlert::create([

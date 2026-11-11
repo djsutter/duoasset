@@ -256,6 +256,7 @@ class DashboardQueryService
                 $query->selectRaw('1')
                     ->from('earnings_events as newer')
                     ->whereColumn('newer.symbol', 'e.symbol')
+                    ->whereNotNull('newer.eps_surprise_percent')
                     ->where(function ($q) {
                         $q->where(function ($bothDates) {
                             $bothDates->whereNotNull('newer.report_date')
