@@ -183,7 +183,14 @@ class DashboardCacheService
 
         $gainersKey = self::userGainersKey($user->id);
         $gainersEnvelope = $this->getEnvelope($gainersKey);
-        if ($gainersEnvelope !== null && $this->isStale($gainersEnvelope)) {
+        if ($gainersEnvelope === null || $this->isStale($gainersEnvelope)) {
+            return true;
+        }
+
+        $currentGen = $this->userGainersGeneration($user->id);
+        if (! isset($gainersEnvelope['generation'], $gainersEnvelope['watchlist_id'])
+            || (int) $gainersEnvelope['generation'] !== $currentGen
+        ) {
             return true;
         }
 
@@ -900,6 +907,19 @@ class DashboardCacheService
         return $this->unwrapCollection($envelope['data']);
     }
 
+    public static function userGainersGenerationKey(int $userId): string
+    {
+        return "dash_user_{$userId}_gainers_gen";
+    }
+
+    public function userGainersGeneration(int $userId): int
+    {
+        $genKey = self::userGainersGenerationKey($userId);
+        Cache::add($genKey, 1, 86400 * 365);
+
+        return (int) Cache::get($genKey, 1);
+    }
+
     public function userGainers(User $user, ?Watchlist $watchlist, MarketDataProvider $provider): Collection
     {
         if ($watchlist === null || $watchlist->items->isEmpty()) {
@@ -907,27 +927,31 @@ class DashboardCacheService
         }
 
         $key = self::userGainersKey($user->id);
-        $currentGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
-        $envelope = $this->getEnvelope($key);
+        $currentGen = $this->userGainersGeneration($user->id);
 
-        if ($envelope !== null
-            && (! isset($envelope['watchlist_id']) || $envelope['watchlist_id'] === $watchlist->id)
-            && ((int) ($envelope['generation'] ?? $currentGen)) === $currentGen
-        ) {
+        $isValidEnvelope = function (?array $env) use ($watchlist, $currentGen): bool {
+            return $env !== null
+                && array_key_exists('data', $env)
+                && array_key_exists('stale_at', $env)
+                && array_key_exists('watchlist_id', $env)
+                && array_key_exists('generation', $env)
+                && (int) $env['watchlist_id'] === (int) $watchlist->id
+                && (int) $env['generation'] === $currentGen;
+        };
+
+        $envelope = $this->getEnvelope($key);
+        if ($isValidEnvelope($envelope)) {
             return $this->unwrapCollection($envelope['data']);
         }
 
         $recovered = $this->tryRecoverEnvelopeFromDurable($key);
-        if ($recovered !== null
-            && (! isset($recovered['watchlist_id']) || $recovered['watchlist_id'] === $watchlist->id)
-            && ((int) ($recovered['generation'] ?? $currentGen)) === $currentGen
-        ) {
+        if ($isValidEnvelope($recovered)) {
             return $this->unwrapCollection($recovered['data']);
         }
 
         $data = $this->queries->highestGainingStocks($watchlist, $provider);
 
-        $nowGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+        $nowGen = $this->userGainersGeneration($user->id);
         $activeWatchlist = app(\App\Services\Watchlists\WatchlistResolver::class)->resolveForUser($user);
 
         if ($nowGen === $currentGen && $activeWatchlist?->id === $watchlist->id) {
@@ -968,7 +992,11 @@ class DashboardCacheService
     {
         $key = self::userGainersKey($userId);
         Cache::forget($key);
-        Cache::increment("dash_user_{$userId}_gainers_gen");
+
+        $genKey = self::userGainersGenerationKey($userId);
+        if (! Cache::add($genKey, 2, 86400 * 365)) {
+            Cache::increment($genKey);
+        }
 
         try {
             MarketDataPayload::query()
@@ -981,20 +1009,14 @@ class DashboardCacheService
 
     public function invalidateGlobalWatchlistGainers(): void
     {
-        $userIdsWithPersonal = Watchlist::query()
-            ->where('is_global', false)
-            ->whereNotNull('user_id')
-            ->distinct()
-            ->pluck('user_id')
-            ->all();
-
-        $usersRelyingOnGlobal = User::query()
-            ->whereNotIn('id', $userIdsWithPersonal)
-            ->pluck('id');
-
-        foreach ($usersRelyingOnGlobal as $userId) {
-            $this->invalidateUserGainers((int) $userId);
-        }
+        User::query()
+            ->whereDoesntHave('watchlists', function ($query) {
+                $query->where('is_global', false);
+            })
+            ->pluck('id')
+            ->each(function (int $userId) {
+                $this->invalidateUserGainers($userId);
+            });
     }
 
     public function invalidateGainersForSymbol(string $symbol): void
@@ -1060,10 +1082,10 @@ class DashboardCacheService
 
         if ($watchlist !== null && $watchlist->items->isNotEmpty()) {
             $key = self::userGainersKey($user->id);
-            $currentGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+            $currentGen = $this->userGainersGeneration($user->id);
             $data = $this->queries->highestGainingStocks($watchlist, $provider);
 
-            $nowGen = (int) Cache::get("dash_user_{$user->id}_gainers_gen", 1);
+            $nowGen = $this->userGainersGeneration($user->id);
             $activeWatchlist = app(\App\Services\Watchlists\WatchlistResolver::class)->resolveForUser($user);
 
             if ($nowGen === $currentGen && $activeWatchlist?->id === $watchlist->id) {

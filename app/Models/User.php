@@ -384,6 +384,14 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Watchlists belonging to this user.
+     */
+    public function watchlists(): HasMany
+    {
+        return $this->hasMany(Watchlist::class);
+    }
+
+    /**
      * Digest deliveries for this user across scanner runs.
      */
     public function digestDeliveries(): HasMany

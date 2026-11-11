@@ -1507,3 +1507,33 @@ test('profile preserves null for missing and malformed metadata across persisten
         ->and($incompValidation->isInsufficientMetadata())->toBeTrue()
         ->and($incompValidation->status())->toBe(\App\Services\Stocks\EquityValidationResult::STATUS_INSUFFICIENT_METADATA);
 });
+
+test('isDailyBarsStaleOrMissing recognizes queried intervals and avoids repeated ingestion loops on incomplete historical data', function () {
+    $from = CarbonImmutable::parse('2026-01-05'); // Monday
+    $to = CarbonImmutable::parse('2026-01-09');   // Friday
+
+    $upstream = Mockery::mock(MarketDataProvider::class);
+    $upstream->allows('normalizeFuturesAlias')->andReturnUsing(fn ($s) => $s);
+    $upstream->allows('lastErrors')->andReturn([]);
+    // Upstream only has data starting Wednesday (e.g. IPO / newly traded ticker)
+    $upstream->shouldReceive('historicalDailyBars')
+        ->once()
+        ->andReturn([
+            ['date' => '2026-01-07', 'open' => 20.0, 'high' => 22.0, 'low' => 19.5, 'close' => 21.0, 'volume' => 500000],
+            ['date' => '2026-01-08', 'open' => 21.0, 'high' => 23.0, 'low' => 20.5, 'close' => 22.5, 'volume' => 400000],
+            ['date' => '2026-01-09', 'open' => 22.5, 'high' => 24.0, 'low' => 22.0, 'close' => 23.5, 'volume' => 450000],
+        ]);
+
+    $provider = new PersistentMarketDataProvider($upstream);
+
+    // Initial check: data is missing
+    expect($provider->isDailyBarsStaleOrMissing('RECENT_IPO', $from, $to))->toBeTrue();
+
+    // Ingest bars
+    $bars = $provider->historicalDailyBars('RECENT_IPO', $from, $to);
+    expect($bars)->toHaveCount(3);
+
+    // After querying, even though Monday/Tuesday are missing in StockDailyBar,
+    // the interval is recorded as queried, so isDailyBarsStaleOrMissing returns false
+    expect($provider->isDailyBarsStaleOrMissing('RECENT_IPO', $from, $to))->toBeFalse();
+});

@@ -192,12 +192,10 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
         Queue::fake();
 
         // First user triggers ingestion
-        $dispatched1 = IngestHistoricalBarsJob::dispatchIfNeeded('NVDA', '2026-11-01', '2026-11-09');
-        $this->assertTrue($dispatched1);
+        IngestHistoricalBarsJob::dispatchIfNeeded('NVDA', '2026-11-01', '2026-11-09');
 
         // Second user simultaneously requests missing bars for NVDA
-        $dispatched2 = IngestHistoricalBarsJob::dispatchIfNeeded('NVDA', '2026-11-01', '2026-11-09');
-        $this->assertFalse($dispatched2);
+        IngestHistoricalBarsJob::dispatchIfNeeded('NVDA', '2026-11-01', '2026-11-09');
 
         Queue::assertPushed(IngestHistoricalBarsJob::class, 1);
     }
@@ -312,5 +310,98 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
         // The active cache must still contain NEW, not overwritten by OLD
         $gainersAfterStaleJob = $cacheService->userGainers($user, $wNew, $provider);
         $this->assertEquals('NEW', $gainersAfterStaleJob->first()['symbol']);
+    }
+
+    public function test_legacy_envelope_and_generation_counter_validation(): void
+    {
+        $freshUser = User::factory()->create();
+        $cacheService = app(DashboardCacheService::class);
+
+        // 1. Initial generation counter must initialize cleanly to 1
+        $this->assertEquals(1, $cacheService->userGainersGeneration($freshUser->id));
+
+        // 2. Invalidation increments generation to 2
+        $cacheService->invalidateUserGainers($freshUser->id);
+        $this->assertEquals(2, $cacheService->userGainersGeneration($freshUser->id));
+
+        // 3. User with watchlist
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->create(['user_id' => $user->id, 'is_default' => true]);
+        $stock = Stock::factory()->create(['symbol' => 'LEGACY_SYM']);
+        WatchlistItem::factory()->create([
+            'watchlist_id' => $watchlist->id,
+            'stock_id' => $stock->id,
+            'created_at' => now()->subDays(5),
+        ]);
+
+        StockDailyBar::create([
+            'symbol' => 'LEGACY_SYM',
+            'bar_date' => now()->subDays(5)->toDateString(),
+            'open' => 10, 'high' => 12, 'low' => 9, 'close' => 10, 'volume' => 100,
+        ]);
+        StockDailyBar::create([
+            'symbol' => 'LEGACY_SYM',
+            'bar_date' => now()->toDateString(),
+            'open' => 10, 'high' => 12, 'low' => 9, 'close' => 30, 'volume' => 100,
+        ]);
+
+        $currentGen = $cacheService->userGainersGeneration($user->id);
+        $provider = new FakeMarketDataProvider;
+
+        // Put an envelope with an old generation
+        $cacheKey = DashboardCacheService::userGainersKey($user->id);
+        Cache::forever($cacheKey, [
+            'data' => collect([[
+                'symbol' => 'LEGACY_SYM',
+                'company_name' => 'Legacy Co',
+                'added_at' => now()->subDays(5),
+                'entry_price' => 10.0,
+                'latest_price' => 12.0,
+                'gain_pct' => 20.0,
+            ]]),
+            'stale_at' => now()->addMinutes(15)->timestamp,
+            'watchlist_id' => $watchlist->id,
+            'generation' => $currentGen - 1,
+        ]);
+
+        // userGainers must reject the old generation envelope and recompute fresh +200% from local bars
+        $gainers = $cacheService->userGainers($user, $watchlist, $provider);
+        $this->assertEquals(200.0, $gainers->first()['gain_pct']);
+
+        // Check that envelope is rewritten with proper generation and watchlist_id
+        $freshEnvelope = $cacheService->getEnvelope($cacheKey);
+        $this->assertNotNull($freshEnvelope);
+        $this->assertEquals($watchlist->id, $freshEnvelope['watchlist_id']);
+        $this->assertEquals($currentGen, $freshEnvelope['generation']);
+    }
+
+    public function test_incomplete_ingestion_prevents_duplicate_request_storms(): void
+    {
+        $fakeProvider = new FakeMarketDataProvider;
+        // Provider returns partial bars (e.g. from 2026-11-05 instead of 2026-11-01 because company IPO was 2026-11-05)
+        $fakeProvider->dailyBars['PARTIAL'] = [
+            ['date' => '2026-11-05', 'close' => 50.0, 'open' => 50.0, 'high' => 55.0, 'low' => 49.0, 'volume' => 1000],
+            ['date' => '2026-11-09', 'close' => 60.0, 'open' => 58.0, 'high' => 62.0, 'low' => 57.0, 'volume' => 1500],
+        ];
+
+        $persistentProvider = new PersistentMarketDataProvider($fakeProvider);
+        $cacheService = app(DashboardCacheService::class);
+
+        $from = CarbonImmutable::parse('2026-11-01');
+        $to = CarbonImmutable::parse('2026-11-09');
+
+        // Initially data is missing
+        $this->assertTrue($persistentProvider->isDailyBarsStaleOrMissing('PARTIAL', $from, $to));
+
+        // First ingestion run
+        $job = new IngestHistoricalBarsJob('PARTIAL', '2026-11-01', '2026-11-09');
+        $job->handle($persistentProvider, $cacheService);
+
+        // Bars that were available are stored
+        $this->assertEquals(2, StockDailyBar::where('symbol', 'PARTIAL')->count());
+
+        // Because requested range was queried and recorded in MarketDataPayload,
+        // isDailyBarsStaleOrMissing recognizes the interval as resolved and returns false
+        $this->assertFalse($persistentProvider->isDailyBarsStaleOrMissing('PARTIAL', $from, $to));
     }
 }

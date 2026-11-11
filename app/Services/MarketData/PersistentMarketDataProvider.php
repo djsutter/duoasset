@@ -61,8 +61,11 @@ class PersistentMarketDataProvider implements MarketDataProvider
             return '';
         }
 
-        if (is_callable([$this->upstream, 'normalizeFuturesAlias'])) {
-            return $this->upstream->normalizeFuturesAlias($sym);
+        if (method_exists($this->upstream, 'normalizeFuturesAlias')) {
+            try {
+                return $this->upstream->normalizeFuturesAlias($sym);
+            } catch (\Throwable) {
+            }
         }
 
         $aliases = (array) config('market_data.futures.aliases', []);
@@ -369,14 +372,16 @@ class PersistentMarketDataProvider implements MarketDataProvider
             ->get();
 
         if ($existing->isEmpty()) {
-            return true;
+            return ! $this->hasQueriedBarInterval($symbol, $fromDate, $toDate);
         }
 
         $firstStored = CarbonImmutable::parse($existing->first()->bar_date);
         $lastStored = CarbonImmutable::parse($existing->last()->bar_date);
 
         if ($fromDate->lessThan($firstStored) && $this->hasTradingDays($fromDate, $firstStored->subDay(), $symbol)) {
-            return true;
+            if (! $this->hasQueriedBarInterval($symbol, $fromDate, $firstStored->subDay())) {
+                return true;
+            }
         }
 
         for ($i = 0; $i < $existing->count() - 1; $i++) {
@@ -386,13 +391,20 @@ class PersistentMarketDataProvider implements MarketDataProvider
             $gapEnd = $nextDate->subDay();
 
             if ($gapStart->lessThanOrEqualTo($gapEnd) && $this->hasTradingDays($gapStart, $gapEnd, $symbol)) {
-                return true;
+                if (! $this->hasQueriedBarInterval($symbol, $gapStart, $gapEnd)) {
+                    return true;
+                }
             }
         }
 
         $unfinishedLast = $this->shouldRefreshUnfinishedDay($existing->last());
         if (($toDate->greaterThan($lastStored) && $this->hasTradingDays($lastStored->addDay(), $toDate, $symbol)) || $unfinishedLast) {
-            return true;
+            $gapStart = $unfinishedLast ? $lastStored : $lastStored->addDay();
+            if ($gapStart->lessThanOrEqualTo($toDate)) {
+                if (! $this->hasQueriedBarInterval($symbol, $gapStart, $toDate)) {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -757,11 +769,29 @@ class PersistentMarketDataProvider implements MarketDataProvider
 
     protected function hasQueriedBarInterval(string $symbol, CarbonInterface $from, CarbonInterface $to): bool
     {
-        $period = $from->toDateString().'_'.$to->toDateString();
+        $fromStr = $from->toDateString();
+        $toStr = $to->toDateString();
+        $exactPeriod = $fromStr.'_'.$toStr;
+
         $payload = MarketDataPayload::where('symbol', $symbol)
             ->where('data_type', 'bars')
-            ->where('period', $period)
+            ->where('period', $exactPeriod)
             ->first();
+
+        if (! $payload) {
+            $candidates = MarketDataPayload::where('symbol', $symbol)
+                ->where('data_type', 'bars')
+                ->where('period', 'like', '%_%')
+                ->get();
+
+            foreach ($candidates as $cand) {
+                $parts = explode('_', $cand->period);
+                if (count($parts) === 2 && $parts[0] <= $fromStr && $parts[1] >= $toStr) {
+                    $payload = $cand;
+                    break;
+                }
+            }
+        }
 
         if (! $payload) {
             return false;

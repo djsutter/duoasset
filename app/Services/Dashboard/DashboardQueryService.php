@@ -114,15 +114,32 @@ class DashboardQueryService
                     $from = $addedAt->copy()->startOfDay();
                     $to = now()->endOfDay();
 
-                    $bars = method_exists($provider, 'storedDailyBars')
-                        ? $provider->storedDailyBars($symbol, $from, $to)
-                        : (method_exists($provider, 'historicalDailyBars') ? $provider->historicalDailyBars($symbol, $from, $to) : []);
+                    if (method_exists($provider, 'storedDailyBars')) {
+                        $bars = $provider->storedDailyBars($symbol, $from, $to);
+                    } else {
+                        $bars = \App\Models\StockDailyBar::query()
+                            ->where('symbol', $symbol)
+                            ->whereBetween('bar_date', [$from->toDateString(), $to->toDateString()])
+                            ->orderBy('bar_date')
+                            ->get()
+                            ->map(fn (\App\Models\StockDailyBar $b) => [
+                                'date' => $b->bar_date->toDateString(),
+                                'open' => (float) $b->open,
+                                'high' => (float) $b->high,
+                                'low' => (float) $b->low,
+                                'close' => (float) $b->close,
+                                'adj_close' => $b->adj_close !== null ? (float) $b->adj_close : null,
+                                'volume' => (int) $b->volume,
+                            ])
+                            ->values()
+                            ->all();
+                    }
 
                     $needsIngest = method_exists($provider, 'isDailyBarsStaleOrMissing')
                         ? $provider->isDailyBarsStaleOrMissing($symbol, $from, $to)
-                        : empty($bars);
+                        : (empty($bars) || count($bars) < 2);
 
-                    if ($needsIngest) {
+                    if ($needsIngest && $provider instanceof \App\Services\MarketData\PersistentMarketDataProvider) {
                         \App\Jobs\IngestHistoricalBarsJob::dispatchIfNeeded($symbol, $from->toDateString(), $to->toDateString());
                     }
 
