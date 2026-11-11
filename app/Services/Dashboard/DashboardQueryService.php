@@ -245,16 +245,52 @@ class DashboardQueryService
     /**
      * @return Collection<int, EarningsEvent>
      */
-    public function highestEpsSurprises(int $limit = 2): Collection
+    public function highestEpsSurprises(int $limit = 2, ?int $recencyDays = null): Collection
     {
-        return EarningsEvent::query()
-            ->whereNotNull('eps_surprise_percent')
-            ->orderByDesc('eps_surprise_percent')
-            ->orderByDesc('report_date')
-            ->limit(50)
-            ->get()
-            ->unique('symbol')
-            ->take($limit)
-            ->values();
+        $query = EarningsEvent::query()
+            ->from('earnings_events as e')
+            ->select('e.*')
+            ->whereNotNull('e.eps_surprise_percent')
+            ->where('e.eps_surprise_percent', '>', 0)
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('earnings_events as newer')
+                    ->whereColumn('newer.symbol', 'e.symbol')
+                    ->where(function ($q) {
+                        $q->where(function ($bothDates) {
+                            $bothDates->whereNotNull('newer.report_date')
+                                ->whereNotNull('e.report_date')
+                                ->where(function ($sub) {
+                                    $sub->whereColumn('newer.report_date', '>', 'e.report_date')
+                                        ->orWhere(function ($tie) {
+                                            $tie->whereColumn('newer.report_date', 'e.report_date')
+                                                ->whereColumn('newer.id', '>', 'e.id');
+                                        });
+                                });
+                        })->orWhere(function ($newerHasDate) {
+                            $newerHasDate->whereNotNull('newer.report_date')
+                                ->whereNull('e.report_date');
+                        })->orWhere(function ($bothNull) {
+                            $bothNull->whereNull('newer.report_date')
+                                ->whereNull('e.report_date')
+                                ->whereColumn('newer.id', '>', 'e.id');
+                        });
+                    });
+            });
+
+        if ($recencyDays !== null) {
+            $query->where(function ($q) use ($recencyDays) {
+                $q->whereNull('e.report_date')
+                    ->orWhere('e.report_date', '>=', now()->subDays($recencyDays)->toDateString());
+            });
+        }
+
+        return $query
+            ->orderByDesc('e.eps_surprise_percent')
+            ->orderByRaw('CASE WHEN e.report_date IS NULL THEN 1 ELSE 0 END ASC')
+            ->orderByDesc('e.report_date')
+            ->orderByDesc('e.id')
+            ->limit($limit)
+            ->get();
     }
 }

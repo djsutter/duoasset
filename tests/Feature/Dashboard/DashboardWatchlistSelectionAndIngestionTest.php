@@ -39,6 +39,7 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
     public function test_default_personal_watchlist_selection_and_automatic_assignment(): void
     {
         $user = User::factory()->create();
+        $user->watchlists()->delete();
 
         // Create first personal watchlist (not explicitly marked default)
         $w1 = Watchlist::factory()->create(['user_id' => $user->id, 'name' => 'First List', 'is_default' => false]);
@@ -69,6 +70,7 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
     public function test_deleting_default_watchlist_automatically_selects_next_personal_watchlist(): void
     {
         $user = User::factory()->create();
+        $user->watchlists()->delete();
 
         $w1 = Watchlist::factory()->create(['user_id' => $user->id, 'name' => 'W1', 'is_default' => true]);
         $w2 = Watchlist::factory()->create(['user_id' => $user->id, 'name' => 'W2', 'is_default' => false]);
@@ -91,6 +93,7 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
     public function test_global_watchlists_cannot_be_designated_as_personal_defaults(): void
     {
         $admin = User::factory()->create(['role' => UserRole::ADMINISTRATOR]);
+        $admin->watchlists()->delete();
 
         $global = Watchlist::factory()->create([
             'user_id' => $admin->id,
@@ -129,6 +132,7 @@ class DashboardWatchlistSelectionAndIngestionTest extends TestCase
         ]);
 
         $regularUser = User::factory()->create(['role' => UserRole::EQUITIES]);
+        $regularUser->watchlists()->delete();
 
         $resolver = app(WatchlistResolver::class);
         $resolved = $resolver->resolveForUser($regularUser);

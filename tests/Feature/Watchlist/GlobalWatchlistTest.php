@@ -173,6 +173,7 @@ test('dashboard falls back to global watchlist when user has no personal watchli
     ]);
 
     $regularUser = User::factory()->create(['role' => UserRole::EQUITIES]);
+    $regularUser->watchlists()->delete();
 
     $this->actingAs($regularUser);
     $dashboard = new \App\Livewire\Dashboard;

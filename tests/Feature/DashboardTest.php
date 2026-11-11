@@ -26,6 +26,7 @@ test('authenticated users can visit the dashboard', function () {
 
 test('stock mode dashboard displays empty watchlist notice when user has no watchlists', function () {
     $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    $user->watchlists()->delete();
     $this->actingAs($user);
 
     $response = $this->get('/dashboard');
@@ -126,6 +127,7 @@ test('stock mode dashboard displays top 2 scoring setups market-wide', function 
 
 test('stock mode dashboard falls back to first watchlist when no default watchlist is set', function () {
     $user = User::factory()->create(['role' => UserRole::EQUITIES, 'view_mode' => 'stocks']);
+    $user->watchlists()->delete();
 
     $firstWatchlist = Watchlist::create([
         'user_id' => $user->id,

@@ -12,6 +12,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -347,11 +348,45 @@ class User extends Authenticatable implements MustVerifyEmail
             }
         });
 
+        static::created(function (self $user) {
+            if ($user->isAnonymousUser()) {
+                return;
+            }
+
+            try {
+                app(\App\Services\Watchlists\DefaultWatchlistService::class)->ensureDefaultWatchlist($user);
+            } catch (Throwable $e) {
+                Log::warning("Failed to provision default watchlist for user {$user->id}: {$e->getMessage()}", [
+                    'user_id' => $user->id,
+                    'exception' => $e,
+                ]);
+            }
+        });
+
         static::deleting(function (self $user) {
             if ($user->isAnonymousUser()) {
                 throw new LogicException('The system Anonymous User account cannot be deleted.');
             }
         });
+    }
+
+    /**
+     * Ensure this user has an initialized default watchlist.
+     */
+    public function ensureDefaultWatchlist(): ?Watchlist
+    {
+        return app(\App\Services\Watchlists\DefaultWatchlistService::class)->ensureDefaultWatchlist($this);
+    }
+
+    /**
+     * The user's active personal default watchlist.
+     */
+    public function defaultWatchlist(): ?Watchlist
+    {
+        return $this->watchlists()
+            ->where('is_global', false)
+            ->where('is_default', true)
+            ->first();
     }
 
     /**

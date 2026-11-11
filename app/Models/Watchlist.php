@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $description
  * @property string|null $sector_label
  * @property bool $is_default
+ * @property \Illuminate\Support\Carbon|null $auto_provisioned_at
  */
 class Watchlist extends Model
 {
@@ -29,11 +30,13 @@ class Watchlist extends Model
         'description',
         'sector_label',
         'is_default',
+        'auto_provisioned_at',
     ];
 
     protected $casts = [
         'is_global' => 'boolean',
         'is_default' => 'boolean',
+        'auto_provisioned_at' => 'datetime',
     ];
 
     protected static function booted(): void
